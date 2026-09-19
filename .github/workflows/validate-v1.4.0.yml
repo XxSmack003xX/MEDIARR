@@ -1,0 +1,110 @@
+name: Validate MEDIARR v1.4.0
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.validate-v1.4.0.trigger'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Static validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').version")" = "1.4.0"
+          node --check server.js
+          node --check public/v140.js
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          for fn in ('public/index.html','public/mobile.html'):
+              text=Path(fn).read_text()
+              assert '<script src="/v140.js"></script>' in text
+              scripts=re.findall(r'<script(?: [^>]*)?>(.*?)</script>', text, re.S)
+              body='\n'.join(s for s in scripts if s.strip())
+              p=Path('/tmp')/(Path(fn).name+'.js')
+              p.write_text(body)
+              subprocess.run(['node','--check',str(p)],check=True)
+          PY
+          grep -q "public/v140.js" .github/workflows/release.yml
+          grep -q "## 1.4.0" CHANGELOG.md
+          grep -q "Real-time events and Live Dashboard" README.md
+
+      - name: Integration validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DATA_DIR="$RUNNER_TEMP/mediarr-v140-data"
+          export HOST=127.0.0.1
+          export PORT=17575
+          mkdir -p "$DATA_DIR"
+          node server.js >/tmp/mediarr-v140.log 2>&1 &
+          PID=$!
+          trap 'kill $PID >/dev/null 2>&1 || true; cat /tmp/mediarr-v140.log || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS "http://127.0.0.1:$PORT/api/setup-needed" >/tmp/needed.json; then break; fi
+            sleep .25
+          done
+          node -e "const d=require('/tmp/needed.json'); if(!d.needed) process.exit(1)"
+
+          curl -fsS -c /tmp/mediarr.cookie \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"admin","password":"testpass123"}' \
+            "http://127.0.0.1:$PORT/api/setup" >/tmp/admin.json
+
+          curl -fsS -b /tmp/mediarr.cookie \
+            "http://127.0.0.1:$PORT/api/admin/setup/status" >/tmp/setup.json
+          node - <<'NODE'
+          const d=require('/tmp/setup.json');
+          if(!d.needed) throw new Error('wizard should be needed on a fresh install');
+          if(!d.webhooks || !/webhooks\/radarr\?token=/.test(d.webhooks.radarrUrl)) throw new Error('radarr webhook URL missing');
+          if(!/webhooks\/sonarr\?token=/.test(d.webhooks.sonarrUrl)) throw new Error('sonarr webhook URL missing');
+          if(!/^[a-f0-9]{24,}$/i.test(d.webhooks.token||'')) throw new Error('webhook token missing');
+          NODE
+
+          BAD_CODE="$(curl -sS -o /tmp/bad.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -d '{"eventType":"Test"}' \
+            "http://127.0.0.1:$PORT/api/webhooks/radarr?token=wrong")"
+          test "$BAD_CODE" = "401"
+
+          TOKEN="$(node -p "require('/tmp/setup.json').webhooks.token")"
+          curl -fsS \
+            -H 'Content-Type: application/json' \
+            -d '{"eventType":"Test","movie":{"id":42,"title":"Webhook Test Movie","tmdbId":12345}}' \
+            "http://127.0.0.1:$PORT/api/webhooks/radarr?token=$TOKEN" >/tmp/hook.json
+          node -e "const d=require('/tmp/hook.json'); if(!d.ok||d.service!=='radarr') process.exit(1)"
+
+          curl -fsS -b /tmp/mediarr.cookie \
+            "http://127.0.0.1:$PORT/api/admin/realtime/status" >/tmp/realtime.json
+          node - <<'NODE'
+          const d=require('/tmp/realtime.json');
+          if(!Array.isArray(d.recent) || !d.recent.some(x=>x.kind==='arr.webhook' && x.data && x.data.eventType==='Test')) throw new Error('webhook not in realtime feed');
+          if(!d.libraries || !d.services) throw new Error('realtime snapshot incomplete');
+          NODE
+
+          timeout 4s curl -sSN -b /tmp/mediarr.cookie \
+            "http://127.0.0.1:$PORT/api/admin/realtime/stream" >/tmp/sse.txt || true
+          grep -q "event: snapshot" /tmp/sse.txt
+          grep -q '"libraries"' /tmp/sse.txt
+
+          curl -fsS -b /tmp/mediarr.cookie -X POST \
+            -H 'Content-Type: application/json' -d '{}' \
+            "http://127.0.0.1:$PORT/api/admin/setup/skip" >/tmp/skip.json
+          curl -fsS -b /tmp/mediarr.cookie \
+            "http://127.0.0.1:$PORT/api/admin/setup/status" >/tmp/setup2.json
+          node -e "const d=require('/tmp/setup2.json'); if(d.needed || !d.complete) process.exit(1)"
+
+          kill $PID
+          wait $PID || true
+          trap - EXIT
