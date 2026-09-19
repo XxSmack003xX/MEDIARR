@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.0
+
+- Added a shared **Unified Media Detail** panel to desktop and mobile title details.
+- Added a new authenticated `/api/media/detail` aggregator that combines Radarr/Sonarr, Plex, TMDB, and local media-file state into one response.
+- Movie details now surface Radarr library state, monitored/downloaded state, file size/path, quality, resolution, HDR/dynamic range, video/audio codecs, languages, subtitles, release group, and edition when available.
+- TV details now surface Sonarr library state, downloaded/total episodes, monitored/missing/unaired counts, next episode, per-season completion, aggregate episode-file size, quality, codecs, dynamic range, languages, and subtitles.
+- Added Plex availability detection against the configured Plex server, including watched/in-progress state and a direct **Open in Plex** action when the server item can be resolved.
+- Added unified admin actions for **Browse releases**, **Search now**, and **Refresh details** while preserving all existing add/edit/monitor/episode controls below the unified panel.
+- Added TMDB enrichment for media status, genres, runtime, rating, networks, and tagline when TMDB is configured.
+- Added the new shared `public/v150.js` client to Docker/source release archives.
+
 ## 1.4.0
 
 - Added token-protected **Radarr and Sonarr webhook endpoints** so MEDIARR can react to Connect events immediately instead of waiting for browser/library polling.
