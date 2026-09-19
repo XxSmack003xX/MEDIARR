@@ -309,7 +309,7 @@ async function findLibraryItemM(svc,it){
 // Live "already added?" sets straight from Radarr/Sonarr (short server-side TTL)
 const liveIdsM={ radarr:{imdb:new Set(),tmdb:new Set()}, sonarr:{imdb:new Set(),tvdb:new Set()}, at:0 };
 async function refreshLiveIdsM(force){
-  if(!force && Date.now()-liveIdsM.at<45000) return;
+  if(!force && Date.now()-liveIdsM.at<15000) return;
   liveIdsM.at=Date.now();
   for(const svc of ['radarr','sonarr']){
     if(!isConfigured(svc)) continue;
@@ -322,6 +322,8 @@ async function refreshLiveIdsM(force){
 // Verified tmdb -> in-library answers from the server (needed for TV, which Sonarr
 // keys on imdb/tvdb rather than tmdb).
 const tmdbAddedM = new Map();
+const tmdbCheckedAtM = new Map();
+const TMDB_NEGATIVE_TTL_M = 10000;
 function inLib(type, {imdb, tmdb}){
   const svc = type==='movie' ? 'radarr' : 'sonarr';
   const L = liveIdsM[svc];
@@ -334,11 +336,14 @@ function inLib(type, {imdb, tmdb}){
 // Ask the server which of these TMDB ids are already in the library, then repaint.
 async function verifyAddedM(items){
   const need=[];
+  const now=Date.now();
   (items||[]).forEach(it=>{
     if(!it.tmdb) return;
     const type = it.kind==='series' ? 'series' : 'movie';
     const key = type+':'+it.tmdb;
-    if(tmdbAddedM.has(key)) return;
+    if(tmdbAddedM.get(key)===true) return;
+    const checked=tmdbCheckedAtM.get(key)||0;
+    if(tmdbAddedM.has(key) && (now-checked)<TMDB_NEGATIVE_TTL_M) return;
     need.push({ type, tmdbId:Number(it.tmdb), key });
   });
   if(!need.length) return false;
@@ -348,7 +353,11 @@ async function verifyAddedM(items){
       const r=await fetch('/api/library/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:need.slice(i,i+24)})});
       if(!r.ok) continue;
       const j=await readJson(r); const added=(j.data&&j.data.added)||{};
-      Object.keys(added).forEach(k=>{ if(added[k] && tmdbAddedM.get(k)!==true) learned=true; tmdbAddedM.set(k,!!added[k]); });
+      Object.keys(added).forEach(k=>{
+        if(added[k] && tmdbAddedM.get(k)!==true) learned=true;
+        tmdbAddedM.set(k,!!added[k]);
+        tmdbCheckedAtM.set(k,Date.now());
+      });
     }catch(e){}
   }
   return learned;
@@ -1114,6 +1123,10 @@ async function doAdd(btn, it, opt){
     if(!r.ok || d.ok===false) throw new Error(d.message||('HTTP '+r.status));
     btn.classList.remove('btn-gold','btn-outline-gold'); btn.classList.add('btn-success');
     btn.textContent = d.alreadyInLibrary ? '✓ In library' : '✓ Added';
+    if(it.tmdb){
+      const k=(isMovie?'movie':'series')+':'+it.tmdb;
+      tmdbAddedM.set(k,true); tmdbCheckedAtM.set(k,Date.now());
+    }
     await refreshLiveIdsM(true); await loadLibrary();
     if(lastItems.length) paint();
   }catch(e){
