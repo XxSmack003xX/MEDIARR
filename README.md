@@ -4,7 +4,7 @@
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.3.4-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-1.4.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.3.4 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.4.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -45,6 +45,7 @@ This README is written against the **v1.3.4 source in this repository**. Feature
 - [Accounts, roles, quotas, and API keys](#accounts-roles-quotas-and-api-keys)
 - [Movie and TV discovery](#movie-and-tv-discovery)
 - [Radarr and Sonarr integration](#radarr-and-sonarr-integration)
+- [Real-time events and Live Dashboard](#real-time-events-and-live-dashboard)
 - [Manual release search](#manual-release-search)
 - [Library browser and monitoring controls](#library-browser-and-monitoring-controls)
 - [Plex integration](#plex-integration)
@@ -333,7 +334,14 @@ HOST=127.0.0.1 PORT=7575 node server.js
 
 On the first visit, MEDIARR asks you to create the first **administrator** account.
 
-After signing in, open **Settings** and configure whichever services you use.
+After that account is created, MEDIARR v1.4.0 opens a guided **first-run setup wizard** instead of dropping you directly into the full Settings screen. The wizard walks through:
+
+1. Radarr URL/API key, connection test, quality profile, and root folder.
+2. Sonarr URL/API key, connection test, quality profile, and root folder.
+3. An optional TMDB API key test.
+4. Copy-ready Radarr and Sonarr webhook URLs for MEDIARR's real-time event system.
+
+Every service step is optional. You can skip the wizard and configure the same services later in **Settings**. Existing installations that already have services configured are not forced back through the wizard.
 
 ### Radarr
 
@@ -616,6 +624,73 @@ Admins can reopen titles already present in Radarr/Sonarr and change supported s
 ### Search now
 
 MEDIARR can trigger Radarr/Sonarr commands to search for an existing movie, series, season, or episode.
+
+---
+
+## Real-time events and Live Dashboard
+
+MEDIARR v1.4.0 adds a push-based event path for Radarr and Sonarr plus an administrator-only **Live Dashboard**.
+
+### Radarr and Sonarr webhooks
+
+MEDIARR exposes two webhook endpoints:
+
+```text
+/api/webhooks/radarr?token=<generated-secret>
+/api/webhooks/sonarr?token=<generated-secret>
+```
+
+The first-run wizard and the Live Dashboard show complete copy-ready URLs based on the address you used to reach MEDIARR.
+
+In Radarr or Sonarr:
+
+1. Open **Settings → Connect**.
+2. Add a **Webhook** connection.
+3. Paste the matching MEDIARR webhook URL.
+4. Enable the events you want MEDIARR to receive.
+5. Use the application's Test action to verify delivery.
+
+Webhook requests use a generated secret token stored in MEDIARR's `config.json`. Requests without the matching token are rejected. Treat the full webhook URL as a secret because the token is included in its query string.
+
+When a webhook arrives, MEDIARR:
+
+- Invalidates the affected Radarr/Sonarr live ID cache.
+- Updates the cached library entry immediately when the event includes movie/series data.
+- Starts a short service-specific reconciliation scan so counts/file state catch up.
+- Pushes the event to connected administrators in real time.
+
+### Server-Sent Events (SSE)
+
+The Live Dashboard uses **Server-Sent Events** at an authenticated admin endpoint. The browser keeps one lightweight HTTP stream open and MEDIARR pushes events over that connection.
+
+This avoids repeatedly polling the browser for:
+
+- Library changes.
+- Webhook activity.
+- Health updates.
+- MEDIARR add/activity events.
+- Active MEDIARR transcodes.
+- Realtime connection state.
+
+The dashboard also receives a lightweight snapshot roughly every five seconds from MEDIARR's in-memory state. This does not re-query Radarr/Sonarr every five seconds.
+
+### Live Dashboard
+
+Administrators get a **Live Dashboard** entry in the desktop left menu and mobile menu. It shows:
+
+- Radarr, Sonarr, and Plex health.
+- Cached Radarr movie and Sonarr TV-show counts.
+- Cache age.
+- Active MEDIARR transcode/remux sessions.
+- Number of connected SSE dashboard clients.
+- Copy-ready Radarr/Sonarr webhook URLs.
+- A live chronological event feed.
+
+The dashboard also includes a shortcut for re-opening the setup wizard.
+
+### Reverse proxies
+
+SSE works through normal HTTP reverse proxies, but the proxy must not buffer the event stream. MEDIARR sends `X-Accel-Buffering: no` for nginx-style proxies. A normal Caddy `reverse_proxy` configuration supports streaming responses without a special WebSocket upgrade.
 
 ---
 
