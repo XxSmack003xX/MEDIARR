@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.4
+
+- Fixed Sonarr TV cards remaining stuck on **Add to Sonarr** after the show was already present in Sonarr.
+- Fixed the browser caching negative TMDB/Sonarr matches indefinitely.
+- Negative TV-library checks now expire after 10 seconds and are revalidated automatically; positive matches remain cached.
+- Reduced the desktop/mobile live library-ID refresh window to 15 seconds to match the faster Sonarr server cache.
+- Added TMDB verification to title-search TV cards when Cinemeta supplies a TMDB identifier.
+- Updated both desktop and mobile add flows to mark the just-added TV show as in-library immediately.
+
 ## 1.3.3
 
 - Made Sonarr additions appear in MEDIARR much faster by patching successful adds directly into the cached Shows library.
