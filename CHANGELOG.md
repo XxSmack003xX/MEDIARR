@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0
+
+- Added token-protected **Radarr and Sonarr webhook endpoints** so MEDIARR can react to Connect events immediately instead of waiting for browser/library polling.
+- Webhook events invalidate the affected live ID index, patch known media into the library cache when possible, and trigger a short service-specific reconciliation scan.
+- Added an administrator-only **Live Dashboard** powered by Server-Sent Events (SSE).
+- The Live Dashboard shows Radarr/Sonarr/Plex health, cached movie/show counts, active MEDIARR transcodes, SSE client count, webhook URLs, and a live event feed.
+- Added SSE events for health changes/checks, library scans, MEDIARR activity, additions, webhook events, setup completion, and dashboard connections.
+- Added a shared desktop/mobile **first-run setup wizard** for Radarr, Sonarr, TMDB, quality profiles, root folders, and real-time webhook configuration.
+- The wizard can test Radarr/Sonarr/TMDB before saving and displays copy-ready webhook URLs for Radarr and Sonarr.
+- Added a generated webhook secret stored in MEDIARR configuration; webhook requests without the matching token are rejected.
+- Updated the release archive to include the shared v1.4 UI client.
+
 ## 1.3.4
 
 - Fixed Sonarr TV cards remaining stuck on **Add to Sonarr** after the show was already present in Sonarr.
