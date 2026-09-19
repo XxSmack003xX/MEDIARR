@@ -174,13 +174,13 @@ The application updater deliberately expects semantic release tags. Avoid using 
 
 ## Hotfix release
 
-For a small correction after `v1.3.0`:
+For a small correction after `v1.3.1`:
 
 1. Fix it on `main`.
-2. Change the package version to `1.3.1`.
+2. Change the package version to `1.3.2`.
 3. Add a changelog entry.
 4. Commit/push.
-5. Tag/push `v1.3.1`.
+5. Tag/push `v1.3.2`.
 
 Do not move/reuse an already-published release tag. Create a new version.
 

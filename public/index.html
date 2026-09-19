@@ -575,6 +575,10 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
         Health
       </div>
+      <div class="settings-btn" id="openTranscodes" style="display:none" title="Automatic playback and active transcodes">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H4z"/><path d="M8 20h8M12 16v4"/><path d="m9 8 6 2-6 2z"/></svg>
+        Transcodes
+      </div>
       <div class="settings-btn" id="openUpdate" style="display:none" title="Check for MEDIARR updates">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/><path d="M3 12A9 9 0 0 1 18.5 5.8L21 8"/><path d="M21 3v5h-5"/></svg>
         Update
@@ -716,7 +720,7 @@
           </select>
           <div class="small">Recommended is the first option: files download straight from the WebDAV server and your browser handles the login once per session, so credentials never appear in a link. MEDIARR still authorizes and counts each download.</div>
         </div>
-        <div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="webdavTranscode" style="width:auto"> Default to transcoded playback (5.1 / AC3 / DTS → AAC, HEVC/H.265 → H.264)</label><div class="small" id="webdavFfmpegHint">Requires ffmpeg installed on the server. Only re-encodes what the browser can't play; you can also toggle it per video in the player.</div></div>
+        <div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="webdavTranscode" style="width:auto"> Force transcoded playback by default (overrides automatic selection)</label><div class="small" id="webdavFfmpegHint">Requires ffmpeg installed on the server. Only re-encodes what the browser can't play; you can also toggle it per video in the player.</div></div>
         <div class="two">
           <div class="field"><label>Transcoding speed</label>
             <select id="webdavEncSpeed">
@@ -1042,6 +1046,21 @@
       <button class="x" id="closeUpdate">&times;</button>
     </div>
     <div class="modal-body" id="updateBody"></div>
+  </div>
+</div>
+
+<!-- Admin transcode dashboard -->
+<div class="overlay" id="transcodesOverlay">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h2>Transcode Dashboard</h2>
+      <button class="x" id="closeTranscodes">&times;</button>
+    </div>
+    <div class="modal-body" id="transcodesBody"></div>
+    <div class="modal-foot">
+      <span class="small" id="transcodesStamp" style="color:var(--muted);margin-right:auto"></span>
+      <button class="btn btn-gold" id="refreshTranscodes">Refresh</button>
+    </div>
   </div>
 </div>
 
@@ -2074,13 +2093,14 @@ function applyDlFilter(){
 const playerOverlay = document.getElementById('playerOverlay');
 const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && (navigator.maxTouchPoints||0)>1);
 let curHlsSid=null;
+let playerLoadSeqD=0;
 function stopHlsD(){ const v=document.getElementById('dlVideo'); if(v && v._hls){ try{ v._hls.destroy(); }catch(e){} v._hls=null; } if(curHlsSid){ const s=curHlsSid; curHlsSid=null; try{ fetch('/api/webdav/hls/stop?sid='+encodeURIComponent(s)); }catch(e){} } }
 document.getElementById('closePlayer').onclick = ()=> closePlayerD();
 function closePlayerD(){ const v=document.getElementById('dlVideo'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} stopHlsD(); playerOverlay.classList.remove('show'); }
 let curPlay=null;
 function playVideoD(path, name){
   downloadsOverlay.classList.remove('show');   // close the downloads browser so the player is in front
-  curPlay={path,name};
+  curPlay={path,name,autoPlan:null};
   document.getElementById('playerTitle').textContent=name;
   document.getElementById('playerTracks').innerHTML='';
   buildPlayerCtl();
@@ -2119,9 +2139,11 @@ function applySubD(){
 function buildPlayerCtl(){
   const ctl=document.getElementById('playerCtl');
   if(config.webdav && config.webdav.ffmpeg){
+    const auto=!!(config.playback&&config.playback.autoSelect);
     ctl.innerHTML='<label style="display:flex;gap:6px;align-items:center">Quality <select id="qualSel" class="trk-sel"><option value="orig">Original — no quality loss</option><option value="1080">1080p — High</option><option value="720">720p — Medium</option><option value="480">480p — Low</option></select></label>'
-      +'<label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="tcOn"'+((config.webdav&&config.webdav.transcode)?' checked':'')+'> Transcode <span style="color:var(--muted)">(fixes 5.1 / AC3 / DTS / HEVC)</span></label>'
-      +'<label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="tcStereo"> Downmix to stereo</label>';
+      +'<label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="tcOn"'+((config.webdav&&config.webdav.transcode)?' checked':'')+'> '+(auto?'Force transcode':'Transcode')+' <span style="color:var(--muted)">(fixes 5.1 / AC3 / DTS / HEVC)</span></label>'
+      +'<label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="tcStereo"> Downmix to stereo</label>'
+      +'<span class="small" style="color:var(--muted)">'+(auto?'Automatic playback selection is on. Direct play, remux or transcode will be chosen from the source codecs.':'Automatic playback selection is off.')+'</span>';
     document.getElementById('qualSel').onchange=loadPlayerSrc;
     document.getElementById('tcOn').onchange=loadPlayerSrc;
     document.getElementById('tcStereo').onchange=loadPlayerSrc;
@@ -2140,16 +2162,17 @@ function playHlsD(v, url, onerr, after){
     v.onerror=onerr; v.src=url; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); if(after) after();
   } else { onerr(); }
 }
-function loadPlayerSrc(){
+async function loadPlayerSrc(){
   if(!curPlay) return;
+  const seq=++playerLoadSeqD;
   const v=document.getElementById('dlVideo'), msg=document.getElementById('playerMsg');
   const tcOn=document.getElementById('tcOn'), tcStereo=document.getElementById('tcStereo'), audioSel=document.getElementById('audioSel'), qualSel=document.getElementById('qualSel');
   const aidx=audioSel?(parseInt(audioSel.value,10)||0):0;
   const q=qualSel?qualSel.value:'orig';
-  const transcoding=!!((tcOn && tcOn.checked) || (tcStereo && tcStereo.checked) || aidx>0 || q!=='orig');
+  const forced=!!((tcOn && tcOn.checked) || (tcStereo && tcStereo.checked) || aidx>0 || q!=='orig');
   msg.textContent=''; stopHlsD();
   const onerr=()=>{
-    if(config.webdav && config.webdav.ffmpeg && !transcoding){
+    if(config.webdav && config.webdav.ffmpeg && !forced){
       msg.innerHTML='Couldn\u2019t play this directly. ';
       const b=document.createElement('a'); b.href='#'; b.textContent='Transcode it'; b.style.color='var(--gold)';
       b.onclick=(e)=>{ e.preventDefault(); if(tcOn) tcOn.checked=true; loadPlayerSrc(); }; msg.appendChild(b);
@@ -2159,24 +2182,43 @@ function loadPlayerSrc(){
       a.onclick=(e)=>{ e.preventDefault(); grabDownloadD(curPlay.path, curPlay.name, a); }; msg.appendChild(a);
     }
   };
-  if(transcoding){
+  let plan=null;
+  const auto=!!(config.playback&&config.playback.autoSelect&&config.webdav&&config.webdav.ffmpeg);
+  if(auto && !forced){
+    msg.textContent='Selecting the best playback mode…';
+    try{
+      if(!curPlay.autoPlan){
+        const r=await fetch('/api/webdav/playback-plan?path='+encodeURIComponent(curPlay.path));
+        const d=await r.json(); if(!r.ok) throw new Error(d.message||'Playback probe failed'); curPlay.autoPlan=d;
+      }
+      plan=curPlay.autoPlan;
+      if(seq!==playerLoadSeqD) return;
+    }catch(e){ if(seq!==playerLoadSeqD)return; plan=null; }
+  }
+  const useHls=forced || !!(plan&&plan.mode==='hls');
+  if(useHls){
     const canHls=(window.Hls && window.Hls.isSupported()) || v.canPlayType('application/vnd.apple.mpegurl');
     if(canHls){
-      msg.textContent='Preparing stream…';
-      let qs='path='+encodeURIComponent(curPlay.path)+'&q='+q; if(tcStereo && tcStereo.checked) qs+='&ac=2'; if(aidx>0) qs+='&aidx='+aidx;
+      msg.textContent=plan&&!forced ? ('Auto: '+(plan.decision||'Preparing stream')+'…') : 'Preparing stream…';
+      let qs='path='+encodeURIComponent(curPlay.path)+'&q='+q;
+      if(tcStereo && tcStereo.checked) qs+='&ac=2'; if(aidx>0) qs+='&aidx='+aidx;
+      if(plan&&!forced&&plan.forceVideo) qs+='&vc=1';
       fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+        if(seq!==playerLoadSeqD) return;
         if(!ok || !j.sid) throw new Error((j && j.message) || 'Could not start stream');
-        curHlsSid=j.sid; msg.textContent='';
+        curHlsSid=j.sid; msg.textContent=plan&&!forced ? ('Auto: '+(plan.decision||j.mode||'HLS')) : '';
         playHlsD(v, '/api/webdav/hls/'+j.sid+'/index.m3u8', onerr, ()=>setTimeout(applySubD,500));
-      }).catch(e=>{ msg.textContent='Couldn\u2019t start playback: '+e.message; });
+      }).catch(e=>{ if(seq===playerLoadSeqD) msg.textContent='Couldn\u2019t start playback: '+e.message; });
       return;
     }
     // fallback (no HLS support): live fMP4 transcode (not seekable)
-    let src='/api/webdav/stream?path='+encodeURIComponent(curPlay.path)+'&transcode=1'; if(tcStereo && tcStereo.checked) src+='&ac=2'; if(aidx>0) src+='&aidx='+aidx;
+    let src='/api/webdav/stream?path='+encodeURIComponent(curPlay.path)+'&transcode=1';
+    if(tcStereo && tcStereo.checked) src+='&ac=2'; if(aidx>0) src+='&aidx='+aidx; if(plan&&!forced&&plan.forceVideo) src+='&vc=1';
+    msg.textContent=plan&&!forced ? ('Auto: '+(plan.decision||'Transcode')) : '';
     v.onerror=onerr; v.src=src; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubD,300);
     return;
   }
-  // direct play (original file, fully seekable via range requests)
+  if(plan&&plan.mode==='direct') msg.textContent='Auto: Direct play';
   v.onerror=onerr; v.src='/api/webdav/stream?path='+encodeURIComponent(curPlay.path); v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubD,300);
 }
 async function grabDownloadD(path, name, btn){
@@ -4170,8 +4212,9 @@ function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
 const adminOverlay = document.getElementById('adminOverlay');
 const updateOverlay = document.getElementById('updateOverlay');
+const transcodesOverlay = document.getElementById('transcodesOverlay');
 const pwOverlay = document.getElementById('pwOverlay');
-[settingsOverlay, detailOverlay, healthOverlay, streamsOverlay, adminOverlay, updateOverlay, pwOverlay, calendarOverlay, libraryOverlay].forEach(o=>{ o.addEventListener('click', e=>{ if(e.target===o) o.classList.remove('show'); }); });
+[settingsOverlay, detailOverlay, healthOverlay, streamsOverlay, adminOverlay, updateOverlay, transcodesOverlay, pwOverlay, calendarOverlay, libraryOverlay].forEach(o=>{ o.addEventListener('click', e=>{ if(e.target===o) o.classList.remove('show'); }); });
 
 /* ---------- auth ---------- */
 let authMode = 'login';   // 'login' | 'setup'
@@ -4666,6 +4709,7 @@ function applyRoleUI(){
   document.getElementById('openSettings').style.display = admin ? '' : 'none';
   document.getElementById('openAdmin').style.display = admin ? '' : 'none';
   document.getElementById('openUpdate').style.display = admin ? '' : 'none';
+  document.getElementById('openTranscodes').style.display = admin ? '' : 'none';
   document.getElementById('logoutBtn').style.display = '';
   document.getElementById('pwBtn').style.display = '';
   updateUserChip();
@@ -4683,6 +4727,44 @@ function updateUserChip(){
 }
 async function refreshMe(){
   try{ const r = await fetch('/api/me'); if(r.ok){ currentUser = await r.json(); updateUserChip(); } }catch(e){}
+}
+
+/* ---------- admin transcode dashboard ---------- */
+let transcodePollD=null;
+document.getElementById('openTranscodes').onclick=()=>openTranscodeDashboard();
+document.getElementById('closeTranscodes').onclick=()=>closeTranscodeDashboard();
+document.getElementById('refreshTranscodes').onclick=()=>loadTranscodeDashboard(true);
+function closeTranscodeDashboard(){ transcodesOverlay.classList.remove('show'); if(transcodePollD){clearInterval(transcodePollD);transcodePollD=null;} }
+function openTranscodeDashboard(){
+  transcodesOverlay.classList.add('show');
+  document.getElementById('transcodesBody').innerHTML='<div class="state"><div class="spinner"></div>Loading transcodes…</div>';
+  loadTranscodeDashboard(true);
+  if(transcodePollD) clearInterval(transcodePollD);
+  transcodePollD=setInterval(()=>{ if(transcodesOverlay.classList.contains('show')) loadTranscodeDashboard(false); },5000);
+}
+function tcAge(sec){ sec=Number(sec)||0; if(sec<60)return sec+'s'; const m=Math.floor(sec/60),s=sec%60; return m+'m '+s+'s'; }
+function tcModeClass(mode){ return /video transcode|transcode/i.test(mode)?'tc-trans':/audio transcode|remux|direct stream/i.test(mode)?'tc-stream':'tc-direct'; }
+function renderMediarrTc(s){
+  const bits=[s.source,s.video&&('video '+s.video),s.audio&&('audio '+s.audio),s.quality&&('quality '+s.quality),s.encoder&&('encoder '+s.encoder),s.hardware?'hardware':'',s.ageSeconds!=null?('age '+tcAge(s.ageSeconds)):''].filter(Boolean);
+  return '<div class="stream"><div class="st-ic '+(s.active?'playing':'paused')+'">'+playIcon(s.active?'playing':'paused')+'</div><div class="st-main"><div class="st-title">'+esc(s.title||'Media')+'</div><div class="st-sub">'+esc(s.user||'user')+' · '+esc(s.kind==='hls'?'Seekable HLS':'Live fallback')+'</div><div class="st-tech"><span class="tc-badge '+tcModeClass(s.mode)+'">'+esc(s.mode||'Transcode')+'</span><span class="tc-bits">'+esc(bits.join(' · '))+'</span></div>'+(s.progressPct!=null?'<div class="st-bar"><i style="width:'+s.progressPct+'%"></i></div>':'')+'</div><div class="st-state '+(s.active?'playing':'paused')+'">'+(s.active?'active':'idle')+'</div></div>';
+}
+function renderTranscodeDashboard(d){
+  const body=document.getElementById('transcodesBody');
+  const p=d.plex||{}, m=d.mediarr||[];
+  let html='<div class="api-doc" style="margin-bottom:14px"><b>Automatic playback selection:</b> '+(d.autoSelect?'On':'Off')+'<br><b>FFmpeg:</b> '+(d.ffmpeg?'available':'not found')+' · <b>ffprobe:</b> '+(d.ffprobe?'available':'not found')+' · <b>Hardware encoder:</b> '+esc(d.hwEncoder||'none detected')+'<br><b>Active:</b> '+m.length+' MEDIARR session'+(m.length===1?'':'s')+' · '+(p.count||0)+' Plex stream'+((p.count||0)===1?'':'s')+' · '+(p.transcoding||0)+' Plex transcode/direct-stream</div>';
+  html+='<h3 style="margin:0 0 10px">MEDIARR playback</h3>';
+  html+=m.length?m.map(renderMediarrTc).join(''):'<div class="state" style="padding:18px"><div class="big">No MEDIARR transcodes</div>Direct-play sessions do not need an FFmpeg process and are not listed here.</div>';
+  html+='<h3 style="margin:22px 0 10px">Plex playback</h3>';
+  if(!p.configured) html+='<div class="state" style="padding:18px">Plex is not configured.</div>';
+  else if(p.error) html+='<div class="state" style="padding:18px">'+esc(p.error)+'</div>';
+  else if(!(p.sessions||[]).length) html+='<div class="state" style="padding:18px">No active Plex streams.</div>';
+  else (p.sessions||[]).forEach(s=>{ const title=s.type==='episode'?(s.show||'TV Show'):(s.title||'Media'); const sub=s.type==='episode'?('S'+String(s.season||0).padStart(2,'0')+'E'+String(s.episode||0).padStart(2,'0')+' · '+(s.episodeTitle||'')):(s.year||''); html+='<div class="stream"><div class="st-ic '+esc((s.state||'').toLowerCase())+'">'+playIcon((s.state||'').toLowerCase())+'</div><div class="st-main"><div class="st-title">'+esc(title)+'</div><div class="st-sub">'+esc(sub)+'</div><div class="st-meta">User: '+esc(s.user||'')+(s.device?' · '+esc(s.device):'')+'</div>'+techRow(s.tech)+(s.progress!=null?'<div class="st-bar"><i style="width:'+s.progress+'%"></i></div>':'')+'</div><div class="st-state '+esc((s.state||'').toLowerCase())+'">'+esc(s.state||'')+'</div></div>'; });
+  body.innerHTML=html;
+  document.getElementById('transcodesStamp').textContent='Updated '+new Date(d.now||Date.now()).toLocaleTimeString()+' · refreshes every 5 seconds';
+}
+async function loadTranscodeDashboard(showError){
+  try{ const r=await fetch('/api/admin/transcodes',{cache:'no-store'}), d=await r.json(); if(!r.ok)throw new Error(d.message||'Could not load dashboard'); renderTranscodeDashboard(d); }
+  catch(e){ if(showError) document.getElementById('transcodesBody').innerHTML='<div class="state"><div class="big">Dashboard unavailable</div>'+esc(e.message)+'</div>'; }
 }
 
 /* ---------- system update ---------- */
@@ -4787,6 +4869,14 @@ async function loadAdmin(){
       </div>
       <div class="addcount" id="addcount"></div>
       <div class="addlog" id="addlog"></div>
+    </div>
+    <div class="admin-sec" style="margin-top:24px">
+      <h3>Playback &amp; transcoding</h3>
+      <div class="small" style="color:var(--muted);margin-bottom:12px">Control how MEDIARR chooses browser playback and inspect active FFmpeg/Plex sessions. Automatic selection probes codecs before playback and prefers direct play, then lossless HLS remux, then only the transcoding that is actually required.</div>
+      <div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="playAutoSelect" style="width:auto"> Automatic playback selection</label>
+        <div class="small">When on, compatible files direct-play; incompatible containers are remuxed; unsupported audio/video is transcoded automatically. Manual quality, downmix and Force transcode controls always override this.</div>
+      </div>
+      <div class="test-row"><button class="btn btn-gold" id="playSave">Save</button><button class="btn btn-ghost" id="playDashOpen">Open Transcode Dashboard</button><span class="test-status" id="playMsg"></span></div>
     </div>
     <div class="admin-sec" style="margin-top:24px">
       <h3>Configuration backups</h3>
@@ -4920,6 +5010,7 @@ async function loadAdmin(){
   renderAdminUsers(users);
   wireActivityControls();
   wireBackupImport();
+  wirePlaybackAdmin();
   wireLibScan();
   wirePlexBlock();
   wireDockerControls();
@@ -4928,6 +5019,18 @@ async function loadAdmin(){
   wireBackups();
   fetchActivity();
   document.getElementById('nu_add').onclick = createUser;
+}
+function wirePlaybackAdmin(){
+  const box=document.getElementById('playAutoSelect'), msg=document.getElementById('playMsg');
+  if(box) box.checked=!(config&&config.playback&&config.playback.autoSelect===false);
+  const save=document.getElementById('playSave'); if(save) save.onclick=async()=>{
+    msg.className='test-status load'; msg.textContent='Saving…';
+    try{
+      const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playback:{autoSelect:!!box.checked}})}), d=await r.json();
+      if(!r.ok) throw new Error(d.message||'Save failed'); config=d; msg.className='test-status ok'; msg.textContent='✓ Saved';
+    }catch(e){ msg.className='test-status err'; msg.textContent=e.message; }
+  };
+  const dash=document.getElementById('playDashOpen'); if(dash) dash.onclick=()=>{ adminOverlay.classList.remove('show'); openTranscodeDashboard(); };
 }
 function renderAdminUsers(users){
   const t = document.getElementById('utable');

@@ -159,6 +159,7 @@
     <button id="mProfile" class="btn btn-outline-gold text-start">🎨 My profile</button>
     <button id="mHealth" class="btn btn-outline-gold text-start">💓 Health</button>
     <button id="mUpdate" class="btn btn-outline-gold text-start">⬆️ System Update</button>
+    <button id="mTranscodes" class="btn btn-outline-gold text-start">🎛️ Transcode Dashboard</button>
     <button id="mAdmin" class="btn btn-outline-gold text-start">👥 Admin</button>
     <button id="mSettings" class="btn btn-outline-gold text-start">⚙️ Settings</button>
     <button id="mPassword" class="btn btn-outline-gold text-start">🔑 Change password</button>
@@ -275,7 +276,7 @@ async function onAuthed(){
   $('authView').classList.add('d-none'); $('appView').classList.remove('d-none');
   $('menuUser').textContent = me ? ('Signed in as '+me.username+(me.role==='admin'?' (admin)':'')) : '';
   const adminOnly = (me&&me.role==='admin');
-  ['mMovies','mShows','mUpdate','mAdmin','mSettings'].forEach(id=>{ const el=$(id); if(el) el.style.display = adminOnly?'':'none'; });
+  ['mMovies','mShows','mUpdate','mTranscodes','mAdmin','mSettings'].forEach(id=>{ const el=$(id); if(el) el.style.display = adminOnly?'':'none'; });
   await loadConfig();
   const sp=$('mScanPlex'); if(sp) sp.style.display=(adminOnly && isConfigured('plex'))?'':'none';
   const dl=$('mDownloads'); if(dl) dl.style.display=isConfigured('webdav')?'':'none';
@@ -1171,7 +1172,7 @@ function openSettings(){
         <option value="proxy"${(config&&config.webdav&&config.webdav.mode==='proxy')?' selected':''}>Through MEDIARR (proxied)</option>
         <option value="embed"${(config&&config.webdav&&config.webdav.mode==='embed')?' selected':''}>Direct — embed login in link (exposes credentials)</option>
       </select>
-      <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" id="s_webdav_transcode"${(config&&config.webdav&&config.webdav.transcode)?' checked':''}${(config&&config.webdav&&!config.webdav.ffmpeg)?' disabled':''}><label class="form-check-label small" for="s_webdav_transcode">Default to transcoded playback (5.1 / AC3 / DTS → AAC, HEVC → H.264)${(config&&config.webdav&&!config.webdav.ffmpeg)?' — ffmpeg not detected':''}</label></div>
+      <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" id="s_webdav_transcode"${(config&&config.webdav&&config.webdav.transcode)?' checked':''}${(config&&config.webdav&&!config.webdav.ffmpeg)?' disabled':''}><label class="form-check-label small" for="s_webdav_transcode">Force transcoded playback by default (overrides automatic selection)${(config&&config.webdav&&!config.webdav.ffmpeg)?' — ffmpeg not detected':''}</label></div>
       <label class="form-label small mt-2">Transcoding speed</label>
       <select class="form-select form-select-sm" id="s_webdav_encspeed">
         <option value="quality"${(config&&config.webdav&&config.webdav.encSpeed==='quality')?' selected':''}>Best quality (slower)</option>
@@ -1549,6 +1550,31 @@ async function libSearch(svc,btn){
   }catch(e){ btn.textContent='⚠'; setTimeout(()=>{ btn.textContent=o; btn.disabled=false; },2200); }
 }
 
+/* ---- Transcode dashboard (admin) ---- */
+let tcPollM=null;
+function tcAgeM(sec){sec=Number(sec)||0;if(sec<60)return sec+'s';return Math.floor(sec/60)+'m '+(sec%60)+'s';}
+function tcBadgeM(mode){return /video transcode|transcode/i.test(mode)?'text-bg-warning':/audio transcode|remux|direct stream/i.test(mode)?'text-bg-info':'text-bg-success';}
+function renderTranscodesM(d){
+  const p=d.plex||{}, m=d.mediarr||[];
+  let html='<div class="card mb-2" style="background:var(--bg)"><div class="card-body py-2"><div class="fw-bold">Playback engine</div><div class="small text-secondary">Automatic selection: '+(d.autoSelect?'On':'Off')+' · FFmpeg: '+(d.ffmpeg?'yes':'no')+' · ffprobe: '+(d.ffprobe?'yes':'no')+' · HW: '+esc(d.hwEncoder||'none')+'</div></div></div>';
+  html+='<div class="d-flex justify-content-between align-items-center mb-2"><div class="fw-bold">MEDIARR playback</div><span class="badge text-bg-secondary">'+m.length+'</span></div>';
+  if(!m.length) html+='<div class="small text-secondary mb-3">No active MEDIARR FFmpeg sessions. Direct-play sessions do not need FFmpeg.</div>';
+  m.forEach(x=>{const bits=[x.source,x.video&&('video '+x.video),x.audio&&('audio '+x.audio),x.encoder&&('encoder '+x.encoder),x.hardware?'hardware':'','age '+tcAgeM(x.ageSeconds)].filter(Boolean).join(' · ');html+='<div class="card mb-2" style="background:var(--bg)"><div class="card-body py-2"><div class="d-flex justify-content-between gap-2"><div><div class="fw-bold">'+esc(x.title||'Media')+'</div><div class="small text-secondary">'+esc(x.user||'user')+' · '+esc(x.kind==='hls'?'Seekable HLS':'Live fallback')+'</div></div><span class="badge '+tcBadgeM(x.mode)+' align-self-start">'+esc(x.mode||'Transcode')+'</span></div><div class="small text-secondary mt-1">'+esc(bits)+'</div>'+(x.progressPct!=null?'<div class="progress mt-2" style="height:4px"><div class="progress-bar" style="width:'+x.progressPct+'%"></div></div>':'')+'</div></div>';});
+  html+='<div class="d-flex justify-content-between align-items-center mt-3 mb-2"><div class="fw-bold">Plex playback</div><span class="badge text-bg-secondary">'+(p.count||0)+'</span></div>';
+  if(!p.configured) html+='<div class="small text-secondary">Plex is not configured.</div>'; else if(p.error)html+='<div class="small text-danger">'+esc(p.error)+'</div>'; else if(!(p.sessions||[]).length)html+='<div class="small text-secondary">No active Plex streams.</div>';
+  (p.sessions||[]).forEach(x=>{const t=x.tech||{},title=x.type==='episode'?(x.show||'TV Show'):(x.title||'Media'),bits=[t.resolution,t.videoCodec,t.audioCodec,t.streamBitrateKbps?((t.streamBitrateKbps/1000).toFixed(1)+' Mbps'):'',t.hwTranscode?'hardware':'',t.speed!=null?('speed '+Number(t.speed).toFixed(1)+'x'):''].filter(Boolean).join(' · ');html+='<div class="card mb-2" style="background:var(--bg)"><div class="card-body py-2"><div class="d-flex justify-content-between gap-2"><div><div class="fw-bold">'+esc(title)+'</div><div class="small text-secondary">'+esc(x.user||'')+(x.device?' · '+esc(x.device):'')+'</div></div><span class="badge '+tcBadgeM(t.mode)+' align-self-start">'+esc(t.mode||'Direct play')+'</span></div><div class="small text-secondary mt-1">'+esc(bits)+'</div></div></div>';});
+  html+='<div class="small text-secondary mt-2">Updated '+new Date(d.now||Date.now()).toLocaleTimeString()+' · refreshes every 5 seconds</div>';
+  $('panelBody').innerHTML=html;
+}
+async function loadTranscodesM(showErr){
+  try{const j=await readJson(await fetch('/api/admin/transcodes',{cache:'no-store'})),d=j.data||{};renderTranscodesM(d);}catch(e){if(showErr)panelErr('Dashboard unavailable: '+e.message);}
+}
+function openTranscodesM(){
+  closeMenu(); panelSpin('Transcode Dashboard'); loadTranscodesM(true);
+  if(tcPollM)clearInterval(tcPollM);tcPollM=setInterval(()=>loadTranscodesM(false),5000);
+  $('panel').addEventListener('hidden.bs.modal',()=>{if(tcPollM){clearInterval(tcPollM);tcPollM=null;}},{once:true});
+}
+
 /* ---- System update ---- */
 async function openUpdateM(fresh=true){
   closeMenu(); panelSpin('System Update');
@@ -1625,6 +1651,10 @@ function renderAdmin(users,adds){
     +'<button type="button" class="btn btn-outline-gold" data-f="download">Downloaded</button>'
     +'<button type="button" class="btn btn-outline-gold" data-f="play">Played</button></div>';
   html+='<div id="mActLog">'+mActRows(adds)+'</div>';
+  html+='<hr class="my-3"><div class="fw-bold mb-2">Playback &amp; transcoding</div>';
+  html+='<div class="small text-secondary mb-2">Automatically select direct play, HLS remux or only the transcoding the file needs.</div>';
+  html+='<div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="mPlayAuto"><label class="form-check-label small" for="mPlayAuto">Automatic playback selection</label></div>';
+  html+='<div class="d-flex gap-2 mb-2"><button class="btn btn-gold btn-sm" id="mPlaySave">Save</button><button class="btn btn-outline-secondary btn-sm" id="mPlayDash">Open dashboard</button><span class="small align-self-center" id="mPlayMsg"></span></div>';
   html+='<hr class="my-3"><div class="fw-bold mb-2">Docker controls</div>';
   html+='<div class="small text-secondary mb-2">Admin-only Start / Stop / Restart for approved containers. The Docker socket must be mounted into MEDIARR.</div>';
   html+='<div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="mDkEnabled"><label class="form-check-label small" for="mDkEnabled">Enable Docker controls</label></div>';
@@ -1653,9 +1683,21 @@ function renderAdmin(users,adds){
   const sq=$('mActQuery'); if(sq) sq.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); mFetchActivity(); } });
   const ff=$('mActFilter'); if(ff) ff.querySelectorAll('button').forEach(b=> b.onclick=()=>{ mActFilter=b.dataset.f; ff.querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b)); mFetchActivity(); });
   { const bd=$('mBkDownload'); if(bd) bd.onclick=mDoBackup; const f=$('mImFile'); if(f) f.onchange=mOnImportFile; }
+  wirePlaybackAdminM();
   loadDockerM();
   loadSystemM();
 }
+function wirePlaybackAdminM(){
+  const box=$('mPlayAuto'), msg=$('mPlayMsg'); if(!box)return;
+  box.checked=!(config&&config.playback&&config.playback.autoSelect===false);
+  $('mPlaySave').onclick=async()=>{
+    msg.className='small align-self-center text-secondary'; msg.textContent='Saving…';
+    try{ const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playback:{autoSelect:box.checked}})}),j=await readJson(r),d=j.data||{}; if(!r.ok)throw new Error(d.message||'Save failed'); config=d; msg.className='small align-self-center text-success';msg.textContent='Saved'; }
+    catch(e){ msg.className='small align-self-center text-danger';msg.textContent=e.message; }
+  };
+  $('mPlayDash').onclick=openTranscodesM;
+}
+
 // ---- Docker controls ----
 async function loadDockerM(){
   const list=$('mDkList'), msg=$('mDkMsg'); if(!list) return;
@@ -1918,7 +1960,7 @@ function renderDownloads(d){
   $('panelBody').querySelectorAll('[data-play]').forEach(b=> b.onclick=()=> playVideoMobile((dlPath?dlPath+'/':'')+b.dataset.play, b.dataset.play));
   $('panelBody').querySelectorAll('[data-dl]').forEach(b=> b.onclick=()=> grabDownload((dlPath?dlPath+'/':'')+b.dataset.dl, b.dataset.dl, b));
 }
-let curPlayM=null, curHlsSidM=null;
+let curPlayM=null, curHlsSidM=null, playLoadSeqM=0;
 function stopHlsM(){ const v=$('mVideo'); if(v && v._hls){ try{ v._hls.destroy(); }catch(e){} v._hls=null; } if(curHlsSidM){ const s=curHlsSidM; curHlsSidM=null; try{ fetch('/api/webdav/hls/stop?sid='+encodeURIComponent(s)); }catch(e){} } }
 let _kaTimerM=null;
 function startKeepAliveM(what,path){
@@ -1930,13 +1972,15 @@ function stopKeepAliveM(){ if(_kaTimerM){ clearInterval(_kaTimerM); _kaTimerM=nu
 function playVideoMobile(path, name){
   try{ panelModal().hide(); }catch(e){}   // close the downloads list so the player is in front
   startKeepAliveM('streaming', path);
-  curPlayM={path,name};
+  curPlayM={path,name,autoPlan:null};
   $('playerTitle').textContent=name;
   const ctl=$('mPlayerCtl');
   if(config&&config.webdav&&config.webdav.ffmpeg){
+    const auto=!!(config.playback&&config.playback.autoSelect);
     ctl.innerHTML='<div><label class="form-label small mb-1">Quality</label><select id="mQualSel" class="form-select form-select-sm"><option value="orig">Original — no quality loss</option><option value="1080">1080p — High</option><option value="720">720p — Medium</option><option value="480">480p — Low</option></select></div>'
-      +'<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mTcOn"'+((config.webdav&&config.webdav.transcode)?' checked':'')+'><label class="form-check-label small" for="mTcOn">Transcode (fixes 5.1 / AC3 / DTS / HEVC)</label></div>'
-      +'<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mTcStereo"><label class="form-check-label small" for="mTcStereo">Downmix to stereo</label></div>';
+      +'<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mTcOn"'+((config.webdav&&config.webdav.transcode)?' checked':'')+'><label class="form-check-label small" for="mTcOn">'+(auto?'Force transcode':'Transcode')+' (fixes 5.1 / AC3 / DTS / HEVC)</label></div>'
+      +'<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mTcStereo"><label class="form-check-label small" for="mTcStereo">Downmix to stereo</label></div>'
+      +'<div class="small text-secondary">'+(auto?'Automatic playback selection is on.':'Automatic playback selection is off.')+'</div>';
     $('mQualSel').onchange=loadMobileSrc; $('mTcOn').onchange=loadMobileSrc; $('mTcStereo').onchange=loadMobileSrc;
   } else { ctl.innerHTML='<div class="small text-secondary">Install ffmpeg on the server to enable transcoding, quality settings and seeking.</div>'; }
   const m=bootstrap.Modal.getOrCreateInstance($('player')); m.show();
@@ -1983,33 +2027,38 @@ function playHlsM(v, url, onerr, after){
     v.onerror=onerr; v.src=url; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); if(after) after();
   } else { onerr(); }
 }
-function loadMobileSrc(){
+async function loadMobileSrc(){
   if(!curPlayM) return;
+  const seq=++playLoadSeqM;
   const v=$('mVideo'), msg=$('mPlayerMsg'), tcOn=$('mTcOn'), tcStereo=$('mTcStereo'), audioSel=$('mAudioSel'), qualSel=$('mQualSel');
   const aidx=audioSel?(parseInt(audioSel.value,10)||0):0;
   const q=qualSel?qualSel.value:'orig';
-  const transcoding=!!((tcOn && tcOn.checked) || (tcStereo && tcStereo.checked) || aidx>0 || q!=='orig'); msg.textContent=''; stopHlsM();
+  const forced=!!((tcOn && tcOn.checked) || (tcStereo && tcStereo.checked) || aidx>0 || q!=='orig'); msg.textContent=''; stopHlsM();
   const onerr=()=>{
-    if(config&&config.webdav&&config.webdav.ffmpeg&&!transcoding){ msg.innerHTML='Couldn’t play directly. <a href="#" id="mTcTry" class="text-warning">Transcode it</a>.'; const a=$('mTcTry'); if(a) a.onclick=(e)=>{ e.preventDefault(); if(tcOn) tcOn.checked=true; loadMobileSrc(); }; }
+    if(config&&config.webdav&&config.webdav.ffmpeg&&!forced){ msg.innerHTML='Couldn’t play directly. <a href="#" id="mTcTry" class="text-warning">Transcode it</a>.'; const a=$('mTcTry'); if(a) a.onclick=(e)=>{ e.preventDefault(); if(tcOn) tcOn.checked=true; loadMobileSrc(); }; }
     else { msg.textContent='Can’t play this format in the browser. Use ⬇️ to download instead.'; }
   };
-  if(transcoding){
+  let plan=null;
+  const auto=!!(config&&config.playback&&config.playback.autoSelect&&config.webdav&&config.webdav.ffmpeg);
+  if(auto&&!forced){
+    msg.textContent='Selecting the best playback mode…';
+    try{ if(!curPlayM.autoPlan){const r=await fetch('/api/webdav/playback-plan?path='+encodeURIComponent(curPlayM.path)),d=await r.json();if(!r.ok)throw new Error(d.message||'Playback probe failed');curPlayM.autoPlan=d;} plan=curPlayM.autoPlan;if(seq!==playLoadSeqM)return; }
+    catch(e){if(seq!==playLoadSeqM)return;plan=null;}
+  }
+  const useHls=forced||!!(plan&&plan.mode==='hls');
+  if(useHls){
     const canHls=(window.Hls && window.Hls.isSupported()) || v.canPlayType('application/vnd.apple.mpegurl');
     if(canHls){
-      msg.textContent='Preparing stream…';
-      let qs='path='+encodeURIComponent(curPlayM.path)+'&q='+q; if(tcStereo && tcStereo.checked) qs+='&ac=2'; if(aidx>0) qs+='&aidx='+aidx;
-      fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
-        if(!ok || !j.sid) throw new Error((j && j.message) || 'Could not start stream');
-        curHlsSidM=j.sid; msg.textContent='';
-        playHlsM(v, '/api/webdav/hls/'+j.sid+'/index.m3u8', onerr, ()=>setTimeout(applySubM,500));
-      }).catch(e=>{ msg.textContent='Couldn’t start playback: '+e.message; });
+      msg.textContent=plan&&!forced?('Auto: '+(plan.decision||'Preparing stream')+'…'):'Preparing stream…';
+      let qs='path='+encodeURIComponent(curPlayM.path)+'&q='+q;if(tcStereo&&tcStereo.checked)qs+='&ac=2';if(aidx>0)qs+='&aidx='+aidx;if(plan&&!forced&&plan.forceVideo)qs+='&vc=1';
+      fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{if(seq!==playLoadSeqM)return;if(!ok||!j.sid)throw new Error((j&&j.message)||'Could not start stream');curHlsSidM=j.sid;msg.textContent=plan&&!forced?('Auto: '+(plan.decision||j.mode||'HLS')):'';playHlsM(v,'/api/webdav/hls/'+j.sid+'/index.m3u8',onerr,()=>setTimeout(applySubM,500));}).catch(e=>{if(seq===playLoadSeqM)msg.textContent='Couldn’t start playback: '+e.message;});
       return;
     }
-    let src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path)+'&transcode=1'; if(tcStereo && tcStereo.checked) src+='&ac=2'; if(aidx>0) src+='&aidx='+aidx;
-    v.onerror=onerr; v.src=src; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubM,300);
-    return;
+    let src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path)+'&transcode=1';if(tcStereo&&tcStereo.checked)src+='&ac=2';if(aidx>0)src+='&aidx='+aidx;if(plan&&!forced&&plan.forceVideo)src+='&vc=1';
+    msg.textContent=plan&&!forced?('Auto: '+(plan.decision||'Transcode')):'';v.onerror=onerr;v.src=src;v.load();const pr=v.play&&v.play();if(pr&&pr.catch)pr.catch(()=>{});setTimeout(applySubM,300);return;
   }
-  v.onerror=onerr; v.src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path); v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubM,300);
+  if(plan&&plan.mode==='direct')msg.textContent='Auto: Direct play';
+  v.onerror=onerr;v.src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path);v.load();const pr=v.play&&v.play();if(pr&&pr.catch)pr.catch(()=>{});setTimeout(applySubM,300);
 }
 async function grabDownload(path, name, btn){
   const o=btn.textContent; btn.disabled=true; btn.textContent='…';
@@ -2038,6 +2087,7 @@ $('mShows').onclick=()=>openLibrary('sonarr');
 $('mCalendar').onclick=openCalendar;
 $('mHealth').onclick=openHealth;
 $('mUpdate').onclick=()=>openUpdateM();
+$('mTranscodes').onclick=openTranscodesM;
 $('mAdmin').onclick=openAdmin;
 $('mPassword').onclick=openPassword;
 $('mUpcoming').onclick=openUpcomingM;

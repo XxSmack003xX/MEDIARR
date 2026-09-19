@@ -43,7 +43,8 @@ const ENC_PRESET = { balanced: 'veryfast', faster: 'superfast', fastest: 'ultraf
 
 // HLS transcode sessions (used for iPhone/iPad, which only reliably play transcoded streams via HLS).
 const HLS_ROOT = path.join(os.tmpdir(), 'mediarr-hls');
-const hlsSessions = new Map();   // sid -> { dir, ff, last, closed }
+const hlsSessions = new Map();   // sid -> seekable HLS/remux/transcode session
+const liveTranscodes = new Map(); // tid -> non-HLS ffmpeg fallback session
 try { fs.rmSync(HLS_ROOT, { recursive: true, force: true }); } catch (e) {}
 try { fs.mkdirSync(HLS_ROOT, { recursive: true }); } catch (e) {}
 function hlsCleanup (sid) {
@@ -85,6 +86,7 @@ const DEFAULT_CONFIG = {
   tmdb:   { apiKey: '' },
   plex:   { url: '', token: '', clientId: '' },
   webdav: { source: 'webdav', localPath: '', url: '', username: '', password: '', folder: '', mode: 'redirect', transcode: false, encSpeed: 'balanced', hwAccel: 'auto' },   // source: 'webdav' | 'local'   // encSpeed: balanced|faster|fastest|quality; hwAccel: auto|off
+  playback: { autoSelect: true },   // probe browser playback compatibility and pick direct/remux/transcode automatically
   ui:     { loginTheme: 'tron' },  // login background theme: 'tron' | 'earth' | 'rain' | 'random'
   donate: { url: '', label: '' },  // PayPal donate link; when set, a Donate button appears for everyone
   autoAdd: { intervalMinutes: 5, minRuntime: 0 },
@@ -115,6 +117,7 @@ function readConfig () {
       tmdb:   Object.assign({}, DEFAULT_CONFIG.tmdb, c.tmdb),
       plex:   Object.assign({}, DEFAULT_CONFIG.plex, c.plex),
       webdav: Object.assign({}, DEFAULT_CONFIG.webdav, c.webdav),
+      playback: Object.assign({}, DEFAULT_CONFIG.playback, c.playback),
       ui:     Object.assign({}, DEFAULT_CONFIG.ui, c.ui),
       donate: Object.assign({}, DEFAULT_CONFIG.donate, c.donate),
       autoAdd: Object.assign({}, DEFAULT_CONFIG.autoAdd, c.autoAdd),
@@ -177,7 +180,8 @@ function sanitize (c) {
   }
   out.tmdb = { hasKey: !!c.tmdb.apiKey };
   out.plex = { url: c.plex.url, hasKey: !!c.plex.token };
-  out.webdav = { source: (c.webdav.source === 'local' ? 'local' : 'webdav'), localPath: c.webdav.localPath || '', url: c.webdav.url, username: c.webdav.username, folder: c.webdav.folder, mode: wmode(c.webdav.mode), transcode: !!c.webdav.transcode, ffmpeg: !!FFMPEG, hasAuth: !!(c.webdav.username && c.webdav.password), encSpeed: c.webdav.encSpeed || 'balanced', hwAccel: c.webdav.hwAccel || 'auto', hwEncoder: HWENC || '' };
+  out.webdav = { source: (c.webdav.source === 'local' ? 'local' : 'webdav'), localPath: c.webdav.localPath || '', url: c.webdav.url, username: c.webdav.username, folder: c.webdav.folder, mode: wmode(c.webdav.mode), transcode: !!c.webdav.transcode, ffmpeg: !!FFMPEG, ffprobe: !!FFPROBE, hasAuth: !!(c.webdav.username && c.webdav.password), encSpeed: c.webdav.encSpeed || 'balanced', hwAccel: c.webdav.hwAccel || 'auto', hwEncoder: HWENC || '' };
+  out.playback = { autoSelect: !(c.playback && c.playback.autoSelect === false) };
   out.ui = { loginTheme: (c.ui && c.ui.loginTheme) || 'tron' };
   out.donate = { url: (c.donate && c.donate.url) || '', label: (c.donate && c.donate.label) || '' };
   out.sab = { url: c.sab.url, hasKey: !!c.sab.apiKey };
@@ -1843,7 +1847,7 @@ const VIDEO_OK = ['h264', 'vp8', 'vp9', 'av1'];
 const AUDIO_OK = ['aac', 'mp3'];
 function ffprobeCodecs (inputUrl, cb) {
   if (!FFPROBE) return cb(null);
-  let fp; try { fp = spawn(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,codec_name,pix_fmt', '-of', 'json', inputUrl]); } catch (e) { return cb(null); }
+  let fp; try { fp = spawn(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration,format_name:stream=codec_type,codec_name,pix_fmt', '-of', 'json', inputUrl]); } catch (e) { return cb(null); }
   let out = ''; const t = setTimeout(() => { try { fp.kill('SIGKILL'); } catch (e) {} }, 12000);
   fp.stdout.on('data', d => { out += d; }); fp.stderr.on('data', () => {});
   fp.on('error', () => { clearTimeout(t); cb(null); });
@@ -1854,8 +1858,46 @@ function ffprobeCodecs (inputUrl, cb) {
       const v = streams.find(s => s.codec_type === 'video') || {};
       const a = streams.find(s => s.codec_type === 'audio') || {};
       const dur = j.format && parseFloat(j.format.duration);
-      cb({ video: (v.codec_name || '').toLowerCase(), pix: (v.pix_fmt || '').toLowerCase(), audio: (a.codec_name || '').toLowerCase(), duration: (dur && isFinite(dur)) ? dur : 0 });
+      cb({ video: (v.codec_name || '').toLowerCase(), pix: (v.pix_fmt || '').toLowerCase(), audio: (a.codec_name || '').toLowerCase(), format: ((j.format && j.format.format_name) || '').toLowerCase(), duration: (dur && isFinite(dur)) ? dur : 0 });
     } catch (e) { cb(null); }
+  });
+}
+
+// Automatic playback selection. This is deliberately conservative: direct play is chosen only
+// for combinations that are broadly browser-friendly. Everything else uses HLS, where compatible
+// H.264/AAC can be remuxed without quality loss and incompatible tracks are transcoded as needed.
+function browserPlaybackPlan (rel, res) {
+  const cfg = readConfig().webdav;
+  if (!FFMPEG || !FFPROBE) return sendJSON(res, 200, { mode: 'direct', reason: 'probe-unavailable', ffmpeg: !!FFMPEG, ffprobe: !!FFPROBE });
+  let inputUrl = mediaInput(cfg, rel);
+  if (!inputUrl) return sendJSON(res, 400, { message: 'Bad path' });
+  ffprobeCodecs(inputUrl, info => {
+    if (!info) return sendJSON(res, 200, { mode: 'direct', reason: 'probe-failed', ffmpeg: true, ffprobe: true });
+    const ext = path.extname(String(rel || '')).slice(1).toLowerCase();
+    const v = String(info.video || '').toLowerCase();
+    const a = String(info.audio || '').toLowerCase();
+    const pix = String(info.pix || '').toLowerCase();
+    const tenBit = /10|12/.test(pix);
+    const mp4ish = ['mp4', 'm4v', 'mov'].includes(ext);
+    const webm = ext === 'webm';
+    const directVideo = !tenBit && ((mp4ish && ['h264', 'av1'].includes(v)) || (webm && ['vp8', 'vp9', 'av1'].includes(v)));
+    const directAudio = (mp4ish && ['aac', 'mp3'].includes(a)) || (webm && ['opus', 'vorbis'].includes(a));
+    const direct = !!(directVideo && directAudio);
+    const hlsCopyVideo = !tenBit && v === 'h264';
+    const hlsCopyAudio = ['aac', 'mp3'].includes(a);
+    let mode = 'direct', decision = 'Direct play', reason = 'browser-compatible';
+    if (!direct) {
+      mode = 'hls';
+      if (hlsCopyVideo && hlsCopyAudio) { decision = 'Remux'; reason = 'container'; }
+      else if (hlsCopyVideo) { decision = 'Audio transcode'; reason = 'audio'; }
+      else { decision = 'Video transcode'; reason = tenBit ? 'pixel-format' : 'video'; }
+    }
+    return sendJSON(res, 200, {
+      mode, decision, reason, forceVideo: mode === 'hls' && !hlsCopyVideo,
+      transcodeAudio: mode === 'hls' && !hlsCopyAudio,
+      video: v, audio: a, pixelFormat: pix, container: ext || info.format || '', duration: info.duration || 0,
+      ffmpeg: true, ffprobe: true
+    });
   });
 }
 // Video encoder args for a quality preset. 'orig' = source resolution, visually-lossless CRF; lower tiers cap resolution.
@@ -1914,12 +1956,21 @@ function webdavTranscode (cfg, rel, name, opts, req, res) {
 
     let ff;
     try { ff = spawn(FFMPEG, args); } catch (e) { if (!res.headersSent) { res.writeHead(502, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ message: 'Could not start ffmpeg: ' + e.message })); } return; }
+    const tid = crypto.randomBytes(7).toString('hex');
+    const who = currentUser(req);
+    liveTranscodes.set(tid, {
+      id: tid, ff, createdAt: Date.now(), last: Date.now(), user: (who && who.username) || '',
+      title: path.basename(String(rel || '')), source: isLocalSource() ? 'local' : 'webdav',
+      srcVideo: (info && info.video) || '', srcAudio: (info && info.audio) || '',
+      copyVideo: !doVideo, copyAudio: !doAudio, quality: 'original', encoder: doVideo ? 'libx264' : 'copy'
+    });
+    const clearLive = () => liveTranscodes.delete(tid);
     let started = false, errBuf = '';
     ff.stderr.on('data', d => { errBuf += d.toString(); if (errBuf.length > 4000) errBuf = errBuf.slice(-4000); });
     ff.stdout.once('data', chunk => { started = true; res.writeHead(200, { 'Content-Type': 'video/mp4', 'Cache-Control': 'no-store' }); res.write(chunk); ff.stdout.pipe(res); });
-    ff.on('error', e => { if (!started && !res.headersSent) { res.writeHead(502, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ message: 'ffmpeg error: ' + e.message })); } else { try { res.end(); } catch (_) {} } });
-    ff.on('close', code => { if (!started && !res.headersSent) { res.writeHead(502, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ message: 'Transcode failed: ' + (errBuf.split('\n').filter(Boolean).pop() || ('ffmpeg exited ' + code)) })); } else { try { res.end(); } catch (_) {} } });
-    const kill = () => { try { ff.kill('SIGKILL'); } catch (e) {} };
+    ff.on('error', e => { clearLive(); if (!started && !res.headersSent) { res.writeHead(502, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ message: 'ffmpeg error: ' + e.message })); } else { try { res.end(); } catch (_) {} } });
+    ff.on('close', code => { clearLive(); if (!started && !res.headersSent) { res.writeHead(502, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ message: 'Transcode failed: ' + (errBuf.split('\n').filter(Boolean).pop() || ('ffmpeg exited ' + code)) })); } else { try { res.end(); } catch (_) {} } });
+    const kill = () => { clearLive(); try { ff.kill('SIGKILL'); } catch (e) {} };
     req.on('close', kill); res.on('close', kill);
   });
 }
@@ -1980,11 +2031,15 @@ function webdavHlsStart (rel, opts, res, req, user) {
     // If the video stream is already browser-friendly and no resize was asked for, we can
     // remux (stream-copy) instead of re-encoding — near-zero CPU and it starts almost instantly.
     const vcForced = String(opts.vc) === '1';
-    const canCopyVideo = !vcForced && q === 'orig' && info && VIDEO_OK.includes(String(info.video || '').toLowerCase());
+    const tenBit = !!(info && /10|12/.test(String(info.pix || '')));
+    // MPEG-TS HLS remux is intentionally limited to 8-bit H.264. VP8/VP9/AV1 may direct-play
+    // in some browsers but are not safe to stream-copy into MPEG-TS segments.
+    const canCopyVideo = !vcForced && q === 'orig' && info && !tenBit && String(info.video || '').toLowerCase() === 'h264';
     const audioOk = info && AUDIO_OK.includes(String(info.audio || '').toLowerCase());
     const canCopyAudio = audioOk && opts.ac !== '2' && aidx == null;
-    const sess = { dir, inputUrl, aidx, ac: opts.ac, q, duration, nSegs, ff: null, startSeg: 0, ffDone: false, last: Date.now(), lastErr: '',
-                   copyVideo: !!canCopyVideo, copyAudio: !!canCopyAudio, srcVideo: (info && info.video) || '', srcAudio: (info && info.audio) || '' };
+    const sess = { dir, inputUrl, aidx, ac: opts.ac, q, duration, nSegs, ff: null, startSeg: 0, ffDone: false, last: Date.now(), createdAt: Date.now(), lastErr: '',
+                   user: (user && user.username) || '', title: path.basename(String(rel || '')), source: isLocalSource() ? 'local' : 'webdav',
+                   copyVideo: !!canCopyVideo, copyAudio: !!canCopyAudio, srcVideo: (info && info.video) || '', srcAudio: (info && info.audio) || '', srcPix: (info && info.pix) || '' };
     hlsSessions.set(sid, sess);
     hlsSpawn(sess, 0);
     const t0 = Date.now();
@@ -2029,6 +2084,49 @@ function webdavHlsFile (sid, file, res) {
   wait();
 }
 function webdavHlsStop (sid, res) { hlsCleanup(sid); res.writeHead(204); res.end(); }
+
+function transcodeModeOf (s) {
+  if (s.copyVideo && s.copyAudio) return 'Remux';
+  if (s.copyVideo && !s.copyAudio) return 'Audio transcode';
+  return 'Video transcode';
+}
+function mediarrTranscodeSessions () {
+  const now = Date.now();
+  const hwAllowed = readConfig().webdav.hwAccel !== 'off' && !!HWENC;
+  const hls = [];
+  for (const [sid, s] of hlsSessions) {
+    let progressPct = null;
+    try { progressPct = s.nSegs ? Math.max(0, Math.min(100, Math.round(((hlsLastContig(s) + 1) / s.nSegs) * 100))) : null; } catch (_) {}
+    hls.push({
+      id: sid, kind: 'hls', user: s.user || '', title: s.title || 'Media', source: s.source || '',
+      mode: transcodeModeOf(s), video: s.srcVideo || '', audio: s.srcAudio || '', quality: s.q || 'orig',
+      encoder: s.copyVideo ? 'copy' : (hwAllowed ? HWENC : 'libx264'), hardware: !s.copyVideo && hwAllowed,
+      active: !!(s.ff && !s.ffDone), progressPct, duration: Number(s.duration) || 0,
+      ageSeconds: Math.max(0, Math.round((now - (s.createdAt || s.last || now)) / 1000)),
+      idleSeconds: Math.max(0, Math.round((now - (s.last || now)) / 1000))
+    });
+  }
+  for (const [tid, s] of liveTranscodes) {
+    hls.push({
+      id: tid, kind: 'stream', user: s.user || '', title: s.title || 'Media', source: s.source || '',
+      mode: transcodeModeOf(s), video: s.srcVideo || '', audio: s.srcAudio || '', quality: s.quality || 'original',
+      encoder: s.encoder || (s.copyVideo ? 'copy' : 'libx264'), hardware: false, active: true, progressPct: null,
+      ageSeconds: Math.max(0, Math.round((now - (s.createdAt || now)) / 1000)), idleSeconds: 0
+    });
+  }
+  return hls.sort((a, b) => b.ageSeconds - a.ageSeconds);
+}
+async function transcodeDashboard () {
+  const plex = await plexSessions(true);
+  const mediarr = mediarrTranscodeSessions();
+  const plexTranscoding = (plex.sessions || []).filter(s => s.tech && /transcode|direct stream/i.test(s.tech.mode || '')).length;
+  return {
+    now: Date.now(), autoSelect: !(readConfig().playback && readConfig().playback.autoSelect === false),
+    ffmpeg: !!FFMPEG, ffprobe: !!FFPROBE, hwEncoder: HWENC || '', mediarr,
+    plex: { configured: !!plex.configured, error: plex.error || '', count: plex.count || 0, transcoding: plexTranscoding, sessions: plex.sessions || [] },
+    counts: { mediarr: mediarr.length, plex: plex.count || 0, plexTranscoding }
+  };
+}
 // List the audio + (text) subtitle tracks in a file so the player can offer track selection.
 const TEXT_SUBS = ['subrip', 'srt', 'ass', 'ssa', 'mov_text', 'webvtt', 'text', 'dvb_teletext'];
 function webdavTracks (rel, res) {
@@ -4445,12 +4543,16 @@ const server = http.createServer(async (req, res) => {
         if (what) markMediaActivity(me, what, u.searchParams.get('path') || '');
       }
       if (p === '/api/webdav/stream' && req.method === 'GET') return webdavStream(u.searchParams.get('path') || '', req, res);
+      if (p === '/api/webdav/playback-plan' && req.method === 'GET') return browserPlaybackPlan(u.searchParams.get('path') || '', res);
       if (p === '/api/webdav/tracks' && req.method === 'GET') return webdavTracks(u.searchParams.get('path') || '', res);
       if (p === '/api/webdav/subtitle' && req.method === 'GET') return webdavSubtitle(u.searchParams.get('path') || '', u.searchParams.get('sidx'), res);
       if (p === '/api/webdav/hls/start' && req.method === 'GET') return webdavHlsStart(u.searchParams.get('path') || '', { ac: u.searchParams.get('ac'), vc: u.searchParams.get('vc'), aidx: u.searchParams.get('aidx'), q: u.searchParams.get('q') }, res, req, me);
       if (p === '/api/webdav/hls/stop' && req.method === 'GET') return webdavHlsStop(u.searchParams.get('sid') || '', res);
       { const hm = p.match(/^\/api\/webdav\/hls\/([A-Za-z0-9]+)\/([A-Za-z0-9_.-]+)$/); if (hm && req.method === 'GET') return webdavHlsFile(hm[1], hm[2], res); }
       if (p === '/api/webdav/download' && (req.method === 'GET' || req.method === 'HEAD')) return webdavDownload(u.searchParams.get('path') || '', res, me, req.method === 'HEAD', req);
+
+      // ---- admin: playback / transcode dashboard ----
+      if (p === '/api/admin/transcodes' && req.method === 'GET') return sendJSON(res, 200, await transcodeDashboard());
 
       // ---- admin: user management ----
       if (p === '/api/admin/users' && req.method === 'GET') {
@@ -4530,6 +4632,10 @@ const server = http.createServer(async (req, res) => {
       if (incoming.plex) {
         if (incoming.plex.url != null) cur.plex.url = normUrl(incoming.plex.url);
         if (incoming.plex.token)       cur.plex.token = incoming.plex.token;   // only overwrite when non-empty
+      }
+      if (incoming.playback) {
+        cur.playback = Object.assign({}, DEFAULT_CONFIG.playback, cur.playback || {});
+        if (incoming.playback.autoSelect != null) cur.playback.autoSelect = !!incoming.playback.autoSelect;
       }
       if (incoming.webdav) {
         if (incoming.webdav.url != null)      cur.webdav.url = normUrl(incoming.webdav.url);

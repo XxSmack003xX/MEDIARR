@@ -4,7 +4,7 @@
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.3.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-1.3.1-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.3.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.3.1 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -50,6 +50,7 @@ This README is written against the **v1.3.0 source in this repository**. Feature
 - [Plex integration](#plex-integration)
 - [SABnzbd activity](#sabnzbd-activity)
 - [WebDAV and local media playback](#webdav-and-local-media-playback)
+- [Automatic playback selection and Transcode Dashboard](#automatic-playback-selection-and-transcode-dashboard)
 - [Calendar, health, and activity](#calendar-health-and-activity)
 - [Favorites and automation](#favorites-and-automation)
 - [RSS auto-add](#rss-auto-add)
@@ -116,6 +117,7 @@ This README is written against the **v1.3.0 source in this repository**. Feature
 - Select audio tracks and subtitles when detected.
 - Choose Original, 1080p, 720p, or 480p output presets.
 - Use hardware H.264 acceleration when MEDIARR detects a supported encoder.
+- Automatically choose direct play, HLS remux, audio-only transcode, or video transcode from source compatibility.
 
 ### Administration
 
@@ -131,6 +133,7 @@ This README is written against the **v1.3.0 source in this repository**. Feature
 - Docker Start / Stop / Restart controls using an explicit allow-list.
 - Saved maintenance commands.
 - GitHub Release update checking and Docker self-update with rollback.
+- Admin-controlled automatic playback selection and a live Transcode Dashboard.
 
 ### Deployment
 
@@ -271,8 +274,8 @@ Once a release has been published, the recommended community installation is the
 A release ZIP contains a `docker-compose.release.yml` that references the exact release image:
 
 ```bash
-unzip mediarr-1.3.0.zip
-cd mediarr-1.3.0
+unzip mediarr-1.3.1.zip
+cd mediarr-1.3.1
 mkdir -p data
 docker compose -f docker-compose.release.yml up -d
 ```
@@ -282,7 +285,7 @@ Using versioned images is important because MEDIARR's updater can retain the pre
 The release workflow publishes images in this form:
 
 ```text
-ghcr.io/xxsmack003xx/mediarr:1.3.0
+ghcr.io/xxsmack003xx/mediarr:1.3.1
 ghcr.io/xxsmack003xx/mediarr:latest
 ```
 
@@ -507,6 +510,8 @@ Admins can access:
 - System commands.
 - RSS automation.
 - System Update.
+- Automatic playback selection settings.
+- Transcode Dashboard for MEDIARR and Plex playback sessions.
 
 ### Regular users
 
@@ -791,6 +796,64 @@ Use proxy mode when a browser cannot safely reach the WebDAV server directly, su
 
 ---
 
+## Automatic playback selection and Transcode Dashboard
+
+MEDIARR v1.3.1 adds two administrator-focused playback tools: **Automatic playback selection** and the **Transcode Dashboard**. Both are available on the desktop and mobile interfaces.
+
+### Automatic playback selection
+
+Automatic playback selection is enabled by default and can be changed under **Admin → Playback & transcoding**.
+
+Before starting a WebDAV/local video, MEDIARR uses `ffprobe` to inspect the source container, video codec, audio codec, and pixel format. It then chooses the least expensive playback path that is broadly browser-compatible:
+
+| Source | Automatic decision | What MEDIARR does |
+| --- | --- | --- |
+| Browser-friendly container/codecs | **Direct play** | Sends the original media with range support; FFmpeg is not used. |
+| H.264 + AAC/MP3 in a container that browsers do not reliably play directly, such as MKV | **Remux** | Uses seekable HLS and copies the compatible streams without re-encoding them. |
+| H.264 video with incompatible audio such as AC3/E-AC3/DTS/TrueHD | **Audio transcode** | Copies H.264 video and converts only the audio to AAC. |
+| HEVC/H.265, unsupported/10-bit video, or another HLS-incompatible video stream | **Video transcode** | Converts video to browser-friendly H.264 and converts audio only when necessary. |
+
+The goal is to avoid unnecessary quality loss and CPU/GPU work. A remux changes the streaming container but does **not** re-encode compatible video/audio.
+
+If `ffmpeg` or `ffprobe` is unavailable, MEDIARR falls back to the older direct-play-first behavior. The official Docker image includes both tools.
+
+### Manual playback overrides
+
+Automatic selection does not remove the existing player controls. These still take priority:
+
+- **Force transcode**.
+- Quality selection: Original, 1080p, 720p, or 480p.
+- Stereo downmix.
+- Selecting an alternate audio track.
+
+The older **Force transcoded playback by default** WebDAV/local setting also overrides automatic selection when enabled.
+
+### Transcode Dashboard
+
+Administrators can open **Transcodes** from the desktop header, **Transcode Dashboard** from the mobile menu, or use the button under **Admin → Playback & transcoding**. The dashboard refreshes every five seconds while open.
+
+The dashboard shows MEDIARR's active FFmpeg-backed sessions, including:
+
+- File title and MEDIARR user.
+- Local vs WebDAV source.
+- Seekable HLS vs live fallback streaming.
+- Remux, audio-transcode, or video-transcode mode.
+- Source video/audio codecs.
+- Selected quality.
+- Encoder in use (`copy`, `libx264`, NVENC, Quick Sync, or VideoToolbox when available).
+- Hardware-acceleration state.
+- Session age.
+- HLS generation progress when available.
+
+When Plex is configured, the same dashboard also includes active Plex playback decisions and technical details reported by Plex, such as direct play/direct stream/transcode mode, source/stream bitrate, target codecs/resolution, hardware-transcode state, transcode speed, and progress.
+
+> [!NOTE]
+> A MEDIARR session that is truly direct-playing does not start FFmpeg, so it does not appear in the MEDIARR FFmpeg session list. Plex direct-play sessions still appear in the Plex portion of the dashboard because Plex reports all active sessions.
+
+The dashboard API is administrator-only (`GET /api/admin/transcodes`). MEDIARR does not return WebDAV credentials, source URLs containing credentials, or Plex viewer IP addresses through this dashboard.
+
+---
+
 ## Calendar, health, and activity
 
 ### Upcoming calendar
@@ -1038,7 +1101,7 @@ The replacement must become healthy. If it does not, the helper attempts to recr
 The release workflow publishes both:
 
 ```text
-:1.3.0
+:1.3.1
 :latest
 ```
 

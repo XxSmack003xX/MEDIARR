@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.1
+
+- Added an admin-controlled **Automatic playback selection** option, enabled by default.
+- Added codec/container probing before WebDAV/local playback so MEDIARR can choose direct play, lossless HLS remux, audio-only transcode, or full video transcode automatically.
+- Added an admin-only **Transcode Dashboard** on desktop and mobile with five-second live refresh.
+- Added live MEDIARR HLS/fallback FFmpeg session details including mode, source codecs, quality, encoder, hardware acceleration, age, and HLS progress.
+- Added Plex playback/transcode details to the Transcode Dashboard, including bitrate, transcode target, hardware usage, speed, and progress when Plex reports them.
+- Kept manual quality, audio-track, stereo-downmix, and Force transcode controls as explicit overrides of automatic selection.
+- Tightened HLS stream-copy decisions so MPEG-TS remux only copies compatible 8-bit H.264 video; incompatible video is automatically re-encoded to H.264.
+
 ## 1.3.0
 
 - Added an admin-only **System Update** page on desktop and mobile.

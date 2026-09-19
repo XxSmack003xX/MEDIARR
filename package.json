@@ -1,7 +1,7 @@
 {
   "name": "mediarr",
-  "version": "1.3.0",
-  "description": "Self-hosted media discovery, Radarr/Sonarr management, manual release search, Docker controls, Plex tools, browser playback, and GitHub-based system updates.",
+  "version": "1.3.1",
+  "description": "Self-hosted media discovery, Radarr/Sonarr management, manual release search, Docker controls, Plex tools, browser playback, automatic playback selection, a transcode dashboard, and GitHub-based system updates.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
