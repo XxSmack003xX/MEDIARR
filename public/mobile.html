@@ -942,11 +942,18 @@ async function openDetail(it){
   const pos= poster?`<img class="detail-poster" src="${esc(poster)}" onerror="this.style.display='none'">`:'';
   $('detailBody').innerHTML = `<div class="d-flex gap-3">${pos}<div><div class="fw-bold">${esc(title)}</div><div class="text-secondary small">${esc(year||'')} · ${it.kind==='movie'?'Movie':'TV'}</div></div></div>
     ${overview?'<p class="small mt-3 mb-0">'+esc(overview)+'</p>':''}
-    <div id="dActionWrap">${action}</div>
+    <div id="unifiedMediaDetailM"></div>\n    <div id="dActionWrap">${action}</div>
     <div id="dFileInfo"></div>
     <div id="dTrailer" class="mt-2"></div>
     <div id="dCredits"></div>
     <div id="dRecs"></div>`;
+  if(window.MEDIARRUnifiedDetail){
+    window.MEDIARRUnifiedDetail.load({
+      mount:'unifiedMediaDetailM', surface:'mobile', type:it.kind==='movie'?'movie':'series',
+      arrId:libItem&&libItem.id, imdbId:it.imdb||'', tmdbId:it.tmdb||'',
+      tvdbId:libItem&&libItem.tvdbId||'', title:title||it.title||'', year:year||it.year||'', admin:!!(me&&me.role==='admin')
+    });
+  }
   const addEl=$('dAdd'); if(addEl) addEl.onclick=()=> doAdd(addEl, it, $('dOpt')?$('dOpt').value:null);
   const man=$('dManual'); if(man&&libItem) man.onclick=()=>{ try{bootstrap.Modal.getInstance($('detail'))?.hide();}catch(e){} if(it.kind==='movie')openManualReleasesM('radarr',{movieId:libItem.id},title); else openSeriesReleasePickerM(libItem.id,title); };
   if(it.kind==='movie' && have) loadMovieFileInfoM(it);
@@ -2123,5 +2130,6 @@ $('mQueue').onclick=openQueueM;
   const hd=$('abHideM'); if(hd) hd.onclick=()=>dismissAutoM(lastAutoIdM!=null?lastAutoIdM:autoWatchingM); }
 </script>
 <script src="/v140.js"></script>
+<script src="/v150.js"></script>
 </body>
 </html>
