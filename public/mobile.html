@@ -2122,5 +2122,6 @@ $('mQueue').onclick=openQueueM;
 { const st=$('abStopM'); if(st) st.onclick=async()=>{ try{ const j=await readJson(await fetch('/api/autoadd/stop',{method:'POST'})); renderAutoM(j.data||{}); }catch(e){} };
   const hd=$('abHideM'); if(hd) hd.onclick=()=>dismissAutoM(lastAutoIdM!=null?lastAutoIdM:autoWatchingM); }
 </script>
+<script src="/v140.js"></script>
 </body>
 </html>
