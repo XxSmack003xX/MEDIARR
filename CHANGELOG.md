@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.2
+
+- Replaced the crowded desktop action strip with a collapsible left-side navigation drawer.
+- Grouped navigation into Library, Discover, Account, Monitoring, Administration, Support, and Session sections.
+- Kept existing admin-only visibility rules for Settings, Admin, System Update, Docker controls, and the Transcode Dashboard.
+- Added keyboard and accessibility behavior: Escape-to-close, outside-click close, focus handoff, ARIA state, and body scroll locking while the drawer is open.
+- Preserved all existing action element IDs and handlers so the navigation redesign does not change feature behavior.
+- Left the existing Bootstrap mobile menu intact while making the desktop layout substantially cleaner.
+
 ## 1.3.1
 
 - Added an admin-controlled **Automatic playback selection** option, enabled by default.

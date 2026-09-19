@@ -830,7 +830,7 @@ The older **Force transcoded playback by default** WebDAV/local setting also ove
 
 ### Transcode Dashboard
 
-Administrators can open **Transcodes** from the desktop header, **Transcode Dashboard** from the mobile menu, or use the button under **Admin → Playback & transcoding**. The dashboard refreshes every five seconds while open.
+Administrators can open **Transcodes** from the desktop left navigation drawer, **Transcode Dashboard** from the mobile menu, or use the button under **Admin → Playback & transcoding**. The dashboard refreshes every five seconds while open.
 
 The dashboard shows MEDIARR's active FFmpeg-backed sessions, including:
 
@@ -1516,8 +1516,26 @@ Because desktop and mobile currently maintain separate frontend implementations,
 
 ---
 
+## License
+
+No open-source license has been selected for this repository yet.
+
+Publishing source code on GitHub does **not** automatically grant broad reuse/redistribution rights. If the project is intended to accept outside redistribution or derivative works, add an explicit license such as MIT, Apache-2.0, GPL-3.0, or another license appropriate for the project.
+
+---
+
 ## Acknowledgements
 
 MEDIARR builds on the APIs and ecosystems of projects/services including Radarr, Sonarr, Plex, TMDB, SABnzbd, Docker, GitHub, Bootstrap, hls.js, FFmpeg, and the wider self-hosted media community.
 
 Project home: **https://github.com/XxSmack003xX/MEDIARR**
+
+
+## Desktop navigation drawer
+
+MEDIARR **v1.3.2** replaces the crowded desktop header action strip with a collapsible navigation drawer on the left side of the application. The header now stays focused on the MEDIARR brand and a single **Menu** control, while the existing actions are organized into logical sections inside the drawer.
+
+The drawer groups tools into **Library**, **Discover**, **Account**, **Monitoring**, **Administration**, **Support**, and **Session** sections. Existing permissions are unchanged: admin-only actions such as **Transcodes**, **Settings**, **Admin**, **System Update**, Docker controls, and other administrative tools are still hidden from normal users.
+
+The drawer closes automatically when an action is selected, when the dimmed backdrop is clicked, or when **Escape** is pressed. Focus is moved into the drawer when it opens and returned to the previous control when it closes. The existing mobile Bootstrap menu remains unchanged.
+

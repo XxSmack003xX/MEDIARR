@@ -8,7 +8,7 @@ MEDIARR uses semantic versions, Git tags, GitHub Releases, GitHub Actions, and G
 
 ## Release model
 
-A release tag such as `v1.3.1` must match the version in `package.json` (`1.3.1`). Pushing the tag runs `.github/workflows/release.yml`.
+A release tag such as `v1.3.2` must match the version in `package.json` (`1.3.2`). Pushing the tag runs `.github/workflows/release.yml`.
 
 The workflow:
 
@@ -65,18 +65,18 @@ Before creating a release:
 
 ## Publish a release
 
-For version `1.3.1`:
+For version `1.3.2`:
 
 ```bash
 git checkout main
 git pull
 
 git add package.json CHANGELOG.md README.md
-git commit -m "Release MEDIARR v1.3.1"
+git commit -m "Release MEDIARR v1.3.2"
 git push origin main
 
-git tag v1.3.1
-git push origin v1.3.1
+git tag v1.3.2
+git push origin v1.3.2
 ```
 
 The tag push starts the release workflow automatically.
@@ -100,13 +100,13 @@ Confirm that all of these completed:
 The release should contain a ZIP named like:
 
 ```text
-mediarr-1.3.1.zip
+mediarr-1.3.2.zip
 ```
 
 The ZIP contains a version-specific `docker-compose.release.yml` that references:
 
 ```text
-ghcr.io/xxsmack003xx/mediarr:1.3.1
+ghcr.io/xxsmack003xx/mediarr:1.3.2
 ```
 
 It must not contain runtime files such as:
@@ -132,7 +132,7 @@ backups/
 After the workflow finishes, confirm these tags exist:
 
 ```text
-ghcr.io/xxsmack003xx/mediarr:1.3.1
+ghcr.io/xxsmack003xx/mediarr:1.3.2
 ghcr.io/xxsmack003xx/mediarr:latest
 ```
 
@@ -165,7 +165,7 @@ MAJOR.MINOR.PATCH
 Examples:
 
 ```text
-v1.3.1
+v1.3.2
 v1.4.0
 v2.0.0
 ```
@@ -174,7 +174,7 @@ The application updater deliberately expects semantic release tags. Avoid using 
 
 ## Hotfix release
 
-For a small correction after `v1.3.1`:
+For a small correction after `v1.3.2`:
 
 1. Fix it on `main`.
 2. Change the package version to `1.3.2`.
