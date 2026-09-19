@@ -87,6 +87,7 @@ const DEFAULT_CONFIG = {
   plex:   { url: '', token: '', clientId: '' },
   webdav: { source: 'webdav', localPath: '', url: '', username: '', password: '', folder: '', mode: 'redirect', transcode: false, encSpeed: 'balanced', hwAccel: 'auto' },   // source: 'webdav' | 'local'   // encSpeed: balanced|faster|fastest|quality; hwAccel: auto|off
   playback: { autoSelect: true },   // probe browser playback compatibility and pick direct/remux/transcode automatically
+  realtime: { webhookToken: '', setupComplete: false },
   ui:     { loginTheme: 'tron' },  // login background theme: 'tron' | 'earth' | 'rain' | 'random'
   donate: { url: '', label: '' },  // PayPal donate link; when set, a Donate button appears for everyone
   autoAdd: { intervalMinutes: 5, minRuntime: 0 },
@@ -118,6 +119,7 @@ function readConfig () {
       plex:   Object.assign({}, DEFAULT_CONFIG.plex, c.plex),
       webdav: Object.assign({}, DEFAULT_CONFIG.webdav, c.webdav),
       playback: Object.assign({}, DEFAULT_CONFIG.playback, c.playback),
+      realtime: Object.assign({}, DEFAULT_CONFIG.realtime, c.realtime),
       ui:     Object.assign({}, DEFAULT_CONFIG.ui, c.ui),
       donate: Object.assign({}, DEFAULT_CONFIG.donate, c.donate),
       autoAdd: Object.assign({}, DEFAULT_CONFIG.autoAdd, c.autoAdd),
@@ -182,6 +184,7 @@ function sanitize (c) {
   out.plex = { url: c.plex.url, hasKey: !!c.plex.token };
   out.webdav = { source: (c.webdav.source === 'local' ? 'local' : 'webdav'), localPath: c.webdav.localPath || '', url: c.webdav.url, username: c.webdav.username, folder: c.webdav.folder, mode: wmode(c.webdav.mode), transcode: !!c.webdav.transcode, ffmpeg: !!FFMPEG, ffprobe: !!FFPROBE, hasAuth: !!(c.webdav.username && c.webdav.password), encSpeed: c.webdav.encSpeed || 'balanced', hwAccel: c.webdav.hwAccel || 'auto', hwEncoder: HWENC || '' };
   out.playback = { autoSelect: !(c.playback && c.playback.autoSelect === false) };
+  out.realtime = { setupComplete: !!(c.realtime && c.realtime.setupComplete) };
   out.ui = { loginTheme: (c.ui && c.ui.loginTheme) || 'tron' };
   out.donate = { url: (c.donate && c.donate.url) || '', label: (c.donate && c.donate.label) || '' };
   out.sab = { url: c.sab.url, hasKey: !!c.sab.apiKey };
@@ -547,6 +550,116 @@ function sendJSON (res, status, obj) {
   const s = JSON.stringify(obj);
   res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(s) });
   res.end(s);
+}
+
+/* ---------- realtime events / SSE / arr webhooks ---------- */
+const realtimeClients = new Set();
+const realtimeEvents = [];
+let realtimeSeq = 0;
+function ensureWebhookToken () {
+  const cfg = readConfig();
+  cfg.realtime = Object.assign({}, DEFAULT_CONFIG.realtime, cfg.realtime || {});
+  if (/^[a-f0-9]{24,}$/i.test(String(cfg.realtime.webhookToken || ''))) return cfg.realtime.webhookToken;
+  cfg.realtime.webhookToken = crypto.randomBytes(18).toString('hex');
+  writeConfig(cfg);
+  return cfg.realtime.webhookToken;
+}
+function secureEqual (a, b) {
+  const A = Buffer.from(String(a || '')), B = Buffer.from(String(b || ''));
+  return A.length === B.length && A.length > 0 && crypto.timingSafeEqual(A, B);
+}
+function realtimePush (kind, data) {
+  const ev = { id: ++realtimeSeq, ts: Date.now(), kind: String(kind || 'event'), data: data || {} };
+  realtimeEvents.unshift(ev);
+  if (realtimeEvents.length > 120) realtimeEvents.length = 120;
+  const msg = 'id: ' + ev.id + '\nevent: mediarr\ndata: ' + JSON.stringify(ev) + '\n\n';
+  for (const client of [...realtimeClients]) {
+    try { client.res.write(msg); } catch (_) { realtimeClients.delete(client); }
+  }
+  return ev;
+}
+function realtimeSnapshot () {
+  let cache = {};
+  try { cache = readLibCache(); } catch (_) {}
+  let transcodes = [];
+  try { transcodes = mediarrTranscodeSessions(); } catch (_) {}
+  const one = svc => {
+    const c = cache[svc] || {};
+    return { count: Number(c.count) || (Array.isArray(c.items) ? c.items.length : 0), ts: c.ts || null, ageSeconds: c.ts ? Math.max(0, Math.round((Date.now() - c.ts) / 1000)) : null };
+  };
+  return {
+    now: Date.now(),
+    clients: realtimeClients.size,
+    services: healthState && healthState.services ? healthState.services : {},
+    libraries: { radarr: one('radarr'), sonarr: one('sonarr') },
+    transcodes: transcodes.slice(0, 20),
+    recent: realtimeEvents.slice(0, 30)
+  };
+}
+function openRealtimeStream (req, res, user) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  const client = { res, username: user.username, joined: Date.now() };
+  realtimeClients.add(client);
+  res.write('retry: 3000\n');
+  res.write('event: snapshot\ndata: ' + JSON.stringify(realtimeSnapshot()) + '\n\n');
+  realtimePush('sse.connected', { user: user.username, clients: realtimeClients.size });
+  const heartbeat = setInterval(() => {
+    try { res.write(': heartbeat ' + Date.now() + '\n\n'); } catch (_) {}
+  }, 20000);
+  if (heartbeat.unref) heartbeat.unref();
+  const close = () => {
+    clearInterval(heartbeat);
+    const existed = realtimeClients.delete(client);
+    if (existed) realtimePush('sse.disconnected', { user: user.username, clients: realtimeClients.size });
+  };
+  req.on('close', close);
+  res.on('close', close);
+}
+function requestBaseUrl (req) {
+  const proto = String(req.headers['x-forwarded-proto'] || (req.socket && req.socket.encrypted ? 'https' : 'http')).split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || ('localhost:' + PORT)).split(',')[0].trim();
+  return proto + '://' + host;
+}
+function webhookInfo (req) {
+  const token = ensureWebhookToken();
+  const base = requestBaseUrl(req);
+  return {
+    token,
+    radarrUrl: base + '/api/webhooks/radarr?token=' + encodeURIComponent(token),
+    sonarrUrl: base + '/api/webhooks/sonarr?token=' + encodeURIComponent(token)
+  };
+}
+function setupWizardNeeded () {
+  const c = readConfig();
+  if (c.realtime && c.realtime.setupComplete) return false;
+  return !(c.radarr.url || c.sonarr.url || c.tmdb.apiKey || c.plex.url || c.sab.url || c.webdav.url || c.webdav.localPath);
+}
+async function handleArrWebhook (svc, req, res, urlObj) {
+  const supplied = urlObj.searchParams.get('token') || req.headers['x-mediarr-webhook-token'] || '';
+  const expected = ensureWebhookToken();
+  if (!secureEqual(supplied, expected)) return sendJSON(res, 401, { ok: false, message: 'Invalid webhook token' });
+  let body = {};
+  try { body = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
+  const eventType = String(body.eventType || body.eventtype || body.type || 'Unknown');
+  const item = svc === 'sonarr' ? (body.series || null) : (body.movie || null);
+  const title = String((item && item.title) || (body.episode && body.episode.title) || '').slice(0, 200);
+  if (item && item.id) {
+    try { upsertLibCacheItem(svc, item); } catch (_) {}
+  }
+  liveIdx[svc] = { ts: 0, ids: null };
+  if (!/^test$/i.test(eventType)) scheduleLibraryReconcile(svc, 250);
+  realtimePush('arr.webhook', {
+    service: svc, eventType, title,
+    itemId: item && item.id ? item.id : null,
+    downloaded: !!body.isUpgrade,
+    source: 'webhook'
+  });
+  return sendJSON(res, 200, { ok: true, service: svc, eventType, receivedAt: Date.now() });
 }
 
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.json':'application/json', '.svg':'image/svg+xml', '.png':'image/png', '.ico':'image/x-icon' };
@@ -1048,7 +1161,10 @@ function readAdds () {
   } catch (e) { return { adds: [] }; }
 }
 function writeAdds (a) { fs.writeFileSync(ADDS_PATH, JSON.stringify(a, null, 2)); _addsCache = a; try { _addsMtime = fs.statSync(ADDS_PATH).mtimeMs; } catch (e) { _addsMtime = 0; } }
-function logAdd (entry) { const a = readAdds(); a.adds.unshift(entry); if (a.adds.length > MAX_ADDS_LOG) a.adds.length = MAX_ADDS_LOG; writeAdds(a); }
+function logAdd (entry) {
+  const a = readAdds(); a.adds.unshift(entry); if (a.adds.length > MAX_ADDS_LOG) a.adds.length = MAX_ADDS_LOG; writeAdds(a);
+  try { realtimePush('activity', { service: entry.service || '', type: entry.type || '', title: entry.title || '', username: entry.username || '' }); } catch (_) {}
+}
 
 /* ---------- favorite TV shows (per user) ---------- */
 function readFavs () { try { return JSON.parse(fs.readFileSync(FAVS_PATH, 'utf8')); } catch (e) { return { users: {} }; } }
@@ -1468,6 +1584,7 @@ function recordStatus (name, up, meta) {
     error: meta.error || ''
   };
   saveHealth();
+  try { realtimePush('health', { service: name, status: healthState.services[name] }); } catch (_) {}
 }
 async function checkOne (t) {
   const start = Date.now();
@@ -1527,7 +1644,8 @@ async function proxyArr (svc, subPath, req, res) {
       notify('added', (svc === 'radarr' ? '🎬 ' : '📺 ') + title + (year ? ' (' + year + ')' : ''), 'Added to ' + (svc === 'radarr' ? 'Radarr' : 'Sonarr') + ' by ' + user.username, 'good');
       if (createdItem && createdItem.id) upsertLibCacheItem(svc, createdItem);
       if (svc === 'sonarr') scheduleLibraryReconcile('sonarr', 1500);
-      liveIdx[svc] = { ts: 0, ids: null };   // force a fresh "already added?" check next time
+      liveIdx[svc] = { ts: 0, ids: null };
+      realtimePush('arr.added', { service: svc, title, year, user: user.username, id: createdItem && createdItem.id || null });   // force a fresh "already added?" check next time
     }
     res.writeHead(up.status, { 'Content-Type': up.headers['content-type'] || 'application/json' });
     res.end(up.body);
@@ -2872,6 +2990,7 @@ async function addToArr (b, me, req, opts) {
   if (created.data && created.data.id) upsertLibCacheItem(svc, created.data);
   if (svc === 'sonarr') scheduleLibraryReconcile('sonarr', 1500);
   liveIdx[svc] = { ts: 0, ids: null };
+  realtimePush('arr.added', { service: svc, title: (created.data && created.data.title) || hit.title || b.title || '', user: me && me.username || '', id: created.data && created.data.id || null });
   if (me) logAdd({ ts: Date.now(), username: me.username, role: me.role, service: svc, type: isMovie ? 'movie' : 'series', title: hit.title, year: hit.year || '', ip: clientIp(req) });
   if (!quiet) notify('added', (isMovie ? '🎬 ' : '📺 ') + hit.title + (hit.year ? ' (' + hit.year + ')' : ''),
     'Added to ' + (isMovie ? 'Radarr' : 'Sonarr') + (me ? ' by ' + me.username : ''), 'good');
@@ -3759,6 +3878,7 @@ async function scanLibrary (svc) {
   const c = readLibCache();
   c[svc] = { items, ts: Date.now(), count: items.length };
   writeLibCache();
+  try { realtimePush('library', { service: svc, count: items.length, reason: 'scan' }); } catch (_) {}
   return { ok: true, count: items.length };
 }
 async function scanAllLibraries (reason) {
@@ -3896,6 +4016,10 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, publicUser(u, true));
     }
 
+    // Radarr/Sonarr Connect webhooks authenticate with their own generated token.
+    if (p === '/api/webhooks/radarr' && req.method === 'POST') return handleArrWebhook('radarr', req, res, u);
+    if (p === '/api/webhooks/sonarr' && req.method === 'POST') return handleArrWebhook('sonarr', req, res, u);
+
     // ---- everything else under /api requires a session ----
     if (p.startsWith('/api/v1/')) {
       const key = apiKeyFromReq(req, u);
@@ -3909,6 +4033,53 @@ const server = http.createServer(async (req, res) => {
       if (!me) return sendJSON(res, 401, { message: 'Not logged in' });
       const adminOnly = (p === '/api/config' && req.method === 'POST') || p.startsWith('/api/admin/') || p.startsWith('/api/releases') || (p === '/api/plex/scan' && req.method === 'POST');
       if (adminOnly && me.role !== 'admin') return sendJSON(res, 403, { message: 'Admin only' });
+
+      // ---- realtime dashboard + setup wizard (admin) ----
+      if (p === '/api/admin/realtime/stream' && req.method === 'GET') return openRealtimeStream(req, res, me);
+      if (p === '/api/admin/realtime/status' && req.method === 'GET') {
+        return sendJSON(res, 200, Object.assign(realtimeSnapshot(), { webhooks: webhookInfo(req), setupNeeded: setupWizardNeeded() }));
+      }
+      if (p === '/api/admin/setup/status' && req.method === 'GET') {
+        const cfg = readConfig();
+        return sendJSON(res, 200, {
+          needed: setupWizardNeeded(),
+          complete: !!(cfg.realtime && cfg.realtime.setupComplete),
+          configured: {
+            radarr: !!(cfg.radarr.url && cfg.radarr.apiKey),
+            sonarr: !!(cfg.sonarr.url && cfg.sonarr.apiKey),
+            tmdb: !!cfg.tmdb.apiKey
+          },
+          config: sanitize(cfg),
+          webhooks: webhookInfo(req)
+        });
+      }
+      if (p === '/api/admin/setup/skip' && req.method === 'POST') {
+        const cfg = readConfig();
+        cfg.realtime = Object.assign({}, DEFAULT_CONFIG.realtime, cfg.realtime || {}, { setupComplete: true });
+        if (!cfg.realtime.webhookToken) cfg.realtime.webhookToken = ensureWebhookToken();
+        writeConfig(cfg);
+        realtimePush('setup.completed', { user: me.username, skipped: true });
+        return sendJSON(res, 200, { ok: true, webhooks: webhookInfo(req) });
+      }
+      if (p === '/api/admin/setup/complete' && req.method === 'POST') {
+        let body = {}; try { body = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
+        const cfg = readConfig();
+        for (const svc of ['radarr','sonarr']) {
+          const v = body[svc] || {};
+          if (v.url != null) cfg[svc].url = normUrl(v.url);
+          if (v.apiKey) cfg[svc].apiKey = String(v.apiKey).trim();
+          if (v.qualityProfileId != null) cfg[svc].qualityProfileId = v.qualityProfileId;
+          if (v.rootFolderPath != null) cfg[svc].rootFolderPath = String(v.rootFolderPath);
+        }
+        if (body.tmdb && body.tmdb.apiKey) cfg.tmdb.apiKey = String(body.tmdb.apiKey).trim();
+        cfg.realtime = Object.assign({}, DEFAULT_CONFIG.realtime, cfg.realtime || {}, { setupComplete: true });
+        if (!cfg.realtime.webhookToken) cfg.realtime.webhookToken = crypto.randomBytes(18).toString('hex');
+        writeConfig(cfg);
+        liveIdx.radarr = { ts: 0, ids: null }; liveIdx.sonarr = { ts: 0, ids: null };
+        setTimeout(() => scanAllLibraries('setup-wizard').catch(() => {}), 100);
+        realtimePush('setup.completed', { user: me.username, skipped: false });
+        return sendJSON(res, 200, { ok: true, config: sanitize(cfg), webhooks: webhookInfo(req) });
+      }
 
       // ---- Plex: trigger a library scan (admin) ----
       if (p === '/api/plex/scan' && req.method === 'POST') return plexScan(res);
@@ -4667,6 +4838,10 @@ const server = http.createServer(async (req, res) => {
         cur.playback = Object.assign({}, DEFAULT_CONFIG.playback, cur.playback || {});
         if (incoming.playback.autoSelect != null) cur.playback.autoSelect = !!incoming.playback.autoSelect;
       }
+      if (incoming.realtime) {
+        cur.realtime = Object.assign({}, DEFAULT_CONFIG.realtime, cur.realtime || {});
+        if (incoming.realtime.setupComplete != null) cur.realtime.setupComplete = !!incoming.realtime.setupComplete;
+      }
       if (incoming.webdav) {
         if (incoming.webdav.url != null)      cur.webdav.url = normUrl(incoming.webdav.url);
         if (incoming.webdav.username != null) cur.webdav.username = String(incoming.webdav.username).trim();
@@ -4828,4 +5003,6 @@ server.listen(PORT, HOST, () => {
   // background health monitoring: first run shortly after boot, then on an interval
   setTimeout(() => { runAllChecks().catch(() => {}); }, 2500);
   setInterval(() => { runAllChecks().catch(() => {}); }, HEALTH_INTERVAL_MS);
+  const rt = setInterval(() => { if (realtimeClients.size) realtimePush('snapshot', realtimeSnapshot()); }, 5000);
+  if (rt.unref) rt.unref();
 });
