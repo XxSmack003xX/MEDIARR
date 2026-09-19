@@ -1,0 +1,41 @@
+# ── MEDIARR behind Caddy on a DuckDNS domain ───────────────────────────────
+# 1) Point your DuckDNS subdomain at this machine's public IP (DuckDNS updater).
+# 2) Run MEDIARR bound to localhost so only Caddy can reach it:
+#       HOST=127.0.0.1 PORT=7575 node server.js
+# 3) Put this file at /etc/caddy/Caddyfile (replace MYNAME + the token), then:
+#       sudo systemctl reload caddy
+#
+# Caddy gets a free HTTPS certificate automatically and forwards the real
+# client protocol via X-Forwarded-Proto, which MEDIARR uses to set a Secure
+# cookie. Nothing else needs configuring.
+#
+# IMPORTANT: proxy the WHOLE site to MEDIARR (one reverse_proxy, no file_server
+# and no path matchers). MEDIARR serves its own HTML *and* its /api endpoints,
+# so if Caddy serves files itself or only proxies some paths, /api/login returns
+# an empty/HTML body and the login screen shows a JSON parse error.
+
+# ── Option A: ports 80 + 443 are reachable from the internet (simplest) ──────
+MYNAME.duckdns.org {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:7575
+}
+
+# ── Option B: your ISP blocks port 80, so use the DNS challenge instead ───────
+# Requires a Caddy build that includes the DuckDNS DNS module, e.g.:
+#       xcaddy build --with github.com/caddy-dns/duckdns
+# (or download a Caddy build with "caddy-dns/duckdns" from caddyserver.com/download)
+#
+# MYNAME.duckdns.org {
+#     encode zstd gzip
+#     reverse_proxy 127.0.0.1:7575
+#     tls {
+#         dns duckdns YOUR_DUCKDNS_TOKEN
+#     }
+# }
+
+# Notes
+# • Replace MYNAME with your DuckDNS subdomain and YOUR_DUCKDNS_TOKEN with the
+#   token from your DuckDNS account page.
+# • If MEDIARR runs in Docker, change 127.0.0.1:7575 to the container's
+#   host:port (e.g. mediarr:7575) and make sure Caddy is on the same network.
+# • The app stays plain HTTP internally; Caddy handles all TLS.
