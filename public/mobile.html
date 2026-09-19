@@ -324,6 +324,15 @@ async function refreshLiveIdsM(force){
 const tmdbAddedM = new Map();
 const tmdbCheckedAtM = new Map();
 const TMDB_NEGATIVE_TTL_M = 10000;
+let tmdbRecheckTimerM = null;
+function scheduleTmdbRecheckM(){
+  if(tmdbRecheckTimerM) return;
+  tmdbRecheckTimerM=setTimeout(()=>{
+    tmdbRecheckTimerM=null;
+    const items=lastItems||[];
+    verifyAddedM(items).then(changed=>{ if(changed && lastItems===items) paint(); }).catch(()=>{});
+  },TMDB_NEGATIVE_TTL_M+500);
+}
 function inLib(type, {imdb, tmdb}){
   const svc = type==='movie' ? 'radarr' : 'sonarr';
   const L = liveIdsM[svc];
@@ -353,11 +362,14 @@ async function verifyAddedM(items){
       const r=await fetch('/api/library/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:need.slice(i,i+24)})});
       if(!r.ok) continue;
       const j=await readJson(r); const added=(j.data&&j.data.added)||{};
+      let hasNegative=false;
       Object.keys(added).forEach(k=>{
         if(added[k] && tmdbAddedM.get(k)!==true) learned=true;
         tmdbAddedM.set(k,!!added[k]);
         tmdbCheckedAtM.set(k,Date.now());
+        if(!added[k]) hasNegative=true;
       });
+      if(hasNegative) scheduleTmdbRecheckM();
     }catch(e){}
   }
   return learned;
