@@ -1,0 +1,42 @@
+name: Validate MEDIARR v1.3.3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.validate-v1.3.3.trigger'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Validate Node and browser scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node -p "require('./package.json').version")" = "1.3.3"
+          node --check server.js
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          for fn in ('public/index.html','public/mobile.html'):
+              text=Path(fn).read_text()
+              scripts=re.findall(r'<script(?: [^>]*)?>(.*?)</script>', text, re.S)
+              body='\n'.join(s for s in scripts if s.strip())
+              p=Path('/tmp')/(Path(fn).name+'.js')
+              p.write_text(body)
+              subprocess.run(['node','--check',str(p)],check=True)
+          PY
+          grep -q "const SONARR_LIBRARY_MAX_AGE_MS = 15000;" server.js
+          grep -q "const SONARR_LIVE_IDS_TTL = 15000;" server.js
+          grep -q "upsertLibCacheItem(svc, created.data)" server.js
+          grep -q "scheduleLibraryReconcile('sonarr', 1500)" server.js
+          ! grep -q "refreshLibrary(true)" public/index.html
+          ! grep -q "loadLibrary(true)" public/mobile.html
