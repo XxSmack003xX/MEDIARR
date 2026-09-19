@@ -35,7 +35,7 @@ jobs:
           grep -q '<script src="/v140.js"></script>' public/mobile.html
           grep -q 'public/v140.js' .github/workflows/release.yml
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "IMAGE=ghcr.io/\${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Create v1.4.0 tag
         shell: bash
@@ -54,7 +54,7 @@ jobs:
 
       - name: Log in to GitHub Container Registry
         shell: bash
-        run: echo "\${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "\${{ github.actor }}" --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Build and push release image
         shell: bash
@@ -102,7 +102,7 @@ jobs:
 
       - name: Publish GitHub Release
         env:
-          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
