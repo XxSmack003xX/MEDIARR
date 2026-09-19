@@ -6062,7 +6062,7 @@ async function onAuthed(){
   pollAuto();       // pick up any auto-add job still running on the server
   refreshPlexMe();  // enables the ★ watchlist button when the user has linked Plex
   loadMyTheme();    // apply this user's personal colours
-  if(currentUser.role==='admin' && !isConfigured('radarr') && !isConfigured('sonarr')) openSettings(true);
+  // v1.4+ first-run configuration is handled by the shared setup wizard.
   qInput.focus();
   showHome();   // greet with recently released movies
   pollStreams();
@@ -6095,5 +6095,6 @@ async function onAuthed(){
   if(proxyWarn){ const el=document.getElementById('authErr'); if(el) el.textContent = proxyWarn; }
 })();
 </script>
+<script src="/v140.js"></script>
 </body>
 </html>
