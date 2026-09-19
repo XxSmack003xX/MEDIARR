@@ -1,0 +1,28 @@
+# MEDIARR runtime state / secrets
+config.json
+users.json
+adds.json
+favorites.json
+health.json
+rss.json
+blocked.json
+autoadd.json
+library-cache.json
+error-log.json
+plex-cache.json
+backups/
+data/
+
+# Local / editor / OS
+.env
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+node_modules/
+
+# Generated frontend CDN caches
+public/bootstrap.min.css
+public/bootstrap.bundle.min.js
+public/hls.min.js
