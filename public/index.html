@@ -1337,7 +1337,7 @@ function asList(d){
 // Live "already added?" sets, checked straight against Radarr/Sonarr (short server-side TTL).
 const liveIds = { radarr:{imdb:new Set(),tmdb:new Set()}, sonarr:{imdb:new Set(),tvdb:new Set()}, at:0 };
 async function refreshLiveIds(force){
-  if(!force && Date.now()-liveIds.at < 45000) return;
+  if(!force && Date.now()-liveIds.at < 15000) return;
   liveIds.at = Date.now();
   await Promise.all(['radarr','sonarr'].map(async svc=>{
     if(!isConfigured(svc)) return;
@@ -3005,9 +3005,11 @@ function renderResults(metas){
     { const ab=card.querySelector('.card-add'); if(ab && !inLib) ab.onclick=()=>quickAddCin(ab, m); }
     if(m.type==='series') decorateTvCard(card, { title:m.name, imdbId:(String(m.id||'').startsWith('tt')?m.id:''), tmdbId:(String(m.id||'').startsWith('tmdb:')?Number(String(m.id).slice(5)):null), poster:m.poster||'' });
     decorateWatchlist(card, { title:m.name, year:(m.releaseInfo||'').slice(0,4), type:m.type==='series'?'series':'movie' });
+    if(m.type==='series' && String(m.id||'').startsWith('tmdb:')) card.dataset.tmdbkey='series:'+String(m.id).slice(5);
     grid.appendChild(card);
   });
   results.innerHTML=''; results.appendChild(grid);
+  verifyTmdbCards(results);
   { const w=document.createElement('div'); w.style.cssText='text-align:center;margin-top:24px'; w.appendChild(autoAddButton()); results.appendChild(w); }
 }
 function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -3438,6 +3440,8 @@ async function arrLookupSrv(svc, m){
 // TMDB cards (year / studio / person / similar) don't carry imdb-tvdb ids, so ask the
 // server which of them are already in the library and repaint those buttons.
 const tmdbAdded = new Map();          // "type:tmdbId" -> true/false
+const tmdbCheckedAt = new Map();       // false answers expire so newly-added Sonarr shows can be detected
+const TMDB_NEGATIVE_TTL_MS = 10000;
 function markTmdbCard(card, isAdded){
   const btn = card.querySelector('.card-add');
   if(!btn) return;
@@ -3452,9 +3456,12 @@ async function verifyTmdbCards(scope){
   const cards = [...root.querySelectorAll('[data-tmdbkey]')];
   if(!cards.length) return;
   const need = [];
+  const now = Date.now();
   cards.forEach(c=>{
     const key=c.dataset.tmdbkey;
-    if(tmdbAdded.has(key)){ if(tmdbAdded.get(key)) markTmdbCard(c,true); return; }
+    if(tmdbAdded.get(key) === true){ markTmdbCard(c,true); return; }
+    const checked = tmdbCheckedAt.get(key) || 0;
+    if(tmdbAdded.has(key) && (now - checked) < TMDB_NEGATIVE_TTL_MS) return;
     const [type,id]=key.split(':');
     need.push({type, tmdbId:Number(id), key});
   });
@@ -3468,7 +3475,11 @@ async function verifyTmdbCards(scope){
       if(!r.ok) continue;
       const d=await r.json(); const added=d.added||{};
       let learnedAdded = false;
-      Object.keys(added).forEach(k=>{ if(added[k] && tmdbAdded.get(k)!==true) learnedAdded=true; tmdbAdded.set(k, !!added[k]); });
+      Object.keys(added).forEach(k=>{
+        if(added[k] && tmdbAdded.get(k)!==true) learnedAdded=true;
+        tmdbAdded.set(k, !!added[k]);
+        tmdbCheckedAt.set(k, Date.now());
+      });
       cards.forEach(c=>{ if(tmdbAdded.get(c.dataset.tmdbkey)) markTmdbCard(c,true); });
       // "Hide added" filters before verification finishes, so re-filter once we learn more
       if(hideAdded && learnedAdded) { rerenderCurrentView(); return; }
@@ -3594,7 +3605,7 @@ async function cardAdd(btn, payload, svcClass){
   btn.disabled=true; btn.textContent='Adding…';
   try{
     const d=await addViaServer(payload);
-    if(memKey) tmdbAdded.set(memKey, true);
+    if(memKey){ tmdbAdded.set(memKey, true); tmdbCheckedAt.set(memKey, Date.now()); }
     setAddBtn(btn,'added', d.alreadyInLibrary?'✓ In library':'✓ Added');
     await refreshLiveIds(true); refreshLibrary(); refreshMe();
   }catch(e){
