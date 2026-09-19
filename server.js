@@ -3203,7 +3203,7 @@ async function sonarrFileSummary (seriesId) {
   const items = eps.items || [];
   const now = Date.now();
   const aired = items.filter(e => e.airDateUtc && new Date(e.airDateUtc).getTime() <= now);
-  const future = items.filter(e => e.airDateUtc && new Date(e.airDateUtc).getTime() > now).sort((a,b)=>new Date(a.airDateUtc)-new Date(b.airDateUtc));
+  const future = items.filter(e => Number(e.seasonNumber) > 0 && e.airDateUtc && new Date(e.airDateUtc).getTime() > now).sort((a,b)=>new Date(a.airDateUtc)-new Date(b.airDateUtc));
   const real = items.filter(e => Number(e.seasonNumber) > 0);
   const seasons = new Map();
   for (const e of real) {
@@ -3291,7 +3291,7 @@ async function plexMediaAvailability (q) {
   results = results.filter(m => !m.type || m.type === want);
   results.sort((a,b)=>score(b)-score(a));
   const hit = results[0];
-  if (!hit || score(hit) < 20) return { configured: true, available: false };
+  if (!hit || score(hit) < 30) return { configured: true, available: false };
 
   let machineIdentifier = '';
   try {
