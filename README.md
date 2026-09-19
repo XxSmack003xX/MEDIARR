@@ -1453,14 +1453,6 @@ Because desktop and mobile currently maintain separate frontend implementations,
 
 ---
 
-## License
-
-No open-source license has been selected for this repository yet.
-
-Publishing source code on GitHub does **not** automatically grant broad reuse/redistribution rights. If the project is intended to accept outside redistribution or derivative works, add an explicit license such as MIT, Apache-2.0, GPL-3.0, or another license appropriate for the project.
-
----
-
 ## Acknowledgements
 
 MEDIARR builds on the APIs and ecosystems of projects/services including Radarr, Sonarr, Plex, TMDB, SABnzbd, Docker, GitHub, Bootstrap, hls.js, FFmpeg, and the wider self-hosted media community.
