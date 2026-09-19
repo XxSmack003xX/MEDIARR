@@ -570,8 +570,10 @@ function secureEqual (a, b) {
 }
 function realtimePush (kind, data) {
   const ev = { id: ++realtimeSeq, ts: Date.now(), kind: String(kind || 'event'), data: data || {} };
-  realtimeEvents.unshift(ev);
-  if (realtimeEvents.length > 120) realtimeEvents.length = 120;
+  if (ev.kind !== 'snapshot') {
+    realtimeEvents.unshift(ev);
+    if (realtimeEvents.length > 120) realtimeEvents.length = 120;
+  }
   const msg = 'id: ' + ev.id + '\nevent: mediarr\ndata: ' + JSON.stringify(ev) + '\n\n';
   for (const client of [...realtimeClients]) {
     try { client.res.write(msg); } catch (_) { realtimeClients.delete(client); }
@@ -4068,8 +4070,8 @@ const server = http.createServer(async (req, res) => {
           const v = body[svc] || {};
           if (v.url != null) cfg[svc].url = normUrl(v.url);
           if (v.apiKey) cfg[svc].apiKey = String(v.apiKey).trim();
-          if (v.qualityProfileId != null) cfg[svc].qualityProfileId = v.qualityProfileId;
-          if (v.rootFolderPath != null) cfg[svc].rootFolderPath = String(v.rootFolderPath);
+          if (v.qualityProfileId != null && String(v.qualityProfileId).trim() !== '') cfg[svc].qualityProfileId = v.qualityProfileId;
+          if (v.rootFolderPath != null && String(v.rootFolderPath).trim() !== '') cfg[svc].rootFolderPath = String(v.rootFolderPath);
         }
         if (body.tmdb && body.tmdb.apiKey) cfg.tmdb.apiKey = String(body.tmdb.apiKey).trim();
         cfg.realtime = Object.assign({}, DEFAULT_CONFIG.realtime, cfg.realtime || {}, { setupComplete: true });
