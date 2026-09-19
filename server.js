@@ -1520,10 +1520,13 @@ async function proxyArr (svc, subPath, req, res) {
     });
     // log + count only successful adds
     if (isAdd && up.status >= 200 && up.status < 300 && user) {
-      let title = '', year = '';
+      let title = '', year = '', createdItem = null;
       try { const b = JSON.parse(body || '{}'); title = b.title || ''; year = b.year || ''; } catch (e) {}
+      try { createdItem = JSON.parse(up.body.toString('utf8') || '{}'); } catch (e) {}
       logAdd({ ts: Date.now(), username: user.username, role: user.role, service: svc, type: svc === 'radarr' ? 'movie' : 'series', title, year, ip: clientIp(req) });
       notify('added', (svc === 'radarr' ? '🎬 ' : '📺 ') + title + (year ? ' (' + year + ')' : ''), 'Added to ' + (svc === 'radarr' ? 'Radarr' : 'Sonarr') + ' by ' + user.username, 'good');
+      if (createdItem && createdItem.id) upsertLibCacheItem(svc, createdItem);
+      if (svc === 'sonarr') scheduleLibraryReconcile('sonarr', 1500);
       liveIdx[svc] = { ts: 0, ids: null };   // force a fresh "already added?" check next time
     }
     res.writeHead(up.status, { 'Content-Type': up.headers['content-type'] || 'application/json' });
@@ -2866,6 +2869,8 @@ async function addToArr (b, me, req, opts) {
   if (!body.rootFolderPath) return { status: 400, body: { ok: false, message: 'No root folder set for ' + svc + ' — pick one in Settings' } };
   const created = await arrCreate(svc, body);
   if (!created.ok) { logError(svc + ':add', created.message, 'title=' + (hit.title || b.title || '')); return { status: 502, body: { ok: false, message: created.message } }; }
+  if (created.data && created.data.id) upsertLibCacheItem(svc, created.data);
+  if (svc === 'sonarr') scheduleLibraryReconcile('sonarr', 1500);
   liveIdx[svc] = { ts: 0, ids: null };
   if (me) logAdd({ ts: Date.now(), username: me.username, role: me.role, service: svc, type: isMovie ? 'movie' : 'series', title: hit.title, year: hit.year || '', ip: clientIp(req) });
   if (!quiet) notify('added', (isMovie ? '🎬 ' : '📺 ') + hit.title + (hit.year ? ' (' + hit.year + ')' : ''),
@@ -3143,13 +3148,15 @@ function warmExtMapFromLibrary (items, type) {
 /* Live "already added?" index — queried straight from Radarr/Sonarr with a short TTL so
    search results reflect reality, while the disk cache above keeps the browsers fast. */
 const LIVE_IDS_TTL = 60000;
+const SONARR_LIVE_IDS_TTL = 15000;
 let liveIdx = { radarr: { ts: 0, ids: null }, sonarr: { ts: 0, ids: null } };
 async function liveLibraryIds (svc, force) {
   const cur = liveIdx[svc];
   const cfg = readConfig()[svc];
   const empty = { imdb: [], tmdb: [], tvdb: [], file: [], ts: Date.now(), configured: false, live: false };
   if (!cfg.url || !cfg.apiKey) return empty;
-  if (!force && cur.ids && (Date.now() - cur.ts) < LIVE_IDS_TTL) {
+  const ttl = svc === 'sonarr' ? SONARR_LIVE_IDS_TTL : LIVE_IDS_TTL;
+  if (!force && cur.ids && (Date.now() - cur.ts) < ttl) {
     return Object.assign({}, cur.ids, { ageSeconds: Math.round((Date.now() - cur.ts) / 1000), live: false });
   }
   const r = await arrListAll(svc, svc === 'radarr' ? '/api/v3/movie' : '/api/v3/series');
@@ -3715,6 +3722,27 @@ function slimItem (it, svc) {
   return base;
 }
 let libScanErr = { radarr: '', sonarr: '' };
+const SONARR_LIBRARY_MAX_AGE_MS = 15000;
+function upsertLibCacheItem (svc, raw) {
+  if (!raw || (!raw.id && !raw.title)) return false;
+  const item = slimItem(raw, svc);
+  const c = readLibCache();
+  const cur = c[svc] && Array.isArray(c[svc].items) ? c[svc].items.slice() : [];
+  const match = x => (item.id && Number(x.id) === Number(item.id)) ||
+    (item.imdbId && x.imdbId && String(x.imdbId).toLowerCase() === String(item.imdbId).toLowerCase()) ||
+    (svc === 'radarr' && item.tmdbId && String(x.tmdbId || '') === String(item.tmdbId)) ||
+    (svc === 'sonarr' && item.tvdbId && String(x.tvdbId || '') === String(item.tvdbId));
+  const idx = cur.findIndex(match);
+  if (idx >= 0) cur[idx] = item; else cur.push(item);
+  cur.sort((a, b) => String(a.sortTitle || a.title || '').localeCompare(String(b.sortTitle || b.title || '')));
+  c[svc] = { items: cur, ts: Date.now(), count: cur.length };
+  writeLibCache();
+  return true;
+}
+function scheduleLibraryReconcile (svc, delayMs) {
+  const t = setTimeout(() => { scanLibrary(svc).catch(() => {}); }, Math.max(250, Number(delayMs) || 1500));
+  if (t.unref) t.unref();
+}
 async function scanLibrary (svc) {
   const cfg = readConfig()[svc];
   if (!cfg.url || !cfg.apiKey) { libScanErr[svc] = svc + ' is not configured'; return { ok: false, message: libScanErr[svc] }; }
@@ -4317,8 +4345,10 @@ const server = http.createServer(async (req, res) => {
         if (!cfg.url || !cfg.apiKey) return sendJSON(res, 200, { items: [], configured: false });
         const c = readLibCache()[svc];
         const fresh = u.searchParams.get('fresh') === '1';
-        if (!fresh && c && c.items) {
-          return sendJSON(res, 200, { items: c.items, cached: true, ts: c.ts, ageMinutes: Math.round((Date.now() - c.ts) / 60000), configured: true });
+        const ageMs = c && c.ts ? (Date.now() - c.ts) : Infinity;
+        const sonarrCacheStillHot = svc !== 'sonarr' || ageMs < SONARR_LIBRARY_MAX_AGE_MS;
+        if (!fresh && c && c.items && sonarrCacheStillHot) {
+          return sendJSON(res, 200, { items: c.items, cached: true, ts: c.ts, ageMinutes: Math.round(ageMs / 60000), ageSeconds: Math.round(ageMs / 1000), configured: true });
         }
         const r = await arrListAll(svc, svc === 'radarr' ? '/api/v3/movie' : '/api/v3/series');
         if (!r.ok) return sendJSON(res, 200, { items: [], configured: true, error: 'Could not read ' + svc + ' (' + (r.shape || 'no data') + ')' });
