@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.3
+
+- Made Sonarr additions appear in MEDIARR much faster by patching successful adds directly into the cached Shows library.
+- Added a short Sonarr-only library freshness window so externally added shows are detected on the next MEDIARR request after roughly 15 seconds.
+- Reduced the Sonarr live "already added?" ID cache window from 60 seconds to 15 seconds while leaving Radarr unchanged.
+- Added a short delayed Sonarr reconciliation scan after successful adds so episode/file statistics catch up without blocking the add response.
+- Removed redundant forced full-library refreshes from desktop/mobile add flows; MEDIARR now reuses the freshly updated cache instead of immediately pulling the same Sonarr library twice.
+
 ## 1.3.2
 
 - Replaced the crowded desktop action strip with a collapsible left-side navigation drawer.
