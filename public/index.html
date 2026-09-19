@@ -3809,11 +3809,18 @@ function renderDetail(m, limited){
       </div>
     </div>
     ${limited?'<div class="note" style="margin-bottom:14px">Cinemeta had limited metadata for this title (often the case for brand-new releases), but you can still add it — Radarr/Sonarr will match it on their end.</div>':''}
-    ${actionHtml}<div id="progressMount"></div>
+    <div id="unifiedMediaDetail"></div>\n    ${actionHtml}<div id="progressMount"></div>
     <div id="trailerMount" style="margin:14px 0"></div>
     <div id="creditsMount"></div>
     <div id="recsMount"></div>
     ${seasonsHtml}`;
+  if(window.MEDIARRUnifiedDetail){
+    window.MEDIARRUnifiedDetail.load({
+      mount:'unifiedMediaDetail', surface:'desktop', type:isMovie?'movie':'series',
+      arrId:lib&&lib.id, imdbId:detailCtx.imdbId||'', tmdbId:detailCtx.tmdbId||'',
+      tvdbId:lib&&lib.tvdbId||'', title:m.name||'', year:String(m.releaseInfo||'').slice(0,4), admin:isAdmin
+    });
+  }
   if(trailerKey) renderDesktopTrailer(trailerKey);
   if(configured && !lib){
     const ab = document.getElementById('addBtn');
@@ -6096,5 +6103,6 @@ async function onAuthed(){
 })();
 </script>
 <script src="/v140.js"></script>
+<script src="/v150.js"></script>
 </body>
 </html>
