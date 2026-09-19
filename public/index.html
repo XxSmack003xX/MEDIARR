@@ -3596,7 +3596,7 @@ async function cardAdd(btn, payload, svcClass){
     const d=await addViaServer(payload);
     if(memKey) tmdbAdded.set(memKey, true);
     setAddBtn(btn,'added', d.alreadyInLibrary?'✓ In library':'✓ Added');
-    await refreshLiveIds(true); refreshLibrary(true); refreshMe();
+    await refreshLiveIds(true); refreshLibrary(); refreshMe();
   }catch(e){
     setAddBtn(btn,'err','✕ '+(e.message||'Failed'));
     btn.title=e.message||'';
@@ -4219,7 +4219,7 @@ async function addMovie(m){
       minimumAvailability:minAvail, search:doSearch });
     if(d.alreadyInLibrary) s2.ok('Already in your Radarr library.');
     else s2.ok('Added: '+esc(d.title||m.name)+(doSearch?' — monitored & search started':' — monitored'));
-    await refreshLiveIds(true); refreshLibrary(true);
+    await refreshLiveIds(true); refreshLibrary();
     P.step('Radarr will grab the best release once it reaches “'+minAvailLabel(minAvail)+'”.').info(); P.pct(100);
   }catch(e){ s2.fail('Add failed: '+e.message); }
   finishBtn();
@@ -4257,7 +4257,7 @@ async function addSeries(m){
     added = { id: dres.id, title: dres.title };
     if(dres.alreadyInLibrary) s2.ok('Already in your Sonarr library.');
     else s2.ok('Series added — Sonarr is populating the episode list');
-    await refreshLiveIds(true); refreshLibrary(true);
+    await refreshLiveIds(true); refreshLibrary();
   }catch(e){ s2.fail('Add failed: '+e.message); return finishBtn(); }
   P.pct(55);
   const s3 = P.step('Fetching episodes added…');
@@ -5996,7 +5996,7 @@ async function runImport(){
   }
   st.className='test-status ok'; st.textContent='Done — '+added+' added, '+skipped+' already there, '+failed+' failed';
   btn.disabled=false;
-  try{ refreshLiveIds(true); refreshLibrary(true); refreshMe(); }catch(e){}
+  try{ refreshLiveIds(true); refreshLibrary(); refreshMe(); }catch(e){}
 }
 async function createUser(){
   const err = document.getElementById('nu_err'); err.textContent='';
