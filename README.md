@@ -4,7 +4,7 @@
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.3.1-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-1.3.3-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.3.1 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.3.3 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -84,6 +84,7 @@ This README is written against the **v1.3.1 source in this repository**. Feature
 - Browse recently released titles.
 - View cast, crew, overview, artwork, related titles, and similar recommendations.
 - See whether a title is already present in Radarr/Sonarr before adding it.
+- Detect newly added Sonarr series quickly: MEDIARR updates its cache immediately for in-app adds and refreshes stale Sonarr library data after about 15 seconds.
 - Add movies to Radarr and series to Sonarr without exposing service API keys to the browser.
 
 ### Radarr and Sonarr management
