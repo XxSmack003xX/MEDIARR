@@ -97,8 +97,11 @@ function wireActions(mount,d,o){
         if(typeof window.openReleases==='function')window.openReleases('radarr',{movieId:d.arr.id},d.arr.title||d.identity.title);
         else if(typeof window.openManualReleasesM==='function')window.openManualReleasesM('radarr',{movieId:d.arr.id},d.arr.title||d.identity.title);
       }else{
-        if(typeof window.openSeriesReleasePicker==='function')window.openSeriesReleasePicker(d.arr.id,d.arr.title||d.identity.title);
-        else if(typeof window.openSeriesReleasePickerM==='function')window.openSeriesReleasePickerM(d.arr.id,d.arr.title||d.identity.title);
+        if(typeof window.openSeriesReleasePickerM==='function')window.openSeriesReleasePickerM(d.arr.id,d.arr.title||d.identity.title);
+        else {
+          var ep=document.getElementById('epList')||document.querySelector('.seasons');
+          if(ep&&ep.scrollIntoView)ep.scrollIntoView({behavior:'smooth',block:'start'});
+        }
       }
     }catch(e){}
   };
@@ -106,9 +109,8 @@ function wireActions(mount,d,o){
   if(sr)sr.onclick=async function(){
     sr.disabled=true;var old=sr.textContent;sr.textContent='Searching…';
     try{
-      var url=d.type==='movie'?'/api/radarr/api/v3/command':'/api/sonarr/api/v3/command';
-      var body=d.type==='movie'?{name:'MoviesSearch',movieIds:[d.arr.id]}:{name:'SeriesSearch',seriesId:d.arr.id};
-      var r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      var cmd=d.type==='movie'?{name:'MoviesSearch',movieIds:[d.arr.id]}:{name:'SeriesSearch',seriesId:d.arr.id};
+      var r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({svc:d.type==='movie'?'radarr':'sonarr',cmd:cmd})});
       if(!r.ok)throw new Error('HTTP '+r.status);sr.textContent='✓ Search started';
     }catch(e){sr.textContent='⚠ Search failed';}
     setTimeout(function(){sr.disabled=false;sr.textContent=old;},2500);
