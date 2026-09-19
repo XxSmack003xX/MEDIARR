@@ -1,0 +1,90 @@
+name: Publish MEDIARR release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO_LC="${GITHUB_REPOSITORY,,}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "repo_lc=$REPO_LC" >> "$GITHUB_OUTPUT"
+          node -e "const p=require('./package.json'); if (p.version !== process.argv[1]) { console.error('package.json version '+p.version+' does not match tag v'+process.argv[1]); process.exit(1) }" "$VERSION"
+
+      - name: Log in to GitHub Container Registry
+        shell: bash
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build release image
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ steps.meta.outputs.repo_lc }}"
+          docker build \
+            --build-arg MEDIARR_VERSION="${{ steps.meta.outputs.version }}" \
+            --build-arg MEDIARR_REPOSITORY="${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.version=${{ steps.meta.outputs.version }}" \
+            -t "$IMAGE:${{ steps.meta.outputs.version }}" \
+            -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ steps.meta.outputs.version }}"
+          docker push "$IMAGE:latest"
+
+      - name: Build release ZIP and Compose file
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          IMAGE="ghcr.io/${{ steps.meta.outputs.repo_lc }}:$VERSION"
+          mkdir -p "dist/mediarr-$VERSION/public"
+          cp package.json server.js update-helper.js README.md CHANGELOG.md SECURITY.md Caddyfile.example Dockerfile docker-entrypoint.sh docker-compose.yml "dist/mediarr-$VERSION/"
+          cp public/index.html public/mobile.html "dist/mediarr-$VERSION/public/"
+          cat > "dist/mediarr-$VERSION/docker-compose.release.yml" <<YAML
+          services:
+            mediarr:
+              image: $IMAGE
+              container_name: mediarr
+              init: true
+              restart: unless-stopped
+              ports:
+                - "7575:7575"
+              environment:
+                PORT: 7575
+                HOST: 0.0.0.0
+                DATA_DIR: /data
+                SESSION_HOURS: \${SESSION_HOURS:-1}
+                DOCKER_SOCKET: /var/run/docker.sock
+              volumes:
+                - ./data:/data
+                - \${DOCKER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock
+              extra_hosts:
+                - "host.docker.internal:host-gateway"
+          YAML
+          (cd dist && zip -qr "mediarr-$VERSION.zip" "mediarr-$VERSION")
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          gh release create "$GITHUB_REF_NAME" "dist/mediarr-$VERSION.zip" \
+            --title "MEDIARR v$VERSION" \
+            --generate-notes
