@@ -1,0 +1,2051 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c0c0f">
+<title>MEDIARR</title>
+<script>try{document.documentElement.setAttribute('data-bs-theme', localStorage.getItem('mediarr-theme')||'dark');}catch(e){}</script>
+<!-- Bootstrap 5 — bundled locally for offline use. Drop these two files into /public:
+       bootstrap.min.css  and  bootstrap.bundle.min.js
+     (from https://github.com/twbs/bootstrap/releases  →  dist/ , or
+      https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/) -->
+<link href="/bootstrap.min.css" rel="stylesheet">
+<style>
+  :root{ --gold:#d4af6d; --bg:#0c0c0f; --bg2:#141418; }
+  [data-bs-theme=dark]{
+    --bs-body-bg:var(--bg); --bs-body-color:#e9e9ee;
+    --bs-primary:var(--gold); --bs-primary-rgb:212,175,109;
+    --bs-border-color:#26262e; --bs-secondary-color:#9a9aa6;
+    --bs-emphasis-color:#fff;
+  }
+  [data-bs-theme=light]{
+    --gold:#a9762a; --bg:#f4f2f8; --bg2:#ffffff;
+    --bs-body-bg:var(--bg); --bs-body-color:#211c2a;
+    --bs-primary:var(--gold); --bs-primary-rgb:169,118,42;
+    --bs-border-color:#e0d9ea; --bs-secondary-color:#6c6480;
+    --bs-emphasis-color:#000;
+  }
+  [data-bs-theme=light] .poster{ background:#e7e2ee; }
+  [data-bs-theme=light] .btn-outline-gold{ --bs-btn-border-color:#d8c49a; }
+  body{ background:var(--bg); -webkit-tap-highlight-color:transparent; padding-bottom:env(safe-area-inset-bottom); }
+  .brand{ font-weight:800; letter-spacing:.5px; }
+  .brand b{ color:var(--gold); }
+  .btn-gold{ --bs-btn-bg:var(--gold); --bs-btn-border-color:var(--gold); --bs-btn-color:#1a1408;
+    --bs-btn-hover-bg:#e0bd7e; --bs-btn-hover-border-color:#e0bd7e; --bs-btn-hover-color:#1a1408; font-weight:700; }
+  .btn-outline-gold{ --bs-btn-color:var(--gold); --bs-btn-border-color:#3a3326; --bs-btn-hover-bg:var(--gold); --bs-btn-hover-border-color:var(--gold); --bs-btn-hover-color:#1a1408; }
+  .navbar{ background:var(--bg2); border-bottom:1px solid var(--bs-border-color); }
+  .searchwrap{ position:sticky; top:0; z-index:5; background:var(--bg); padding:10px 0; }
+  .poster{ width:100%; aspect-ratio:2/3; object-fit:cover; background:#1c1c22; display:block; }
+  .poster.ph{ display:flex; align-items:center; justify-content:center; color:var(--bs-secondary-color); font-size:.8rem; }
+  .mcard{ background:var(--bg2); border:1px solid var(--bs-border-color); border-radius:.7rem; overflow:hidden; height:100%; display:flex; flex-direction:column; position:relative; }
+  .mcard .body{ padding:.5rem .6rem .6rem; display:flex; flex-direction:column; gap:.35rem; flex:1; }
+  .mcard .t{ font-size:.85rem; font-weight:700; line-height:1.15; }
+  .mcard .y{ font-size:.72rem; color:var(--bs-secondary-color); }
+  .mcard .tag{ position:absolute; top:.4rem; left:.4rem; font-size:.62rem; }
+  .mcard .fav-btn{ position:absolute; top:.35rem; right:.35rem; z-index:3; background:rgba(0,0,0,.55); border:none; border-radius:50%; width:27px; height:27px; color:#fff; font-size:14px; line-height:1; display:flex; align-items:center; justify-content:center; padding:0; }
+  .mcard .fav-btn.on{ color:#ff4d6d; }
+  .mcard .wl-btn{ position:absolute; top:.35rem; left:.35rem; z-index:3; background:rgba(0,0,0,.55); border:none; border-radius:50%; width:27px; height:27px; color:#e5a00d; font-size:14px; display:flex; align-items:center; justify-content:center; padding:0; }
+  .mcard .seen-dot{ position:absolute; top:.35rem; right:2.35rem; z-index:3; background:rgba(0,0,0,.55); border-radius:50%; width:27px; height:27px; color:#4ade80; font-size:14px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+  .mcard .chk{ position:absolute; top:.4rem; right:.4rem; background:#1c3a24; color:#7ee29a; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:.8rem; }
+  .add-sm{ font-size:.72rem; padding:.3rem .4rem; margin-top:auto; }
+  .modal-content,.offcanvas{ background:var(--bg2); }
+  .detail-poster{ width:96px; aspect-ratio:2/3; object-fit:cover; border-radius:.5rem; flex:none; }
+  .sec-h{ font-weight:800; font-size:.95rem; margin:18px 0 8px; }
+  .hscroll{ display:flex; gap:10px; overflow-x:auto; padding-bottom:6px; -webkit-overflow-scrolling:touch; }
+  .hscroll::-webkit-scrollbar{ height:5px; } .hscroll::-webkit-scrollbar-thumb{ background:#333; border-radius:3px; }
+  .castc{ flex:none; width:80px; text-align:center; cursor:pointer; }
+  .castc .ph2{ width:80px; height:120px; object-fit:cover; border-radius:8px; background:#1c1c22; display:flex; align-items:center; justify-content:center; color:#777; font-weight:800; font-size:22px; }
+  .castc .nm{ font-size:.7rem; font-weight:700; margin-top:5px; line-height:1.15; }
+  .castc .rl{ font-size:.66rem; line-height:1.15; }
+  .crewrow{ display:flex; flex-wrap:wrap; gap:8px; }
+  .crewc{ display:flex; align-items:center; gap:9px; background:var(--bg); border:1px solid var(--bs-border-color); border-radius:22px; padding:5px 14px 5px 5px; cursor:pointer; }
+  .crewc .ph3{ width:36px; height:36px; border-radius:50%; object-fit:cover; background:#1c1c22; flex:none; display:flex; align-items:center; justify-content:center; color:#777; font-weight:800; }
+  .recc{ flex:none; width:98px; cursor:pointer; }
+  .recc .ph4{ width:98px; height:147px; object-fit:cover; border-radius:8px; background:#1c1c22; display:block; }
+  .recc .nm{ font-size:.7rem; font-weight:600; margin-top:5px; line-height:1.15; }
+  .seg .btn{ font-size:.8rem; }
+  .state{ text-align:center; color:var(--bs-secondary-color); padding:42px 16px; }
+  a{ color:var(--gold); }
+</style>
+</head>
+<body>
+
+<!-- ================= AUTH ================= -->
+<div id="authView" class="d-none">
+  <div class="container" style="max-width:420px">
+    <div class="text-center mt-5 mb-4"><div class="brand fs-1">MEDI<b>ARR</b></div><div class="text-secondary small">Cinemeta · Radarr · Sonarr</div></div>
+    <div class="card border-0" style="background:var(--bg2)">
+      <div class="card-body p-4">
+        <h5 id="authTitle" class="mb-3">Sign in</h5>
+        <div id="authErr" class="alert alert-danger py-2 small d-none" role="alert"></div>
+        <div class="mb-3"><label class="form-label small">Username</label><input id="authUser" class="form-control" autocomplete="username" autocapitalize="none"></div>
+        <div class="mb-3"><label class="form-label small">Password</label><input id="authPass" type="password" class="form-control" autocomplete="current-password"></div>
+        <button id="authSubmit" class="btn btn-gold w-100">Sign in</button>
+        <div class="text-center mt-3"><a href="/?d=1" class="small text-secondary">Use the desktop site</a></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="appView" class="d-none">
+  <nav class="navbar sticky-top">
+    <div class="container-fluid">
+      <span class="navbar-brand brand mb-0">MEDI<b>ARR</b></span>
+      <div class="d-flex gap-2">
+        <button id="mThemeToggle" class="btn btn-outline-gold btn-sm" type="button" aria-label="Toggle light or dark mode" title="Toggle light / dark mode">
+          <svg id="mThemeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+        </button>
+        <button class="btn btn-outline-gold btn-sm" type="button" data-bs-toggle="offcanvas" data-bs-target="#menu" aria-label="Menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <div id="autobarM" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:12px;z-index:1080;background:var(--bg2);border:1px solid var(--gold);border-radius:.7rem;padding:.6rem .8rem;width:min(94vw,520px);box-shadow:0 8px 24px rgba(0,0,0,.4)">
+  <div class="d-flex align-items-center gap-2">
+    <div class="flex-grow-1 min-w-0">
+      <div class="small fw-bold text-truncate" id="abTitleM">Auto add</div>
+      <div class="small text-secondary" id="abSubM"></div>
+      <div style="height:4px;background:var(--bs-border-color);border-radius:2px;margin-top:4px;overflow:hidden"><div id="abFillM" style="height:100%;width:0;background:var(--gold)"></div></div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" id="abStopM">Stop</button>
+    <button class="btn btn-sm border-0 text-secondary" id="abHideM">&times;</button>
+  </div>
+</div>
+<div class="container py-2">
+    <div class="searchwrap">
+      <div class="input-group mb-2">
+        <span class="input-group-text">🔎</span>
+        <input id="q" class="form-control" placeholder="Search movies & TV…" autocomplete="off">
+      </div>
+      <div class="btn-group seg w-100" role="group" aria-label="Search mode">
+        <button class="btn btn-outline-gold active" data-mode="title">🎬 Title</button>
+        <button class="btn btn-outline-gold" data-mode="person">👤 Person</button>
+        <button class="btn btn-outline-gold" data-mode="year">📅 Year</button>
+        <button class="btn btn-outline-gold" data-mode="studio">🏢 Studio</button>
+      </div>
+      <div class="form-check form-switch mt-2 mb-0">
+        <input class="form-check-input" type="checkbox" id="hideAdded">
+        <label class="form-check-label small text-secondary" for="hideAdded">Hide items already in my library</label>
+      </div>
+      <div id="kindFilter" class="btn-group btn-group-sm w-100 mt-2" role="group" aria-label="Type filter">
+        <button class="btn btn-outline-secondary active" data-kind="all">All</button>
+        <button class="btn btn-outline-secondary" data-kind="movie">Movies</button>
+        <button class="btn btn-outline-secondary" data-kind="series">TV</button>
+      </div>
+    </div>
+    <div id="results" class="row g-2 mt-1"></div>
+    <div id="more" class="text-center my-3"></div>
+  </div>
+</div>
+
+<!-- Menu offcanvas -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="menu">
+  <div class="offcanvas-header"><h5 class="offcanvas-title">Menu</h5><button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button></div>
+  <div class="offcanvas-body d-flex flex-column gap-2">
+    <div id="menuUser" class="small text-secondary mb-1"></div>
+    <button id="mStreaming" class="btn btn-outline-gold text-start">▶️ Now streaming</button>
+    <button id="mScanPlex" class="btn btn-outline-gold text-start" style="display:none">🔄 Scan Plex libraries</button>
+    <button id="mDownloads" class="btn btn-outline-gold text-start" style="display:none">⬇️ Downloads</button>
+    <button id="mMovies" class="btn btn-outline-gold text-start">🎬 Movies library</button>
+    <button id="mShows" class="btn btn-outline-gold text-start">📺 Shows library</button>
+    <button id="mCalendar" class="btn btn-outline-gold text-start">🗓️ Calendar</button>
+    <button id="mUpcoming" class="btn btn-outline-gold text-start">❤️ Upcoming favorites</button>
+    <button id="mPlexMe" class="btn btn-outline-gold text-start">▶️ My Plex</button>
+    <button id="mQueue" class="btn btn-outline-gold text-start" style="display:none">📥 Queue</button>
+    <button id="mProfile" class="btn btn-outline-gold text-start">🎨 My profile</button>
+    <button id="mHealth" class="btn btn-outline-gold text-start">💓 Health</button>
+    <button id="mUpdate" class="btn btn-outline-gold text-start">⬆️ System Update</button>
+    <button id="mAdmin" class="btn btn-outline-gold text-start">👥 Admin</button>
+    <button id="mSettings" class="btn btn-outline-gold text-start">⚙️ Settings</button>
+    <button id="mPassword" class="btn btn-outline-gold text-start">🔑 Change password</button>
+    <a id="mDonate" href="#" target="_blank" rel="noopener noreferrer" class="btn text-start" style="display:none;background:#ffc439;border-color:#ffc439;color:#003087;font-weight:800">❤️ <span id="mDonateLabel">Donate</span></a>
+    <hr class="my-1">
+    <a href="/?d=1" class="btn btn-outline-secondary text-start">🖥️ Desktop site</a>
+    <button id="mLogout" class="btn btn-outline-secondary text-start">Log out</button>
+  </div>
+</div>
+
+<!-- Detail modal -->
+<div class="modal fade" id="detail" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title">Details</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="detailBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal fade" id="settings" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title">Settings</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="settingsBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Shared panel modal (Streaming / Library / Calendar / Health / Admin / Password) -->
+<div class="modal fade" id="panel" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title" id="panelTitle">…</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="panelBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Video player modal -->
+<div class="modal fade" id="player" tabindex="-1">
+  <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title text-truncate" id="playerTitle">Playing</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <video id="mVideo" controls autoplay playsinline style="width:100%;background:#000;border-radius:8px"></video>
+        <div id="mPlayerTracks" class="mt-2 d-flex flex-column gap-2"></div>
+        <div id="mPlayerCtl" class="mt-2 d-flex flex-column gap-1"></div>
+        <div id="mPlayerMsg" class="small text-secondary mt-2"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/bootstrap.bundle.min.js"></script>
+<script src="/hls.min.js"></script>
+<script>
+const TMDB_IMG='https://image.tmdb.org/t/p/w342';
+const TMDB_PROFILE='https://image.tmdb.org/t/p/w185';
+const $=id=>document.getElementById(id);
+// ---- light / dark theme ----
+(function(){
+  const root=document.documentElement, btn=$('mThemeToggle'), icon=$('mThemeIcon');
+  const SUN='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+  const MOON='<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>';
+  const tc={dark:'#0c0c0f',light:'#f4f2f8'};
+  function paint(){ const t=root.getAttribute('data-bs-theme')||'dark'; if(icon) icon.innerHTML=(t==='dark'?SUN:MOON); const mt=document.querySelector('meta[name=theme-color]'); if(mt) mt.setAttribute('content', tc[t]||tc.dark); }
+  if(btn) btn.onclick=()=>{ const t=(root.getAttribute('data-bs-theme')==='light')?'dark':'light'; root.setAttribute('data-bs-theme',t); try{localStorage.setItem('mediarr-theme',t);}catch(e){} try{ applyThemeVarsM(t); }catch(e){} paint(); };
+  paint();
+})();
+let me=null, config=null, mode='title', q='', searchTimer=null, homeItems=null;
+let hideAdded=false, lastItems=[], lastLabel='';
+let lib={ movieImdb:new Set(), movieTmdb:new Set(), seriesImdb:new Set(), seriesTvdb:new Set() };
+let yearState=null, studioState=null, personState=null, homeState=null;
+let kindFilter='all', pager=null;
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function readJson(res){ let t=''; try{t=await res.text();}catch(e){} if(!t||!t.trim())return{empty:true}; try{return{data:JSON.parse(t)};}catch(e){return{bad:true};} }
+async function api(path,opts){ const r=await fetch(path,opts); return r; }
+function isConfigured(svc){ if(svc==='tmdb')return !!(config&&config.tmdb&&config.tmdb.hasKey); if(svc==='webdav'){const w=config&&config.webdav; if(!w)return false; return w.source==='local'?!!w.localPath:!!(w.url&&w.hasAuth);} return !!(config&&config[svc]&&config[svc].url&&config[svc].hasKey); }
+
+/* ---------- boot ---------- */
+(async()=>{
+  try{ const r=await fetch('/api/me'); if(r.ok){ const j=await readJson(r); if(j.data){ me=j.data; return onAuthed(); } } }catch(e){}
+  let needed=false; try{ const j=await readJson(await fetch('/api/setup-needed')); if(j.data) needed=!!j.data.needed; }catch(e){}
+  showAuth(needed);
+})();
+
+function showAuth(needed){
+  $('appView').classList.add('d-none'); $('authView').classList.remove('d-none');
+  $('authTitle').textContent = needed ? 'Create admin account' : 'Sign in';
+  $('authSubmit').textContent = needed ? 'Create account' : 'Sign in';
+  $('authView').dataset.mode = needed ? 'setup' : 'login';
+}
+$('authSubmit').onclick = async ()=>{
+  const u=$('authUser').value.trim(), p=$('authPass').value, err=$('authErr');
+  err.classList.add('d-none');
+  if(!u||!p){ err.textContent='Enter a username and password.'; err.classList.remove('d-none'); return; }
+  const setup = $('authView').dataset.mode==='setup';
+  $('authSubmit').disabled=true;
+  try{
+    const r=await fetch('/api/'+(setup?'setup':'login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
+    const j=await readJson(r);
+    if(r.ok && j.data){ me=j.data; $('authPass').value=''; onAuthed(); }
+    else if(j.data&&j.data.message) throw new Error(j.data.message);
+    else if(j.empty) throw new Error('No response from the server. If you use a reverse proxy, make sure it forwards /api.');
+    else throw new Error('Sign-in failed ('+r.status+').');
+  }catch(e){ err.textContent=e.message; err.classList.remove('d-none'); }
+  $('authSubmit').disabled=false;
+};
+
+async function onAuthed(){
+  $('authView').classList.add('d-none'); $('appView').classList.remove('d-none');
+  $('menuUser').textContent = me ? ('Signed in as '+me.username+(me.role==='admin'?' (admin)':'')) : '';
+  const adminOnly = (me&&me.role==='admin');
+  ['mMovies','mShows','mUpdate','mAdmin','mSettings'].forEach(id=>{ const el=$(id); if(el) el.style.display = adminOnly?'':'none'; });
+  await loadConfig();
+  const sp=$('mScanPlex'); if(sp) sp.style.display=(adminOnly && isConfigured('plex'))?'':'none';
+  const dl=$('mDownloads'); if(dl) dl.style.display=isConfigured('webdav')?'':'none';
+  { const qb=$('mQueue'); if(qb) qb.style.display=(config&&config.sab&&config.sab.url&&config.sab.hasKey)?'':'none'; }
+  { const md=$('mDonate'), url=(config&&config.donate&&config.donate.url)||''; if(md){ if(url){ md.href=url; md.style.display=''; const l=$('mDonateLabel'); if(l) l.textContent=((config.donate.label||'').trim())||'Donate'; } else md.style.display='none'; } }
+  await loadFavoritesM(); loadPlexSeenM(); await refreshPlexMeM();
+  loadMyThemeM();
+  pollAutoM();
+  await loadLibrary(); showHome();
+}
+
+async function loadConfig(){ try{ const j=await readJson(await fetch('/api/config')); config=j.data||{}; }catch(e){ config={}; } }
+async function fetchLibListM(svc, fresh){
+  try{ const j=await readJson(await fetch('/api/library/list?svc='+svc+(fresh?'&fresh=1':''))); const d=j.data||{};
+    if(d.error) console.warn('[mediarr] '+svc+': '+d.error);
+    return d.items||[];
+  }catch(e){ return []; }
+}
+async function loadLibrary(fresh){
+  lib={ movieImdb:new Set(), movieTmdb:new Set(), seriesImdb:new Set(), seriesTvdb:new Set() };
+  if(isConfigured('radarr')) (await fetchLibListM('radarr',fresh)).forEach(x=>{ if(x.imdbId)lib.movieImdb.add(x.imdbId); if(x.tmdbId)lib.movieTmdb.add(String(x.tmdbId)); });
+  if(isConfigured('sonarr')) (await fetchLibListM('sonarr',fresh)).forEach(x=>{ if(x.imdbId)lib.seriesImdb.add(x.imdbId); if(x.tvdbId)lib.seriesTvdb.add(String(x.tvdbId)); });
+}
+
+async function findLibraryItemM(svc,it){
+  const items=await fetchLibListM(svc,false);
+  const imdb=String(it.imdb||'').toLowerCase(), tmdb=String(it.tmdb||'');
+  return items.find(x=>(imdb&&String(x.imdbId||'').toLowerCase()===imdb)||(svc==='radarr'&&tmdb&&String(x.tmdbId||'')===tmdb))||null;
+}
+// Live "already added?" sets straight from Radarr/Sonarr (short server-side TTL)
+const liveIdsM={ radarr:{imdb:new Set(),tmdb:new Set()}, sonarr:{imdb:new Set(),tvdb:new Set()}, at:0 };
+async function refreshLiveIdsM(force){
+  if(!force && Date.now()-liveIdsM.at<45000) return;
+  liveIdsM.at=Date.now();
+  for(const svc of ['radarr','sonarr']){
+    if(!isConfigured(svc)) continue;
+    try{ const j=await readJson(await fetch('/api/library/ids?svc='+svc+(force?'&fresh=1':''))); const d=j.data||{};
+      liveIdsM[svc].imdb=new Set(d.imdb||[]);
+      if(svc==='radarr') liveIdsM.radarr.tmdb=new Set(d.tmdb||[]); else liveIdsM.sonarr.tvdb=new Set(d.tvdb||[]);
+    }catch(e){}
+  }
+}
+// Verified tmdb -> in-library answers from the server (needed for TV, which Sonarr
+// keys on imdb/tvdb rather than tmdb).
+const tmdbAddedM = new Map();
+function inLib(type, {imdb, tmdb}){
+  const svc = type==='movie' ? 'radarr' : 'sonarr';
+  const L = liveIdsM[svc];
+  if(imdb && L.imdb.has(imdb)) return true;
+  if(tmdb && L.tmdb && L.tmdb.has(String(tmdb))) return true;
+  if(tmdb && tmdbAddedM.get((type==='movie'?'movie':'series')+':'+tmdb) === true) return true;
+  if(type==='movie') return (imdb&&lib.movieImdb.has(imdb)) || (tmdb&&lib.movieTmdb.has(String(tmdb)));
+  return (imdb&&lib.seriesImdb.has(imdb));
+}
+// Ask the server which of these TMDB ids are already in the library, then repaint.
+async function verifyAddedM(items){
+  const need=[];
+  (items||[]).forEach(it=>{
+    if(!it.tmdb) return;
+    const type = it.kind==='series' ? 'series' : 'movie';
+    const key = type+':'+it.tmdb;
+    if(tmdbAddedM.has(key)) return;
+    need.push({ type, tmdbId:Number(it.tmdb), key });
+  });
+  if(!need.length) return false;
+  let learned=false;
+  for(let i=0;i<need.length;i+=24){
+    try{
+      const r=await fetch('/api/library/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:need.slice(i,i+24)})});
+      if(!r.ok) continue;
+      const j=await readJson(r); const added=(j.data&&j.data.added)||{};
+      Object.keys(added).forEach(k=>{ if(added[k] && tmdbAddedM.get(k)!==true) learned=true; tmdbAddedM.set(k,!!added[k]); });
+    }catch(e){}
+  }
+  return learned;
+}
+
+function asList(d){
+  if(Array.isArray(d)) return d;
+  if(d && typeof d==='object'){ for(const k of ['records','items','results','data','movies','series']) if(Array.isArray(d[k])) return d[k]; }
+  return [];
+}
+async function arr(svc,path,opts={}){
+  const r=await fetch('/api/'+svc+path,opts);
+  if(!r.ok){ let msg='HTTP '+r.status; try{const j=await r.json(); if(Array.isArray(j)&&j[0]&&j[0].errorMessage)msg=j[0].errorMessage; else if(j.message)msg=j.message;}catch(e){} throw new Error(msg); }
+  if(r.status===204) return null; return r.json();
+}
+const tmdb=p=>arr('tmdb',p);
+
+/* ---------- menu actions ---------- */
+$('mLogout').onclick=async()=>{ try{ await fetch('/api/logout',{method:'POST'}); }catch(e){} location.reload(); };
+$('mSettings').onclick=()=>{ bootstrap.Offcanvas.getInstance($('menu'))?.hide(); openSettings(); };
+
+/* ---------- search ---------- */
+function setKindFilter(k){ kindFilter=k; document.querySelectorAll('#kindFilter button').forEach(x=>x.classList.toggle('active', x.dataset.kind===k)); }
+document.querySelectorAll('.seg button').forEach(b=>{
+  b.onclick=()=>{ document.querySelectorAll('.seg button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); mode=b.dataset.mode;
+    $('q').placeholder = mode==='person'?'Actor or director…':mode==='year'?'Year, e.g. 1999':mode==='studio'?'Studio, e.g. Pixar':'Search movies & TV…';
+    $('q').setAttribute('inputmode', mode==='year'?'numeric':'text');
+    setKindFilter('all');
+    $('kindFilter').style.display = (mode==='studio') ? 'none' : '';   // studio is movies-only
+    run(true);
+  };
+});
+$('q').addEventListener('input', ()=>{ clearTimeout(searchTimer); searchTimer=setTimeout(()=>run(false), mode==='title'?350:450); });
+$('hideAdded').addEventListener('change', e=>{ hideAdded=e.target.checked; paint(); });
+document.querySelectorAll('#kindFilter button').forEach(b=>{ b.onclick=()=>{ setKindFilter(b.dataset.kind); paint(); }; });
+function run(immediate){
+  q=$('q').value.trim(); $('more').innerHTML='';
+  if(mode==='year'){ if(/^\d{4}$/.test(q)) discoverYear(q); else state('Type a 4-digit year like 1999.'); return; }
+  if(mode==='studio'){ if(q.length>=2) searchStudio(q); else showTopStudiosM(); return; }
+  if(mode==='person'){ if(q.length>=2) searchPerson(q); else showPopularPeopleM(); return; }
+  if(q.length<2){ showHome(); return; }
+  searchTitle(q);
+}
+function state(msg){ pager=null; $('more').innerHTML=''; $('results').innerHTML='<div class="col-12"><div class="state">'+msg+'</div></div>'; }
+function spinner(msg){ $('results').innerHTML='<div class="col-12"><div class="state"><div class="spinner-border text-secondary mb-2"></div><div>'+esc(msg)+'</div></div></div>'; }
+
+async function showHome(){
+  if(mode!=='title'||q.length>=2) return;
+  if(!isConfigured('tmdb')){ pager=null; state('Type a title above to search. <br>(Add a TMDB key in Settings for studio/person/year search and a home feed.)'); return; }
+  if(homeState){ pager={ hasMore:()=>!homeState.done, loadMore:loadHomePages }; renderItems(homeState.items,'Recently released'); return; }
+  spinner('Loading recently released…');
+  homeState={ page:0, total:1, done:false, items:[] };
+  try{ await loadHomePages(); pager={ hasMore:()=>!homeState.done, loadMore:loadHomePages }; renderItems(homeState.items,'Recently released'); }
+  catch(e){ pager=null; state('Type a title above to search.'); }
+}
+async function loadHomePages(){ if(homeState.done)return; const page=homeState.page+1;
+  // movies in theaters + shows airing now, interleaved
+  const [dm,dt]=await Promise.all([
+    tmdb('/movie/now_playing?page='+page).catch(()=>({results:[],total_pages:1})),
+    tmdb('/tv/on_the_air?page='+page).catch(()=>({results:[],total_pages:1}))
+  ]);
+  homeState.page=page;
+  homeState.total=Math.max(dm.total_pages||1, dt.total_pages||1);
+  if(page>=homeState.total) homeState.done=true;
+  const mv=(dm.results||[]).filter(r=>r.poster_path).map(r=>tmdbItem(r,'movie'));
+  const tv=(dt.results||[]).filter(r=>r.poster_path).map(r=>tmdbItem(r,'series'));
+  const n=Math.max(mv.length,tv.length);
+  for(let i=0;i<n;i++){ if(mv[i]) homeState.items.push(mv[i]); if(tv[i]) homeState.items.push(tv[i]); }
+  lastItems=homeState.items;
+}
+
+async function searchTitle(query){
+  pager=null; spinner('Searching…');
+  try{
+    const out=[];
+    for(const type of ['movie','series']){
+      try{ const r=await fetch(`/api/cinemeta/catalog/${type}/top/search=${encodeURIComponent(query)}.json`); const j=await readJson(r);
+        (j.data&&j.data.metas||[]).forEach(m=> out.push({ kind:type==='movie'?'movie':'series', id:m.id, imdb:m.id, tmdb:null, title:m.name, year:(m.releaseInfo||'').slice(0,4), poster:m.poster||'' }) ); }catch(e){}
+    }
+    renderItems(out, query?('Results for “'+esc(query)+'”'):'');
+  }catch(e){ state('Search failed: '+esc(e.message)); }
+}
+
+function tmdbItem(r,kind){ return { kind, id:r.id, imdb:null, tmdb:r.id, title:r.title||r.name||'', year:(r.release_date||r.first_air_date||'').slice(0,4), poster:r.poster_path?TMDB_IMG+r.poster_path:'', _pop:r.popularity||0 }; }
+
+async function searchPerson(query){
+  if(!isConfigured('tmdb')){ pager=null; return state('Person search needs a TMDB key (Settings).'); }
+  spinner('Finding people…');
+  try{
+    const ppl=await tmdb('/search/person?query='+encodeURIComponent(query));
+    const person=(ppl.results||[])[0];
+    if(!person){ pager=null; return state('No people matched “'+esc(query)+'”.'); }
+    await loadPersonFilms(person);
+  }catch(e){ pager=null; state('Search failed: '+esc(e.message)); }
+}
+async function loadPersonFilms(person){
+  spinner('Loading '+esc(person.name)+'…');
+  const cr=await tmdb('/person/'+person.id+'/combined_credits');
+  const seen=new Set(); const all=[];
+  (cr.cast||[]).concat(cr.crew||[]).forEach(r=>{ if(!r.poster_path)return; const k=(r.media_type)+':'+r.id; if(seen.has(k))return; seen.add(k); if(r.media_type==='movie'||r.media_type==='tv') all.push(tmdbItem(r, r.media_type==='movie'?'movie':'series')); });
+  all.sort((a,b)=>(b.year||'').localeCompare(a.year||''));
+  personState={ all, shown:Math.min(30, all.length) };
+  pager={ hasMore:()=>personState.shown<personState.all.length, loadMore:async()=>{ personState.shown=Math.min(personState.shown+30, personState.all.length); lastItems=personState.all.slice(0,personState.shown); } };
+  renderItems(all.slice(0,personState.shown), esc(person.name));
+}
+let _popPeople=[];
+async function showPopularPeopleM(){
+  if(mode!=='person') return;
+  if(!isConfigured('tmdb')){ pager=null; return state('Popular actors need a TMDB key (Settings).'); }
+  spinner('Loading popular actors…');
+  try{
+    const [p1,p2]=await Promise.all([tmdb('/person/popular?page=1'), tmdb('/person/popular?page=2')]);
+    const all=[...(p1.results||[]),...(p2.results||[])].filter(p=>p.known_for_department==='Acting'&&(p.known_for||[]).length).slice(0,25);
+    pager=null; $('more').innerHTML=''; _popPeople=all;
+    let html='<div class="col-12"><div class="text-secondary small fw-bold text-uppercase mb-1">Top 25 actors · most popular</div></div>';
+    all.forEach((p,i)=>{ const photo=p.profile_path?('<img src="'+TMDB_IMG+p.profile_path+'" class="w-100" style="aspect-ratio:2/3;object-fit:cover" loading="lazy">'):('<div class="w-100 d-flex align-items-center justify-content-center" style="aspect-ratio:2/3;background:var(--bg2);font-size:26px">'+esc((p.name||'?')[0])+'</div>');
+      html+='<div class="col-4 mb-2"><div class="card h-100" data-pi="'+i+'" style="cursor:pointer;overflow:hidden">'+photo+'<div class="p-1 small fw-bold text-truncate">'+esc(p.name)+'</div></div></div>'; });
+    $('results').innerHTML=html;
+    $('results').querySelectorAll('[data-pi]').forEach(c=> c.onclick=()=>loadPersonFilms(_popPeople[Number(c.dataset.pi)]));
+  }catch(e){ pager=null; state('Couldn’t load actors: '+esc(e.message)); }
+}
+const TOP_STUDIOS_M=['Walt Disney Pictures','Pixar','Marvel Studios','Warner Bros. Pictures','Universal Pictures','Paramount Pictures','Columbia Pictures','20th Century Studios','New Line Cinema','Lionsgate','Legendary Pictures','A24','Studio Ghibli','DreamWorks Animation','Focus Features','Blumhouse Productions','Metro-Goldwyn-Mayer','Amblin Entertainment','Miramax','Illumination','Sony Pictures Animation','Netflix','Working Title Films','Village Roadshow Pictures','Lucasfilm'];
+function showTopStudiosM(){
+  if(!isConfigured('tmdb')){ pager=null; return state('Studios need a TMDB key (Settings).'); }
+  pager=null; $('more').innerHTML='';
+  let html='<div class="col-12"><div class="text-secondary small fw-bold text-uppercase mb-2">Top 25 studios · tap to browse</div></div>';
+  TOP_STUDIOS_M.forEach(n=>{ html+='<div class="col-6 mb-2"><button class="btn btn-outline-gold btn-sm w-100 text-start text-truncate" data-studio="'+esc(n)+'">🏢 '+esc(n)+'</button></div>'; });
+  $('results').innerHTML=html;
+  $('results').querySelectorAll('[data-studio]').forEach(b=> b.onclick=()=>{ $('q').value=b.dataset.studio; searchStudio(b.dataset.studio); });
+}
+
+async function discoverYear(year){
+  if(!isConfigured('tmdb')){ pager=null; return state('Year search needs a TMDB key (Settings).'); }
+  spinner('Finding '+year+'…');
+  yearState={ year, movie:{page:0,total:1,done:false}, tv:{page:0,total:1,done:false}, items:[], keys:new Set() };
+  try{
+    await loadYearPages();
+    pager={ hasMore:()=> (kindFilter!=='series' && !yearState.movie.done) || (kindFilter!=='movie' && !yearState.tv.done), loadMore:loadYearPages };
+    renderItems(yearState.items, String(year));
+  }catch(e){ pager=null; state('Search failed: '+esc(e.message)); }
+}
+async function loadYearPages(){
+  for(const type of ['movie','tv']){ const st=yearState[type]; if(st.done) continue;
+    const page=st.page+1; const yp=type==='movie'?'primary_release_year='+yearState.year:'first_air_date_year='+yearState.year;
+    const d=await tmdb('/discover/'+type+'?sort_by=popularity.desc&include_adult=false&page='+page+'&'+yp);
+    st.page=page; st.total=d.total_pages||1; if(page>=st.total)st.done=true;
+    (d.results||[]).forEach(r=>{ if(!r.poster_path)return; const key=type+':'+r.id; if(!yearState.keys.has(key)){ yearState.keys.add(key); yearState.items.push(tmdbItem(r,type==='movie'?'movie':'series')); } });
+  }
+  yearState.items.sort((a,b)=>(b._pop||0)-(a._pop||0)); lastItems=yearState.items;
+}
+
+async function searchStudio(query){
+  if(!isConfigured('tmdb')){ pager=null; return state('Studio search needs a TMDB key (Settings).'); }
+  spinner('Finding the studio…');
+  try{
+    const comp=await tmdb('/search/company?query='+encodeURIComponent(query));
+    const companies=(comp.results||[]).slice(0,8);
+    if(!companies.length){ pager=null; return state('No studio matched “'+esc(query)+'”. Try Pixar, Warner Bros, A24…'); }
+    studioState={ ids:companies.map(c=>c.id).join('|'), page:0, total:1, done:false, items:[], keys:new Set(), label:esc(query)+' · '+esc(companies.slice(0,2).map(c=>c.name).join(', ')) };
+    await loadStudioPages();
+    pager={ hasMore:()=>!studioState.done, loadMore:loadStudioPages };
+    renderItems(studioState.items, studioState.label);
+  }catch(e){ pager=null; state('Search failed: '+esc(e.message)); }
+}
+async function loadStudioPages(){ if(studioState.done)return; const page=studioState.page+1;
+  const d=await tmdb('/discover/movie?with_companies='+encodeURIComponent(studioState.ids)+'&sort_by=popularity.desc&include_adult=false&page='+page);
+  studioState.page=page; studioState.total=d.total_pages||1; if(page>=studioState.total)studioState.done=true;
+  (d.results||[]).forEach(r=>{ if(!r.poster_path)return; const key='m:'+r.id; if(!studioState.keys.has(key)){ studioState.keys.add(key); studioState.items.push(tmdbItem(r,'movie')); } });
+  lastItems=studioState.items;
+}
+
+/* ---------- render ---------- */
+let _liveStampM=0;
+function renderItems(items,label){
+  refreshLiveIdsM().then(()=>{
+    if(lastItems===items && liveIdsM.at!==_liveStampM){ _liveStampM=liveIdsM.at; renderItems(items,label); }
+  }).catch(()=>{}); lastItems=items||[]; lastLabel=label||''; paint();
+  verifyAddedM(lastItems).then(changed=>{ if(changed && lastItems===items) paint(); }).catch(()=>{}); }
+function paint(){
+  let filtered = lastItems;
+  if(kindFilter!=='all') filtered = filtered.filter(it=>it.kind===kindFilter);
+  if(hideAdded) filtered = filtered.filter(it=>!inLib(it.kind,{imdb:it.imdb,tmdb:it.tmdb}));
+  const removed = lastItems.length - filtered.length;
+  const head = lastLabel ? ('<div class="col-12"><div class="text-secondary small mb-1 mt-1">'+lastLabel+' · '+filtered.length+' shown'+(removed>0?(' · '+removed+' filtered out'):'')+'</div></div>') : '';
+  if(!filtered.length){ $('results').innerHTML=head+'<div class="col-12"><div class="state">'+(lastItems.length?'Nothing matches this filter.':'Nothing found.')+'</div></div>'; }
+  else { $('results').innerHTML = head + filtered.map(cardHtml).join(''); bindCards(filtered); }
+  // Load more
+  const more=$('more');
+  if(pager && pager.hasMore && pager.hasMore()){
+    more.innerHTML='<button class="btn btn-outline-gold me-2" id="moreBtn">Load more</button><button class="btn btn-gold me-2" id="allBtn">Show all</button><button class="btn btn-sm" id="autoBtn" style="background:#7c5cff;color:#fff">⚡ Auto add all</button>';
+    $('moreBtn').onclick=doLoadMore; $('allBtn').onclick=doShowAll; $('autoBtn').onclick=()=>autoAddCurrentM($('autoBtn'));
+  } else if(lastItems && lastItems.length){
+    more.innerHTML='<button class="btn btn-sm" id="autoBtn" style="background:#7c5cff;color:#fff">⚡ Auto add all</button>';
+    $('autoBtn').onclick=()=>autoAddCurrentM($('autoBtn'));
+  } else more.innerHTML='';
+}
+async function doLoadMore(){ const b=$('moreBtn'); if(b){ b.disabled=true; b.textContent='Loading…'; }
+  try{ await pager.loadMore(); paint(); }
+  catch(e){ if(b){ b.disabled=false; b.textContent='Load more'; } }
+}
+async function doShowAll(){
+  const mb=$('moreBtn'), ab=$('allBtn'); if(mb) mb.disabled=true; if(ab){ ab.disabled=true; ab.textContent='Loading all…'; }
+  let guard=0;
+  try{ while(pager && pager.hasMore && pager.hasMore() && guard<40){ await pager.loadMore(); guard++; } }
+  catch(e){}
+  paint();
+}
+function renderCards(items,label){ renderItems(items,label); }
+// ---- per-user skin + API key ----
+const SKIN_FIELDS_M=[['bg','Background'],['bg2','Cards'],['gold','Accent'],['line','Borders'],['txt','Text'],['muted','Muted text'],['radarr','Radarr'],['sonarr','Sonarr'],['green','Success'],['red','Error']];
+let myThemeM={base:'dark',modes:{dark:{},light:{}}};
+function currentModeM(){
+  try{ const m=localStorage.getItem('mediarr-theme'); if(m==='light'||m==='dark') return m; }catch(e){}
+  return (myThemeM&&myThemeM.base==='light')?'light':'dark';
+}
+function applyThemeVarsM(mode){
+  const root=document.documentElement;
+  SKIN_FIELDS_M.forEach(([k])=>root.style.removeProperty('--'+k));
+  ['--bs-body-bg','--bs-body-color','--bs-border-color'].forEach(v=>root.style.removeProperty(v));
+  const v=(myThemeM&&myThemeM.modes&&myThemeM.modes[mode])||{};
+  Object.keys(v).forEach(k=>{ if(v[k]) root.style.setProperty('--'+k,v[k]); });
+  if(v.bg) root.style.setProperty('--bs-body-bg',v.bg);
+  if(v.txt) root.style.setProperty('--bs-body-color',v.txt);
+  if(v.line) root.style.setProperty('--bs-border-color',v.line);
+}
+function applyThemeM(t){
+  if(t) myThemeM=t;
+  if(myThemeM&&!myThemeM.modes) myThemeM.modes={dark:{},light:{}};
+  const mode=currentModeM();
+  document.documentElement.setAttribute('data-bs-theme',mode);
+  applyThemeVarsM(mode);
+}
+async function loadMyThemeM(){ try{ const j=await readJson(await fetch('/api/me/theme')); myThemeM=j.data||myThemeM; applyThemeM(myThemeM); }catch(e){} }
+function cssVarNowM(n){ return getComputedStyle(document.documentElement).getPropertyValue('--'+n).trim(); }
+function toHexM(c){ c=(c||'').trim(); if(/^#[0-9a-f]{6}$/i.test(c))return c;
+  if(/^#[0-9a-f]{3}$/i.test(c))return '#'+c[1]+c[1]+c[2]+c[2]+c[3]+c[3];
+  const m=/^rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(c);
+  if(m){const h=n=>Math.max(0,Math.min(255,Math.round(+n))).toString(16).padStart(2,'0');return '#'+h(m[1])+h(m[2])+h(m[3]);}
+  return '#888888'; }
+async function openProfileM(){
+  closeMenu(); openPanel('My profile','<div class="small text-secondary">Loading…</div>');
+  let key='';
+  try{ const j=await readJson(await fetch('/api/me/apikey')); key=(j.data&&j.data.apiKey)||''; }catch(e){}
+  const base=window.location.origin;
+  let h='<div class="fw-bold mb-1">Appearance</div><div class="small text-secondary mb-2">Your personal colours.</div>';
+  h+='<label class="form-label small">Base theme</label><select class="form-select form-select-sm mb-2" id="mSkBase"><option value="dark">Dark</option><option value="light">Light</option></select>';
+  h+='<div class="row g-2" id="mSkinGrid"></div>';
+  h+='<div class="d-flex gap-2 mt-2"><button class="btn btn-gold btn-sm flex-grow-1" id="mSkSave">Save skin</button><button class="btn btn-outline-secondary btn-sm" id="mSkReset">Reset</button></div>';
+  h+='<div class="small mt-1" id="mSkMsg"></div>';
+  h+='<hr class="my-3"><div class="fw-bold mb-1">Personal API key</div>';
+  h+='<div class="small text-secondary mb-2">Acts as you — your daily limit applies and adds are logged under your name.</div>';
+  h+='<div class="small p-2 mb-2" style="background:var(--bg2);border-radius:.5rem;word-break:break-all" id="mKeyBox">'+(key?esc(key):'No key yet.')+'</div>';
+  h+='<div class="d-flex gap-2">'+(key?'<button class="btn btn-outline-gold btn-sm" id="mKeyCopy">Copy</button>':'')+'<button class="btn btn-gold btn-sm" id="mKeyGen">'+(key?'Regenerate':'Generate')+'</button>'+(key?'<button class="btn btn-outline-secondary btn-sm" id="mKeyDel">Revoke</button>':'')+'</div>';
+  h+='<div class="small mt-2 text-secondary" style="font-family:monospace;white-space:pre-wrap">GET  '+esc(base)+'/api/v1/search?q=dune\nPOST '+esc(base)+'/api/v1/add\nheader: X-API-Key</div>';
+  $('panelBody').innerHTML=h;
+  $('mSkBase').value=currentModeM();
+  const grid=$('mSkinGrid');
+  grid.innerHTML=SKIN_FIELDS_M.map(([k,l])=>{
+    const pal=(myThemeM.modes&&myThemeM.modes[currentModeM()])||{};
+    const cur=toHexM(pal[k]||cssVarNowM(k));
+    return '<div class="col-6"><div class="d-flex align-items-center gap-2 p-1" style="border:1px solid var(--bs-border-color);border-radius:.5rem"><input type="color" data-skin="'+k+'" value="'+cur+'" style="width:30px;height:30px;padding:0;border:none;background:none"><div class="small fw-bold text-truncate">'+esc(l)+'</div></div></div>';
+  }).join('');
+  grid.querySelectorAll('[data-skin]').forEach(i=> i.oninput=()=>document.documentElement.style.setProperty('--'+i.dataset.skin,i.value));
+  $('mSkBase').onchange=e=>{ const m=e.target.value; document.documentElement.setAttribute('data-bs-theme',m); try{localStorage.setItem('mediarr-theme',m);}catch(_){} applyThemeVarsM(m); openProfileM(); };
+  $('mSkSave').onclick=async()=>{
+    const mode=$('mSkBase').value;
+    const vars={}; grid.querySelectorAll('[data-skin]').forEach(i=>vars[i.dataset.skin]=i.value);
+    const modes=Object.assign({dark:{},light:{}}, myThemeM.modes||{}); modes[mode]=vars;
+    const msg=$('mSkMsg'); msg.className='small mt-1 text-secondary'; msg.textContent='Saving…';
+    try{ const r=await fetch('/api/me/theme',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({base:mode,modes})});
+      const j=await readJson(r); myThemeM=j.data||myThemeM; applyThemeM(myThemeM);
+      msg.className='small mt-1 text-success'; msg.textContent='✓ Saved'; }
+    catch(e){ msg.className='small mt-1 text-danger'; msg.textContent='⚠ '+e.message; }
+  };
+  $('mSkReset').onclick=async()=>{ if(!confirm('Reset colours to default?'))return; try{ await fetch('/api/me/theme',{method:'DELETE'}); }catch(e){} myThemeM={base:'dark',modes:{dark:{},light:{}}}; applyThemeM(myThemeM); openProfileM(); };
+  $('mKeyGen').onclick=async()=>{ try{ await fetch('/api/me/apikey',{method:'POST'}); openProfileM(); }catch(e){} };
+  const kd=$('mKeyDel'); if(kd) kd.onclick=async()=>{ if(!confirm('Revoke this key?'))return; try{ await fetch('/api/me/apikey',{method:'DELETE'}); openProfileM(); }catch(e){} };
+  const kc=$('mKeyCopy'); if(kc) kc.onclick=()=>navigator.clipboard.writeText($('mKeyBox').textContent);
+}
+// ---- My Plex (per-user watchlist / history / stats) ----
+let plexMeM={linked:false,username:''}, plexTabM='watchlist', plexHistM=null;
+async function refreshPlexMeM(){ try{ const j=await readJson(await fetch('/api/plex/user/status')); plexMeM=j.data||{linked:false}; }catch(e){} }
+async function addWatchlistM(it, btn){
+  btn.disabled=true; const old=btn.textContent; btn.textContent='…';
+  try{
+    const r=await fetch('/api/plex/watchlist/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:it.title,year:it.year,type:it.kind==='series'?'series':'movie'})});
+    const j=await readJson(r);
+    if(r.ok){ btn.textContent='★'; } else { btn.textContent=old; btn.disabled=false; alert((j.data&&j.data.message)||'Could not add'); }
+  }catch(e){ btn.textContent=old; btn.disabled=false; }
+}
+async function openPlexMeM(){
+  closeMenu(); await refreshPlexMeM();
+  openPanel('My Plex','<div class="state"><div class="spinner-border text-secondary mb-2"></div></div>');
+  renderPlexMeM();
+}
+async function renderPlexMeM(){
+  const body=$('panelBody');
+  if(!plexMeM.linked){
+    body.innerHTML='<div class="text-center py-3"><div class="fw-bold mb-2">Connect your Plex account</div>'
+      +'<div class="small text-secondary mb-3">See your watchlist, history and stats — and add titles to your watchlist from MEDIARR.</div>'
+      +'<button class="btn btn-gold btn-sm" id="mPlexLogin">🔗 Sign in with Plex</button><div class="small mt-2" id="mPlexMsg"></div></div>';
+    $('mPlexLogin').onclick=plexLoginM; return;
+  }
+  const tab=(id,l)=>'<button class="btn btn-sm '+(plexTabM===id?'btn-gold':'btn-outline-gold')+'" data-ptab="'+id+'">'+l+'</button>';
+  body.innerHTML='<div class="d-flex gap-1 mb-2 flex-wrap">'+tab('watchlist','★ Watchlist')+tab('history','🕘 History')+tab('stats','📊 Stats')
+    +'<button class="btn btn-sm btn-outline-secondary ms-auto" data-ptab="switch">Profile</button>'
+    +'<button class="btn btn-sm btn-outline-secondary" data-ptab="unlink">Sign out</button></div><div id="mPlexPane"><div class="small text-secondary">Loading…</div></div>';
+  body.querySelectorAll('[data-ptab]').forEach(b=> b.onclick=()=>{ if(b.dataset.ptab==='unlink') return unlinkPlexM(); if(b.dataset.ptab==='switch') return switchProfileM(); plexTabM=b.dataset.ptab; renderPlexMeM(); });
+  const pane=$('mPlexPane');
+  try{
+    if(plexTabM==='watchlist'){
+      const j=await readJson(await fetch('/api/plex/watchlist')); const items=(j.data&&j.data.items)||[];
+      pane.innerHTML= items.length ? '<div class="row g-2">'+items.map(i=>
+        '<div class="col-4"><div class="card h-100" style="overflow:hidden">'+(i.art?'<img src="'+esc(i.art)+'" style="width:100%;aspect-ratio:2/3;object-fit:cover" loading="lazy">':'<div style="aspect-ratio:2/3;background:var(--bg2)"></div>')
+        +'<div class="p-1"><div class="small fw-bold text-truncate">'+esc(i.title)+'</div><div class="text-secondary" style="font-size:.7rem">'+esc(String(i.year||''))+'</div>'
+        +'<button class="btn btn-sm btn-outline-secondary w-100 mt-1" style="font-size:.65rem" data-rm="'+esc(i.ratingKey)+'">Remove</button></div></div></div>').join('')+'</div>'
+        : '<div class="small text-secondary">Your watchlist is empty. Tap ☆ on any poster to add.</div>';
+      pane.querySelectorAll('[data-rm]').forEach(b=> b.onclick=async()=>{ b.disabled=true; try{ await fetch('/api/plex/watchlist/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ratingKey:b.dataset.rm})}); renderPlexMeM(); }catch(e){ b.disabled=false; } });
+    } else if(plexTabM==='history'){
+      const j=await readJson(await fetch('/api/plex/history?limit=300')); plexHistM=j.data||{};
+      const items=plexHistM.items||[]; const pad=n=>String(n).padStart(2,'0');
+      pane.innerHTML= items.length ? '<div style="max-height:65vh;overflow:auto">'+items.map(i=>{
+        const art=i.art?'<img src="'+esc(i.art)+'" style="width:40px;height:60px;object-fit:cover;border-radius:5px;flex:none" loading="lazy">':'<div style="width:40px;height:60px;background:var(--bg2);border-radius:5px;flex:none"></div>';
+        const line=i.type==='episode'?(esc(i.show||i.title)+' — <b>S'+pad(i.season||0)+'E'+pad(i.episode||0)+'</b> '+esc(i.title)):(esc(i.title)+(i.year?' ('+esc(String(i.year))+')':''));
+        return '<div class="d-flex gap-2 align-items-center py-2" style="border-bottom:1px solid var(--bs-border-color)">'+art+'<div class="flex-grow-1 min-w-0"><div class="small">'+line+'</div><div class="text-secondary" style="font-size:.7rem">'+(i.viewedAt?new Date(i.viewedAt).toLocaleString():'')+'</div></div></div>';}).join('')+'</div>'
+        : '<div class="small text-secondary">No history found for your account on this server.</div>';
+    } else {
+      if(!plexHistM){ const j=await readJson(await fetch('/api/plex/history?limit=300')); plexHistM=j.data||{}; }
+      const st=(plexHistM&&plexHistM.stats)||{};
+      const box=(n,l)=>'<div class="col-6"><div class="card p-2 text-center"><div class="fw-bold" style="font-size:1.5rem;color:var(--gold)">'+(n||0)+'</div><div class="text-secondary" style="font-size:.7rem;text-transform:uppercase">'+l+'</div></div></div>';
+      pane.innerHTML='<div class="row g-2">'+box(st.total,'Items watched')+box(st.movies,'Movies')+box(st.episodes,'Episodes')+box(st.shows,'Shows')+box(st.hours,'Hours')+'</div>';
+    }
+  }catch(e){ pane.innerHTML='<div class="small text-danger">Couldn\u2019t load: '+esc(e.message)+'</div>'; }
+}
+async function plexLoginM(){
+  const msg=$('mPlexMsg'); msg.textContent='Opening Plex…';
+  let pin;
+  try{ const j=await readJson(await fetch('/api/plex/user/pin',{method:'POST'})); pin=j.data||{}; if(!pin.id) throw new Error('Could not start'); }
+  catch(e){ msg.textContent='⚠ '+e.message; return; }
+  const w=window.open(pin.authUrl,'plexuser');
+  msg.textContent='Waiting for sign-in…';
+  const start=Date.now();
+  while(Date.now()-start<180000){
+    await new Promise(r=>setTimeout(r,2000));
+    try{ const j=await readJson(await fetch('/api/plex/user/check?id='+encodeURIComponent(pin.id))); const c=j.data||{};
+      if(c.authorized){ try{ w.close(); }catch(e){} plexMeM={linked:true,username:c.username||''};
+        if(c.multipleProfiles&&(c.homeUsers||[]).length>1) renderProfilePickerM(c.homeUsers); else renderPlexMeM();
+        return; } }catch(e){}
+  }
+  msg.textContent='⚠ Timed out.';
+}
+function renderProfilePickerM(users){
+  const b=$('panelBody');
+  b.innerHTML='<div class="fw-bold mb-1">Which Plex profile is yours?</div>'
+    +'<div class="small text-secondary mb-2">This account has several Plex Home profiles. Pick yours so your watchlist and history are personal.</div>'
+    +'<div class="row g-2">'+users.map((u,i)=>{
+      const art=u.thumb?'<img src="'+esc(u.thumb)+'" style="width:100%;aspect-ratio:1;object-fit:cover" loading="lazy">':'<div style="aspect-ratio:1;background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:1.4rem">'+esc((u.title||'?')[0])+'</div>';
+      return '<div class="col-4"><div class="card h-100" data-prof="'+i+'" style="cursor:pointer;overflow:hidden">'+art+'<div class="p-1 small fw-bold text-truncate">'+esc(u.title)+'</div>'+(u.protected?'<div class="px-1 pb-1 text-secondary" style="font-size:.65rem">PIN</div>':'')+'</div></div>';
+    }).join('')+'</div><div class="small mt-2" id="profMsgM"></div>';
+  b.querySelectorAll('[data-prof]').forEach(c=> c.onclick=()=>pickProfileM(users[Number(c.dataset.prof)]));
+}
+async function pickProfileM(u){
+  const msg=$('profMsgM'); let pin='';
+  if(u.protected){ pin=prompt('PIN for “'+u.title+'”:')||''; if(!pin) return; }
+  msg.className='small text-secondary'; msg.textContent='Switching…';
+  try{
+    const r=await fetch('/api/plex/user/home/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:u.id,uuid:u.uuid||'',pin})});
+    const j=await readJson(r); const d=j.data||{};
+    if(!r.ok) throw new Error(d.message||'Could not switch');
+    plexMeM={linked:true,username:d.username||u.title}; plexHistM=null; plexTabM='watchlist'; renderPlexMeM();
+  }catch(e){ msg.className='small text-danger'; msg.textContent='⚠ '+e.message; }
+}
+async function switchProfileM(){
+  const b=$('panelBody'); b.innerHTML='<div class="small text-secondary">Loading profiles…</div>';
+  try{
+    const j=await readJson(await fetch('/api/plex/user/home')); const d=j.data||{};
+    if((d.users||[]).length>1) renderProfilePickerM(d.users);
+    else { alert('This Plex account only has one profile.'); renderPlexMeM(); }
+  }catch(e){ b.innerHTML='<div class="small text-danger">'+esc(e.message)+'</div>'; }
+}
+async function unlinkPlexM(){
+  if(!confirm('Sign out of Plex?')) return;
+  try{ await fetch('/api/plex/user/unlink',{method:'POST'}); }catch(e){}
+  plexMeM={linked:false}; plexHistM=null; renderPlexMeM();
+}
+// ---- auto add (server-side queue) ----
+let autoPollM=null;
+let autoWatchingM=null, autoHideTimerM=null, lastAutoIdM=null;
+function autoDismissedM(id){ try{ return localStorage.getItem('mediarr-autoadd-dismissed')===String(id); }catch(e){ return false; } }
+function dismissAutoM(id){ try{ if(id!=null) localStorage.setItem('mediarr-autoadd-dismissed',String(id)); }catch(e){}
+  clearTimeout(autoHideTimerM); const b=$('autobarM'); if(b) b.style.display='none'; }
+function renderAutoM(st){
+  const bar=$('autobarM'); if(!bar) return;
+  const j=(st&&st.job)||null;
+  if(!j){ bar.style.display='none'; return; }
+  const id=j.startedAt, running=(j.status==='running');
+  // dismissed stays dismissed; finished jobs don't reappear on reload/login
+  if(autoDismissedM(id) || (!running && autoWatchingM!==id)){ bar.style.display='none'; return; }
+  if(running) autoWatchingM=id;
+  lastAutoIdM=id;
+  bar.style.display='';
+  const pct=j.total?Math.round((j.index/j.total)*100):0;
+  let sub=j.index+'/'+j.total+' · '+j.added+' added, '+j.skipped+' had'+(j.tooShort?', '+j.tooShort+' short':'')+', '+j.failed+' failed';
+  if(j.status==='running'&&j.nextAt){ const s2=Math.max(0,Math.round((j.nextAt-Date.now())/1000)); sub+=' · next in '+(s2>=60?(Math.floor(s2/60)+'m'):(s2+'s')); }
+  else if(j.status==='done') sub+=' · finished'; else if(j.status==='stopped') sub+=' · stopped';
+  $('abTitleM').textContent=(j.status==='running'?'Auto adding — ':'Auto add ')+j.label;
+  $('abSubM').textContent=sub; $('abFillM').style.width=pct+'%';
+  $('abStopM').style.display=running?'':'none';
+  if(!running){ clearTimeout(autoHideTimerM); autoHideTimerM=setTimeout(()=>dismissAutoM(id),12000); }
+}
+async function pollAutoM(){
+  if(document.hidden) return;
+  try{ const j=await readJson(await fetch('/api/autoadd/status')); const st=j.data||{}; renderAutoM(st);
+    if(st.running){ if(!autoPollM) autoPollM=setInterval(pollAutoM,1000); }
+    else if(autoPollM){ clearInterval(autoPollM); autoPollM=null; loadLibrary(); }
+  }catch(e){}
+}
+// Ask movies / TV / everything before starting.
+function askAddScopeM(items){
+  return new Promise(resolve=>{
+    const movies=items.filter(i=>i.kind!=='series').length, shows=items.filter(i=>i.kind==='series').length;
+    const opt=(v,ic,t,n)=>'<button class="btn '+(n?'btn-outline-gold':'btn-outline-secondary')+' w-100 text-start mb-2" data-scope="'+v+'"'+(n?'':' disabled')+'>'
+      +'<span class="me-2">'+ic+'</span><b>'+t+'</b><div class="small text-secondary ms-4">'+(n?n+' to add':'nothing to add')+'</div></button>';
+    openPanel('What should I add?',
+      '<div class="small text-secondary mb-3">'+items.length+' item(s) here aren\u2019t in your library yet — '+movies+' movie(s) and '+shows+' TV show(s).</div>'
+      +opt('movie','🎬','Movies only',movies)+opt('series','📺','TV shows only',shows)+opt('all','✨','Everything',items.length));
+    let done=false;
+    const finish=v=>{ if(done) return; done=true; try{ panelModal().hide(); }catch(e){} resolve(v); };
+    $('panelBody').querySelectorAll('[data-scope]').forEach(b=> b.onclick=()=>finish(b.dataset.scope));
+    $('panel').addEventListener('hidden.bs.modal', ()=>finish(null), { once:true });
+  });
+}
+async function startAutoAddM(label, items){
+  if(!items.length){ alert('Nothing new to add — everything here is already in your library.'); return; }
+  const mins=(config&&config.autoAdd&&config.autoAdd.intervalMinutes!=null)?config.autoAdd.intervalMinutes:5;
+  const minRt=(config&&config.autoAdd&&config.autoAdd.minRuntime)||0;
+  if(!confirm('Auto add '+items.length+' item(s) from "'+label+'"?\n\nOne every '+mins+' minute(s).'+(minRt?(' Skipping under '+minRt+' min.'):'')+'\nRuns on the server — you can close this page.')) return;
+  try{
+    const r=await fetch('/api/autoadd/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({label,items})});
+    const j=await readJson(r); const st=j.data||{};
+    if(!r.ok){ alert(st.message||'Could not start'); return; }
+    renderAutoM(st); if(!autoPollM) autoPollM=setInterval(pollAutoM,1000);
+  }catch(e){ alert('Could not start: '+e.message); }
+}
+async function autoAddCurrentM(btn){
+  const orig=btn.textContent; btn.disabled=true; btn.textContent='Loading all…';
+  try{
+    let g=0; while(pager&&pager.hasMore&&pager.hasMore()&&g<40){ await pager.loadMore(); g++; }
+    paint();
+    let list=lastItems||[];
+    if(kindFilter!=='all') list=list.filter(it=>it.kind===kindFilter);
+    const items=list.filter(it=>!inLib(it.kind,{imdb:it.imdb,tmdb:it.tmdb}))
+      .map(it=>({kind:it.kind==='series'?'series':'movie', imdbId:(it.imdb&&String(it.imdb).startsWith('tt'))?it.imdb:'', tmdbId:it.tmdb||null, title:it.title}));
+    const label=lastLabel||($('q').value.trim()||'results');
+    btn.disabled=false; btn.textContent=orig;
+    if(!items.length){ alert('Nothing new to add — everything here is already in your library.'); return; }
+    const scope=await askAddScopeM(items);
+    if(!scope) return;
+    const picked = scope==='all' ? items : items.filter(i=> scope==='series' ? i.kind==='series' : i.kind!=='series');
+    const suffix = scope==='all' ? '' : (scope==='series' ? ' · TV shows' : ' · Movies');
+    await startAutoAddM(label+suffix, picked);
+  }catch(e){ btn.disabled=false; btn.textContent=orig; alert('Could not load everything: '+e.message); }
+}
+// ---- favorite TV shows + Plex watched ----
+let favKeysM=new Set(), plexSeenM={};
+function normTM(s){ return String(s||'').toLowerCase().replace(/\(\d{4}\)/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
+function favKeyM(it){
+  const imdb=it.imdb||it.imdbId, tmdb=it.tmdb||it.tmdbId, tvdb=it.tvdbId;
+  if(imdb) return 'imdb:'+String(imdb).toLowerCase();
+  if(tvdb) return 'tvdb:'+tvdb;
+  if(tmdb) return 'tmdb:'+tmdb;
+  return 'name:'+String(it.title||'').trim().toLowerCase();
+}
+function isFavM(it){ return favKeysM.has(favKeyM(it)); }
+function seenLatestM(t){ return !!plexSeenM[normTM(t)]; }
+async function loadFavoritesM(){ try{ const j=await readJson(await fetch('/api/favorites')); const l=(j.data&&j.data.favorites)||[]; favKeysM=new Set(l.map(f=>f.key)); }catch(e){} }
+async function loadPlexSeenM(){ try{ const j=await readJson(await fetch('/api/plex/watched')); plexSeenM=(j.data&&j.data.shows)||{}; }catch(e){ plexSeenM={}; } }
+async function toggleFavM(it, btn){
+  const key=favKeyM(it), was=favKeysM.has(key);
+  const item={ title:it.title, imdbId:it.imdb||it.imdbId||'', tmdbId:it.tmdb||it.tmdbId||null, tvdbId:it.tvdbId||null, poster:it.poster||'' };
+  if(btn) btn.disabled=true;
+  try{
+    const j=await readJson(await fetch('/api/favorites',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:was?'remove':'add',item})}));
+    const d=j.data||{};
+    if(d.favorited){ favKeysM.add(key); } else { favKeysM.delete(key); }
+    if(btn){ btn.classList.toggle('on', !!d.favorited); btn.textContent=d.favorited?'♥':'♡'; }
+  }catch(e){}
+  if(btn) btn.disabled=false;
+}
+async function openUpcomingM(){
+  closeMenu(); openPanel('Upcoming — favorites','<div class="state"><div class="spinner-border text-secondary mb-2"></div><div>Checking your favorite shows…</div></div>');
+  try{
+    const j=await readJson(await fetch('/api/favorites/upcoming')); const d=j.data||{}; const items=d.items||[];
+    if(!items.length){ $('panelBody').innerHTML='<div class="state">No favorites yet. Tap the ♡ on any TV show to follow it.</div>'; return; }
+    const pad=n=>String(n).padStart(2,'0');
+    const row=i=>{
+      const poster=i.poster?'<img src="'+esc(i.poster)+'" style="width:46px;height:69px;object-fit:cover;border-radius:6px;flex:none" loading="lazy">':'<div style="width:46px;height:69px;background:var(--bg2);border-radius:6px;flex:none"></div>';
+      let ep='<span class="text-secondary">No upcoming episode announced</span>', when='';
+      if(i.next){
+        ep='<span class="fw-bold" style="color:#35c5f0">S'+pad(i.next.season)+'E'+pad(i.next.episode)+'</span> '+esc(i.next.name||'TBA');
+        const dt=new Date(i.next.airDate);
+        if(!isNaN(dt)){ const days=Math.ceil((dt-new Date())/864e5); when=dt.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})+(days===0?' · today':days===1?' · tomorrow':days>1?' · in '+days+' days':''); }
+      }
+      const seen=i.watchedPrev?'<span style="color:#4ade80;font-size:17px" title="Latest aired episode watched on Plex">✓</span>':'';
+      return '<div class="d-flex gap-2 align-items-center py-2" style="border-bottom:1px solid var(--bs-border-color)">'+poster+
+        '<div class="flex-grow-1 min-w-0"><div class="fw-bold text-truncate">'+esc(i.title)+'</div><div class="small">'+ep+'</div><div class="small text-secondary">'+esc(when)+'</div></div>'+
+        '<div class="d-flex gap-2 align-items-center flex-shrink-0">'+seen+'<button class="btn btn-sm p-0 border-0" style="color:#ff4d6d;font-size:17px;background:none" data-unfav="'+esc(i.key)+'">♥</button></div></div>';
+    };
+    const withNext=items.filter(i=>i.next), without=items.filter(i=>!i.next);
+    let html=withNext.map(row).join('');
+    if(without.length) html+='<div class="small text-secondary fw-bold text-uppercase mt-3 mb-1">No announced episode yet</div>'+without.map(row).join('');
+    $('panelBody').innerHTML=html;
+    $('panelBody').querySelectorAll('[data-unfav]').forEach(b=> b.onclick=async()=>{ const it=items.find(x=>x.key===b.dataset.unfav); if(!it)return; await toggleFavM({title:it.title,imdb:it.imdbId,tmdb:it.tmdbId,tvdbId:it.tvdbId},null); openUpcomingM(); });
+  }catch(e){ panelErr('Couldn’t load upcoming: '+e.message); }
+}
+function cardHtml(it){
+  const have=inLib(it.kind,{imdb:it.imdb,tmdb:it.tmdb});
+  const poster= it.poster ? `<img class="poster" src="${esc(it.poster)}" loading="lazy" onerror="this.classList.add('ph');this.removeAttribute('src');this.textContent='No image';">` : `<div class="poster ph">No image</div>`;
+  const badge= it.kind==='movie'?'<span class="badge text-bg-warning tag">Movie</span>':'<span class="badge text-bg-info tag">TV</span>';
+  const chk= have?'<span class="chk">✓</span>':'';
+  const fav= it.kind==='series' ? `<button class="fav-btn${isFavM(it)?' on':''}" data-fav title="Favorite">${isFavM(it)?'♥':'♡'}</button>` : '';
+  const wl= plexMeM.linked ? '<button class="wl-btn" data-wl title="Add to Plex watchlist">☆</button>' : '';
+  const seen= (it.kind==='series' && seenLatestM(it.title)) ? '<span class="seen-dot" title="Latest episode watched on Plex">✓</span>' : '';
+  const addBtn= have ? `<button class="btn btn-success btn-sm add-sm" disabled>✓ In library</button>`
+    : `<button class="btn ${it.kind==='movie'?'btn-gold':'btn-outline-gold'} btn-sm add-sm" data-add>＋ Add</button>`;
+  return `<div class="col-6 col-md-4 col-lg-3"><div class="mcard" data-key="${esc(it.kind+':'+(it.imdb||it.tmdb))}">
+    ${poster}${badge}${chk}${fav}${seen}${wl}
+    <div class="body"><div class="t">${esc(it.title)}</div><div class="y">${esc(it.year||'')}</div>${addBtn}</div>
+  </div></div>`;
+}
+function bindCards(items){
+  const map={}; items.forEach(it=> map[it.kind+':'+(it.imdb||it.tmdb)]=it);
+  $('results').querySelectorAll('.mcard').forEach(card=>{
+    const it=map[card.dataset.key]; if(!it) return;
+    card.addEventListener('click', e=>{ if(e.target.closest('[data-add]')||e.target.closest('[data-fav]')||e.target.closest('[data-wl]')) return; openDetail(it); });
+    const ab=card.querySelector('[data-add]'); if(ab) ab.addEventListener('click', ()=> doAdd(ab, it));
+    const fb=card.querySelector('[data-fav]'); if(fb) fb.addEventListener('click', e=>{ e.stopPropagation(); toggleFavM(it, fb); });
+    const wb=card.querySelector('[data-wl]'); if(wb) wb.addEventListener('click', e=>{ e.stopPropagation(); addWatchlistM(it, wb); });
+  });
+}
+
+/* ---------- detail ---------- */
+const detailModal = ()=> bootstrap.Modal.getOrCreateInstance($('detail'));
+async function openDetail(it){
+  $('detailBody').innerHTML='<div class="state"><div class="spinner-border text-secondary"></div></div>';
+  detailModal().show();
+  let overview='', poster=it.poster, year=it.year, title=it.title, imdb=it.imdb, cmCast=[], cmDir=[], cmTrailer=null;
+  try{
+    if(!imdb && it.tmdb){ const ext=await tmdb('/'+(it.kind==='movie'?'movie':'tv')+'/'+it.tmdb+'/external_ids'); imdb=ext.imdb_id||null; }
+    if(imdb){ const r=await fetch(`/api/cinemeta/meta/${it.kind}/${encodeURIComponent(imdb)}.json`); const j=await readJson(r); const meta=j.data&&j.data.meta; if(meta){ overview=meta.description||''; poster=meta.poster||poster; year=(meta.releaseInfo||year||'').toString().slice(0,4); title=meta.name||title; cmCast=(meta.cast||[]).filter(Boolean); cmDir=(meta.director||[]).filter(Boolean); cmTrailer=(meta.trailerStreams&&meta.trailerStreams[0]&&meta.trailerStreams[0].ytId)||(meta.trailers&&meta.trailers[0]&&meta.trailers[0].source)||null; } }
+    else if(it.tmdb){ const d=await tmdb('/'+(it.kind==='movie'?'movie':'tv')+'/'+it.tmdb); overview=d.overview||''; }
+  }catch(e){}
+  await loadConfig();   // ensure the Radarr/Sonarr "configured" check uses fresh server state
+  it.imdb=imdb||it.imdb;
+  const have=inLib(it.kind,{imdb:it.imdb,tmdb:it.tmdb});
+  const svc=it.kind==='movie'?'radarr':'sonarr';
+  const cfg=isConfigured(svc);
+  let libItem=null; if(have && me && me.role==='admin'){ try{ libItem=await findLibraryItemM(svc,it); }catch(e){} }
+  let opts='';
+  if(cfg && !have && me && me.role==='admin'){
+    opts = it.kind==='movie'
+      ? `<label class="form-label small mt-2">Minimum availability</label>
+         <select id="dOpt" class="form-select form-select-sm"><option value="announced">Announced</option><option value="inCinemas">In Cinemas</option><option value="released" selected>Released</option></select>`
+      : `<label class="form-label small mt-2">Monitor</label>
+         <select id="dOpt" class="form-select form-select-sm"><option value="all" selected>All Episodes</option><option value="future">Future</option><option value="missing">Missing</option><option value="firstSeason">First Season</option><option value="none">None</option></select>`;
+  }
+  const action = have ? `<button class="btn btn-success w-100 mt-3" disabled>✓ In your library</button>${libItem?`<button id="dManual" class="btn btn-gold w-100 mt-2">⚡ ${it.kind==='movie'?'Browse releases':'Episodes & releases'}</button>`:''}`
+    : !cfg ? `<div class="alert alert-secondary small mt-3 mb-0">${svc[0].toUpperCase()+svc.slice(1)} isn't set up. Open Settings to configure it.</div>`
+    : `${opts}<button id="dAdd" class="btn ${it.kind==='movie'?'btn-gold':'btn-outline-gold'} w-100 mt-3">＋ Add to ${it.kind==='movie'?'Radarr':'Sonarr'}</button>`;
+  const pos= poster?`<img class="detail-poster" src="${esc(poster)}" onerror="this.style.display='none'">`:'';
+  $('detailBody').innerHTML = `<div class="d-flex gap-3">${pos}<div><div class="fw-bold">${esc(title)}</div><div class="text-secondary small">${esc(year||'')} · ${it.kind==='movie'?'Movie':'TV'}</div></div></div>
+    ${overview?'<p class="small mt-3 mb-0">'+esc(overview)+'</p>':''}
+    <div id="dActionWrap">${action}</div>
+    <div id="dFileInfo"></div>
+    <div id="dTrailer" class="mt-2"></div>
+    <div id="dCredits"></div>
+    <div id="dRecs"></div>`;
+  const addEl=$('dAdd'); if(addEl) addEl.onclick=()=> doAdd(addEl, it, $('dOpt')?$('dOpt').value:null);
+  const man=$('dManual'); if(man&&libItem) man.onclick=()=>{ try{bootstrap.Modal.getInstance($('detail'))?.hide();}catch(e){} if(it.kind==='movie')openManualReleasesM('radarr',{movieId:libItem.id},title); else openSeriesReleasePickerM(libItem.id,title); };
+  if(it.kind==='movie' && have) loadMovieFileInfoM(it);
+  if(cmTrailer) renderTrailer($('dTrailer'), cmTrailer);
+  loadDetailExtras(it, imdb, cmDir, cmCast);
+}
+// ---- SABnzbd queue ----
+let queueTabM='queue', queueTimerM=null;
+function fmtSizeM(b){ if(!b) return ''; const u=['B','KB','MB','GB','TB']; let i=0,x=b; while(x>=1024&&i<u.length-1){x/=1024;i++;} return x.toFixed(x<10&&i>1?1:0)+' '+u[i]; }
+async function openQueueM(){
+  closeMenu(); openPanel('Download queue','<div class="small text-secondary">Loading…</div>');
+  await loadQueueM();
+  if(queueTimerM) clearInterval(queueTimerM);
+  queueTimerM=setInterval(()=>{ if(!document.hidden && $('panelTitle') && /queue/i.test($('panelTitle').textContent)) loadQueueM(); }, 6000);
+  $('panel').addEventListener('hidden.bs.modal', ()=>{ if(queueTimerM){ clearInterval(queueTimerM); queueTimerM=null; } }, { once:true });
+}
+async function loadQueueM(){
+  try{
+    const j=await readJson(await fetch('/api/sab?history=30')); const d=j.data||{};
+    if(!d.configured){ $('panelBody').innerHTML='<div class="small text-secondary">SABnzbd isn\u2019t set up. An admin can add it in Settings.</div>'; return; }
+    if(d.error){ $('panelBody').innerHTML='<div class="small text-danger">'+esc(d.error)+'</div>'; return; }
+    renderQueueM(d);
+  }catch(e){ $('panelBody').innerHTML='<div class="small text-danger">'+esc(e.message)+'</div>'; }
+}
+function renderQueueM(d){
+  let h='<div class="d-flex gap-3 flex-wrap mb-2 small">'
+    +'<div><div class="text-secondary" style="font-size:.6rem;text-transform:uppercase">Speed</div><b>'+esc(d.paused?'Paused':(d.speed||'0 B/s'))+'</b></div>'
+    +'<div><div class="text-secondary" style="font-size:.6rem;text-transform:uppercase">Left</div><b>'+esc(d.sizeLeft||'—')+'</b></div>'
+    +'<div><div class="text-secondary" style="font-size:.6rem;text-transform:uppercase">ETA</div><b>'+esc(d.timeLeft||'—')+'</b></div>'
+    +(d.diskFreeGB!=null?'<div><div class="text-secondary" style="font-size:.6rem;text-transform:uppercase">Disk</div><b>'+d.diskFreeGB.toFixed(1)+' GB</b></div>':'')
+    +'</div>';
+  h+='<div class="btn-group btn-group-sm w-100 mb-2">'
+    +'<button class="btn '+(queueTabM==='queue'?'btn-gold':'btn-outline-gold')+'" data-qtm="queue">Downloading ('+d.queue.length+')</button>'
+    +'<button class="btn '+(queueTabM==='history'?'btn-gold':'btn-outline-gold')+'" data-qtm="history">Completed ('+(d.historyTotal||d.history.length)+')</button></div>';
+  if(queueTabM==='queue'){
+    h+= d.queue.length ? d.queue.map(q=>'<div class="py-2" style="border-bottom:1px solid var(--bs-border-color)">'
+      +'<div class="small text-truncate">'+esc(q.name)+'</div>'
+      +'<div class="progress mt-1" style="height:5px"><div class="progress-bar bg-warning" style="width:'+Math.max(0,Math.min(100,q.percent))+'%"></div></div>'
+      +'<div class="text-secondary" style="font-size:.65rem">'+q.percent+'% · '+fmtSizeM(q.sizeMB*1048576)+(q.timeLeft?' · '+esc(q.timeLeft)+' left':'')+' · '+esc(q.status||'')+'</div></div>').join('')
+      : '<div class="small text-secondary">Nothing downloading right now.</div>';
+  } else {
+    h+= d.history.length ? d.history.map(x=>{const failed=/fail/i.test(x.status);
+      return '<div class="py-2" style="border-bottom:1px solid var(--bs-border-color)">'
+      +'<div class="small text-truncate">'+esc(x.name)+'</div>'
+      +'<div class="text-secondary" style="font-size:.65rem"><span class="'+(failed?'text-danger':'text-success')+'">'+esc(x.status||'')+'</span> · '+fmtSizeM(x.sizeBytes)
+      +(x.completed?' · '+new Date(x.completed*1000).toLocaleDateString():'')+'</div></div>';}).join('')
+      : '<div class="small text-secondary">No completed downloads yet.</div>';
+  }
+  $('panelBody').innerHTML=h;
+  $('panelBody').querySelectorAll('[data-qtm]').forEach(b=> b.onclick=()=>{ queueTabM=b.dataset.qtm; renderQueueM(d); });
+}
+// ---- movie file details (same data Radarr shows) ----
+function fmtBytesM(n){ if(!n) return ''; const u=['B','KB','MB','GB','TB']; let i=0,x=Number(n); while(x>=1024&&i<u.length-1){x/=1024;i++;} return x.toFixed(x<10&&i>1?2:x<100&&i>1?1:0)+' '+u[i]; }
+function fmtBitrateM(n){ if(!n) return ''; return n>=1000000 ? (n/1000000).toFixed(1)+' Mbps' : Math.round(n/1000)+' kbps'; }
+function chanNameM(c){ const m={1:'Mono',2:'Stereo',6:'5.1',8:'7.1'}; return m[c]||(c?c+'ch':''); }
+async function loadMovieFileInfoM(it){
+  const mount=$('dFileInfo'); if(!mount) return;
+  mount.innerHTML='<div class="small text-secondary mt-3">Loading file details…</div>';
+  try{
+    const qs = it.tmdb ? ('tmdbId='+encodeURIComponent(it.tmdb)) : ('imdbId='+encodeURIComponent(it.imdb||''));
+    const j=await readJson(await fetch('/api/movie/fileinfo?'+qs)); const d=j.data||{};
+    if(!d.ok) throw new Error(d.message||'unavailable');
+    if(!d.hasFile||!d.file){ mount.innerHTML='<div class="small text-secondary mt-3">No file on disk yet'+(d.path?' · <span style="font-family:monospace">'+esc(d.path)+'</span>':'')+'</div>'; return; }
+    const f=d.file,v=f.video||{},a=f.audio||{};
+    const badge=(t,cls)=> t?'<span class="badge '+(cls||'text-bg-secondary')+' me-1 mb-1">'+esc(t)+'</span>':'';
+    const row=(k,val)=> val?'<div class="col-6 mb-2"><div class="text-secondary" style="font-size:.65rem;text-transform:uppercase;letter-spacing:.4px">'+k+'</div><div class="small">'+esc(String(val))+'</div></div>':'';
+    const vparts=[v.codec,v.bitDepth?v.bitDepth+'-bit':'',v.fps?v.fps+' fps':'',fmtBitrateM(v.bitrate)].filter(Boolean).join(' · ');
+    const aparts=[a.codec,chanNameM(a.channels),fmtBitrateM(a.bitrate),a.streams>1?a.streams+' tracks':''].filter(Boolean).join(' · ');
+    mount.innerHTML='<div class="card mt-3" style="background:var(--bg2)"><div class="card-body p-2">'
+      +'<div class="fw-bold small mb-2">File details</div>'
+      +'<div class="mb-1">'+badge(f.quality,'text-bg-warning')+badge(v.resolution)+badge(v.dynamicRange,'text-bg-info')+badge(f.edition)+badge(f.releaseGroup)+'</div>'
+      +'<div class="row g-0">'
+      +row('Video',vparts)+row('Audio',aparts)
+      +row('Audio languages',(a.languages||[]).join(', '))
+      +row('Languages',(f.languages||[]).join(', '))
+      +row('Subtitles',(f.subtitles||[]).join(', '))
+      +row('Size',fmtBytesM(f.size||d.sizeOnDisk))
+      +row('Runtime',f.runtime)
+      +row('Added',f.dateAdded?new Date(f.dateAdded).toLocaleDateString():'')
+      +'</div>'
+      +(f.relativePath?'<div class="text-secondary mt-1" style="font-size:.65rem;text-transform:uppercase">Relative path</div><div class="small" style="font-family:monospace;word-break:break-all">'+esc(f.relativePath)+'</div>':'')
+      +(d.path?'<div class="text-secondary mt-1" style="font-size:.65rem;text-transform:uppercase">Folder</div><div class="small" style="font-family:monospace;word-break:break-all">'+esc(d.path)+'</div>':'')
+      +'</div></div>';
+  }catch(e){ mount.innerHTML='<div class="small text-secondary mt-3">Couldn\u2019t load file details.</div>'; }
+}
+function renderTrailer(mount, key){
+  if(!mount || !key) return;
+  if(mount.querySelector('iframe')) return;   // don't interrupt a trailer that's already playing
+  mount.innerHTML='<button class="btn btn-outline-gold w-100" id="dTrailerBtn">▶ Watch trailer</button>';
+  $('dTrailerBtn').onclick=()=>{
+    mount.innerHTML='<div class="ratio ratio-16x9 mt-1"><iframe src="https://www.youtube.com/embed/'+encodeURIComponent(key)+'?autoplay=1&playsinline=1&rel=0" title="Trailer" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen style="border:0;border-radius:8px"></iframe></div><div class="small mt-1 text-end"><a href="https://www.youtube.com/watch?v='+encodeURIComponent(key)+'" target="_blank" rel="noopener">Open in YouTube ↗</a></div>';
+  };
+}
+function pickTrailer(videos){
+  const list=(videos&&videos.results)||[];
+  const yt=list.filter(v=>v.site==='YouTube');
+  const pick = yt.find(v=>v.type==='Trailer'&&v.official) || yt.find(v=>v.type==='Trailer') || yt.find(v=>v.type==='Teaser'&&v.official) || yt.find(v=>v.type==='Teaser') || yt[0];
+  return pick ? pick.key : null;
+}
+
+/* ---------- detail extras: cast / crew / recommendations ---------- */
+function tmt(kind){ return kind==='movie'?'movie':'tv'; }
+async function resolveTmdbId(it, imdb){
+  if(it.tmdb) return it.tmdb;
+  if(imdb && isConfigured('tmdb')){
+    try{ const f=await tmdb('/find/'+encodeURIComponent(imdb)+'?external_source=imdb_id'); const list=tmt(it.kind)==='movie'?f.movie_results:f.tv_results; if(list&&list.length) return list[0].id; }catch(e){}
+  }
+  return null;
+}
+function cmNames(dir, cast, kind){
+  if(!dir.length && !cast.length) return '';
+  return '<div class="sec-h">Cast &amp; crew</div>'
+    + (dir.length?'<div class="small mb-1"><b>'+(kind==='movie'?'Director':'Creator')+':</b> '+dir.map(esc).join(', ')+'</div>':'')
+    + (cast.length?'<div class="small"><b>Cast:</b> '+cast.map(esc).join(', ')+'</div>':'')
+    + '<div class="small text-secondary mt-1">Add a TMDB key in Settings to see photos and recommendations.</div>';
+}
+async function loadDetailExtras(it, imdb, cmDir, cmCast){
+  const cred=$('dCredits'), recs=$('dRecs'); if(!cred) return;
+  if(!isConfigured('tmdb')){ cred.innerHTML=cmNames(cmDir, cmCast, it.kind); return; }
+  let id=null;
+  try{ id=await resolveTmdbId(it, imdb); }catch(e){}
+  if(!id){ cred.innerHTML=cmNames(cmDir, cmCast, it.kind); return; }
+  const mt=tmt(it.kind);
+  try{
+    const d=await tmdb('/'+mt+'/'+id+'?append_to_response=credits,videos');
+    const key=pickTrailer(d.videos); if(key) renderTrailer($('dTrailer'), key);
+    const credits=d.credits||{};
+    let directors=(credits.crew||[]).filter(c=>c.job==='Director');
+    if(mt==='tv' && (d.created_by||[]).length) directors=d.created_by.map(c=>({id:c.id,name:c.name,profile_path:c.profile_path,job:'Creator'}));
+    const seen=new Set(); directors=directors.filter(x=>{ if(seen.has(x.id))return false; seen.add(x.id); return true; });
+    renderDetailCredits(cred, directors, (credits.cast||[]).slice(0,20), mt);
+  }catch(e){ cred.innerHTML=cmNames(cmDir, cmCast, it.kind); }
+  loadDetailRecs(recs, id, mt);
+}
+function pphoto(path, cls, name){ return path ? '<img class="'+cls+'" src="'+TMDB_PROFILE+path+'" loading="lazy" onerror="this.style.visibility=\'hidden\'">' : '<div class="'+cls+'">'+esc((name||'?')[0])+'</div>'; }
+function renderDetailCredits(mount, directors, cast, mt){
+  let html='';
+  if(directors.length){
+    html+='<div class="sec-h">'+(mt==='tv'?'Created by':(directors.length>1?'Directors':'Director'))+'</div><div class="crewrow">';
+    html+=directors.map(d=>'<div class="crewc" data-pn="'+esc(d.name)+'">'+pphoto(d.profile_path,'ph3',d.name)+'<div><div style="font-weight:700;font-size:.8rem;line-height:1.1">'+esc(d.name)+'</div><div style="font-size:.66rem;color:var(--gold);text-transform:uppercase;letter-spacing:.3px">'+esc(d.job||'Director')+'</div></div></div>').join('');
+    html+='</div>';
+  }
+  if(cast.length){
+    html+='<div class="sec-h">Cast</div><div class="hscroll">';
+    html+=cast.map(c=>'<div class="castc" data-pn="'+esc(c.name)+'">'+pphoto(c.profile_path,'ph2',c.name)+'<div class="nm">'+esc(c.name)+'</div>'+(c.character?'<div class="rl">'+esc(c.character)+'</div>':'')+'</div>').join('');
+    html+='</div>';
+  }
+  mount.innerHTML=html;
+  mount.querySelectorAll('[data-pn]').forEach(el=> el.onclick=()=> personFromCredit(el.dataset.pn));
+}
+async function loadDetailRecs(mount, id, mt){
+  if(!mount) return;
+  try{
+    let data=await tmdb('/'+mt+'/'+id+'/recommendations?page=1');
+    let items=(data.results||[]);
+    if(items.length<4){ try{ const sim=await tmdb('/'+mt+'/'+id+'/similar?page=1'); const seen=new Set(items.map(i=>i.id)); (sim.results||[]).forEach(r=>{ if(!seen.has(r.id)){ items.push(r); seen.add(r.id); } }); }catch(e){} }
+    items=items.filter(r=>r.poster_path).slice(0,14);
+    if(!items.length) return;
+    const recItems=items.map(r=>({ kind:mt==='movie'?'movie':'series', id:r.id, imdb:null, tmdb:r.id, title:r.title||r.name||'', year:(r.release_date||r.first_air_date||'').slice(0,4), poster:TMDB_IMG+r.poster_path }));
+    let html='<div class="sec-h">'+(mt==='movie'?'Similar movies':'Similar shows')+'</div><div class="hscroll">';
+    html+=recItems.map((it,i)=>'<div class="recc" data-i="'+i+'"><img class="ph4" src="'+esc(it.poster)+'" loading="lazy"><div class="nm">'+esc(it.title)+'</div><div class="rl small text-secondary">'+esc(it.year||'')+'</div></div>').join('');
+    html+='</div>';
+    mount.innerHTML=html;
+    mount.querySelectorAll('[data-i]').forEach(el=> el.onclick=()=> openDetail(recItems[Number(el.dataset.i)]));
+  }catch(e){}
+}
+function personFromCredit(name){
+  try{ bootstrap.Modal.getInstance($('detail'))?.hide(); }catch(e){}
+  document.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('active', x.dataset.mode==='person'));
+  mode='person'; $('q').value=name||''; $('q').placeholder='Actor or director…'; $('q').setAttribute('inputmode','text');
+  setKindFilter('all'); $('kindFilter').style.display='';
+  run(true);
+}
+
+/* ---------- add ---------- */
+async function doAdd(btn, it, opt){
+  const isMovie=it.kind==='movie'; const svc=isMovie?'radarr':'sonarr';
+  if(!isConfigured(svc)){ await loadConfig(); if(!isConfigured(svc)){ openSettings(); return; } }
+  btn.disabled=true; const orig=btn.textContent; btn.textContent='Adding…';
+  try{
+    const payload={ type:isMovie?'movie':'series', imdbId:it.imdb||'', tmdbId:it.tmdb||null, title:it.title };
+    if(isMovie && opt) payload.minimumAvailability=opt;
+    if(!isMovie && opt) payload.monitor=opt;
+    const r=await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const j2=await readJson(r); const d=j2.data||{};
+    if(!r.ok || d.ok===false) throw new Error(d.message||('HTTP '+r.status));
+    btn.classList.remove('btn-gold','btn-outline-gold'); btn.classList.add('btn-success');
+    btn.textContent = d.alreadyInLibrary ? '✓ In library' : '✓ Added';
+    await refreshLiveIdsM(true); await loadLibrary(true);
+    if(lastItems.length) paint();
+  }catch(e){
+    btn.classList.add('btn-danger');
+    btn.textContent='⚠ '+(String(e.message||'').length>26?'Failed':e.message);
+    btn.title=e.message||'';
+    setTimeout(()=>{ btn.disabled=false; btn.textContent=orig; btn.classList.remove('btn-danger'); btn.title=''; }, 4000);
+  }
+}
+
+/* ---------- settings ---------- */
+const settingsModal = ()=> bootstrap.Modal.getOrCreateInstance($('settings'));
+function svcBlock(svc, label, urlPh){
+  const c=(config&&config[svc])||{};
+  const need = svc!=='tmdb';
+  return `<div class="card mb-3" style="background:var(--bg)"><div class="card-body">
+    <div class="fw-bold mb-2">${label} ${isConfigured(svc)?'<span class="badge text-bg-success ms-1">connected</span>':''}</div>
+    ${need?`<label class="form-label small">Server URL</label><input class="form-control form-control-sm mb-2" id="s_${svc}_url" value="${esc(c.url||'')}" placeholder="${urlPh}">`:''}
+    <label class="form-label small">${svc==='tmdb'?'TMDB API key':svc==='plex'?'Plex token':'API key'}</label>
+    <input class="form-control form-control-sm" id="s_${svc}_key" type="password" placeholder="${c.hasKey?'•••••• (saved)':'paste key'}">
+    ${need?`<div class="row g-2 mt-1"><div class="col"><label class="form-label small">Quality profile</label><select class="form-select form-select-sm" id="s_${svc}_prof"><option value="${esc(c.qualityProfileId||'')}">${c.qualityProfileId?('current: '+esc(c.qualityProfileId)):'— test to load —'}</option></select></div>
+      <div class="col"><label class="form-label small">Root folder</label><select class="form-select form-select-sm" id="s_${svc}_root"><option value="${esc(c.rootFolderPath||'')}">${c.rootFolderPath?esc(c.rootFolderPath):'— test to load —'}</option></select></div></div>
+      <button class="btn btn-outline-gold btn-sm mt-2" data-test="${svc}">Test & load</button><span class="small ms-2" id="s_${svc}_msg"></span>`:''}
+  </div></div>`;
+}
+function openSettings(){
+  if(!(me&&me.role==='admin')){ return; }
+  $('settingsBody').innerHTML =
+    svcBlock('radarr','Radarr','http://192.168.1.10:7878') +
+    svcBlock('sonarr','Sonarr','http://192.168.1.10:8989') +
+    `<div class="card mb-3" style="background:var(--bg)"><div class="card-body">
+      <div class="fw-bold mb-2">TMDB ${isConfigured('tmdb')?'<span class="badge text-bg-success ms-1">connected</span>':''}</div>
+      <div class="small text-secondary mb-2">Needed for Person, Year & Studio search, recommendations, and the home feed.</div>
+      <label class="form-label small">API key (v3)</label><input class="form-control form-control-sm" id="s_tmdb_key" type="password" placeholder="${(config&&config.tmdb&&config.tmdb.hasKey)?'•••••• (saved)':'paste TMDB key'}">
+    </div></div>` +
+    `<div class="card mb-3" style="background:var(--bg)"><div class="card-body">
+      <div class="fw-bold mb-2">Plex ${isConfigured('plex')?'<span class="badge text-bg-success ms-1">connected</span>':''}</div>
+      <div class="small text-secondary mb-2">For “Now streaming”, health monitoring, and the Scan Plex button.</div>
+      <label class="form-label small">Server URL</label><input class="form-control form-control-sm mb-2" id="s_plex_url" value="${esc((config&&config.plex&&config.plex.url)||'')}" placeholder="http://192.168.1.10:32400">
+      <label class="form-label small">Plex token</label><input class="form-control form-control-sm" id="s_plex_key" type="password" placeholder="${(config&&config.plex&&config.plex.hasKey)?'•••••• (saved)':'paste X-Plex-Token'}">
+      <button class="btn btn-sm mt-2 w-100" id="mPlexSignIn" type="button" style="background:#e5a00d;color:#1a1206;font-weight:700">🔗 Sign in with Plex</button>
+      <div class="small text-secondary mt-1" id="mPlexAuthMsg">Sign in on Plex to grab your token and pick your server automatically.</div>
+      <div id="mPlexPick" style="display:none" class="mt-2"><label class="form-label small">Choose your Plex server &amp; address</label><select class="form-select form-select-sm" id="mPlexServerSel"></select></div>
+      <button class="btn btn-outline-gold btn-sm mt-2" data-test="plex">Test</button><span class="small ms-2" id="s_plex_msg"></span>
+    </div></div>` +
+    `<div class="card mb-3" style="background:var(--bg)"><div class="card-body">
+      <div class="fw-bold mb-2">WebDAV ${isConfigured('webdav')?'<span class="badge text-bg-success ms-1">connected</span>':''}</div>
+      <div class="small text-secondary mb-2">Browse a folder of videos and let users download them (each download counts against their daily limit).</div>
+      <label class="form-label small">Server URL</label><input class="form-control form-control-sm mb-2" id="s_webdav_url" value="${esc((config&&config.webdav&&config.webdav.url)||'')}" placeholder="https://dav.example.com/remote.php/dav/files/me">
+      <div class="row g-2"><div class="col-6"><label class="form-label small">Username</label><input class="form-control form-control-sm" id="s_webdav_user" value="${esc((config&&config.webdav&&config.webdav.username)||'')}" autocapitalize="none"></div>
+      <div class="col-6"><label class="form-label small">Password</label><input class="form-control form-control-sm" id="s_webdav_pass" type="password" placeholder="${(config&&config.webdav&&config.webdav.hasAuth)?'•••••• (saved)':'password'}"></div></div>
+      <label class="form-label small mt-2">Folder to browse</label><input class="form-control form-control-sm" id="s_webdav_folder" value="${esc((config&&config.webdav&&config.webdav.folder)||'')}" placeholder="/Media/Movies">
+      <label class="form-label small mt-2">Download method</label>
+      <select class="form-select form-select-sm" id="s_webdav_mode">
+        <option value="redirect"${(!config||!config.webdav||!config.webdav.mode||config.webdav.mode==='redirect')?' selected':''}>Direct — browser asks for login (recommended)</option>
+        <option value="proxy"${(config&&config.webdav&&config.webdav.mode==='proxy')?' selected':''}>Through MEDIARR (proxied)</option>
+        <option value="embed"${(config&&config.webdav&&config.webdav.mode==='embed')?' selected':''}>Direct — embed login in link (exposes credentials)</option>
+      </select>
+      <div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" id="s_webdav_transcode"${(config&&config.webdav&&config.webdav.transcode)?' checked':''}${(config&&config.webdav&&!config.webdav.ffmpeg)?' disabled':''}><label class="form-check-label small" for="s_webdav_transcode">Default to transcoded playback (5.1 / AC3 / DTS → AAC, HEVC → H.264)${(config&&config.webdav&&!config.webdav.ffmpeg)?' — ffmpeg not detected':''}</label></div>
+      <label class="form-label small mt-2">Transcoding speed</label>
+      <select class="form-select form-select-sm" id="s_webdav_encspeed">
+        <option value="quality"${(config&&config.webdav&&config.webdav.encSpeed==='quality')?' selected':''}>Best quality (slower)</option>
+        <option value="balanced"${(!config||!config.webdav||!config.webdav.encSpeed||config.webdav.encSpeed==='balanced')?' selected':''}>Balanced (default)</option>
+        <option value="faster"${(config&&config.webdav&&config.webdav.encSpeed==='faster')?' selected':''}>Faster</option>
+        <option value="fastest"${(config&&config.webdav&&config.webdav.encSpeed==='fastest')?' selected':''}>Fastest (lower quality)</option>
+      </select>
+      <label class="form-label small mt-2">Hardware acceleration</label>
+      <select class="form-select form-select-sm" id="s_webdav_hwaccel">
+        <option value="auto"${(!config||!config.webdav||config.webdav.hwAccel!=='off')?' selected':''}>Auto — use GPU if available</option>
+        <option value="off"${(config&&config.webdav&&config.webdav.hwAccel==='off')?' selected':''}>Off — always use CPU</option>
+      </select>
+      <div class="small text-secondary mt-1">${(config&&config.webdav&&config.webdav.hwEncoder)?('✓ '+({h264_nvenc:'NVIDIA NVENC',h264_qsv:'Intel Quick Sync',h264_videotoolbox:'Apple VideoToolbox'}[config.webdav.hwEncoder]||config.webdav.hwEncoder)+' detected'):'No GPU encoder detected — CPU used. Pick a faster speed to speed it up.'}</div>
+      <button class="btn btn-outline-gold btn-sm mt-2" data-test="webdav">Test</button><span class="small ms-2" id="s_webdav_msg"></span>
+    </div></div>` +
+    `<div class="card mb-3" style="background:var(--bg2)"><div class="card-body">
+      <div class="fw-bold mb-2">Auto add</div>
+      <label class="form-label small">Minutes between each add</label>
+      <input class="form-control form-control-sm" id="s_autoadd_mins" type="number" min="0" max="1440" step="0.5" value="${(config&&config.autoAdd&&config.autoAdd.intervalMinutes!=null)?config.autoAdd.intervalMinutes:5}">
+      <div class="small text-secondary mt-1">Decimals allowed (0.5 = 30s). 0 = no delay.</div>
+      <label class="form-label small mt-2">Minimum runtime (minutes)</label>
+      <input class="form-control form-control-sm" id="s_autoadd_minrt" type="number" min="0" max="600" value="${(config&&config.autoAdd&&config.autoAdd.minRuntime!=null)?config.autoAdd.minRuntime:0}">
+      <div class="small text-secondary mt-1">Skips titles shorter than this — filters out shorts and specials. 0 = add everything.</div>
+    </div></div>` +
+    `<div class="card mb-3" style="background:var(--bg2)"><div class="card-body">
+      <div class="fw-bold mb-2">Donate button <span class="badge text-bg-warning">PayPal</span></div>
+      <label class="form-label small">PayPal donate link</label>
+      <input class="form-control form-control-sm" id="s_donate_url" value="${esc((config&&config.donate&&config.donate.url)||'')}" placeholder="https://paypal.me/yourname">
+      <div class="small text-secondary mt-1">Your PayPal.me link or a PayPal donate URL. When set, a Donate button shows for everyone. Blank hides it.</div>
+      <label class="form-label small mt-2">Button label (optional)</label>
+      <input class="form-control form-control-sm" id="s_donate_label" maxlength="40" value="${esc((config&&config.donate&&config.donate.label)||'')}" placeholder="Donate">
+    </div></div>` +
+    `<button id="sSave" class="btn btn-gold w-100">Save settings</button><div id="sSaveMsg" class="small text-center mt-2"></div>`;
+  $('settingsBody').querySelectorAll('[data-test]').forEach(b=> b.onclick=()=>testService(b.dataset.test, b));
+  $('sSave').onclick=saveSettings;
+  { const b=$('mPlexSignIn'); if(b) b.onclick=mPlexSignIn; const s=$('mPlexServerSel'); if(s) s.onchange=mApplyPlexServer; }
+  settingsModal().show();
+}
+let _mPlexServers=[], _mPlexToken='';
+async function mPlexSignIn(){
+  const msg=$('mPlexAuthMsg'), btn=$('mPlexSignIn'); btn.disabled=true;
+  msg.className='small mt-1 text-secondary'; msg.textContent='Starting Plex sign-in…';
+  let pin;
+  try{ const r=await fetch('/api/admin/plex/pin',{method:'POST'}); const j=await readJson(r); pin=j.data||{}; if(!r.ok||!pin.id) throw new Error(pin.message||'Could not start sign-in'); }
+  catch(e){ msg.className='small mt-1 text-danger'; msg.textContent='⚠ '+e.message; btn.disabled=false; return; }
+  const w=window.open(pin.authUrl,'plexauth');
+  msg.textContent='Waiting for you to sign in on Plex…';
+  const start=Date.now();
+  while(Date.now()-start<180000){
+    await new Promise(r=>setTimeout(r,2000));
+    try{ const c=(await readJson(await fetch('/api/admin/plex/check?id='+encodeURIComponent(pin.id)))).data||{}; if(c.authorized&&c.token){ _mPlexToken=c.token; break; } }catch(e){}
+  }
+  try{ if(w&&!w.closed) w.close(); }catch(e){}
+  if(!_mPlexToken){ msg.className='small mt-1 text-danger'; msg.textContent='⚠ Sign-in timed out or cancelled.'; btn.disabled=false; return; }
+  $('s_plex_key').value=_mPlexToken;
+  msg.className='small mt-1 text-secondary'; msg.textContent='✓ Signed in — finding servers…';
+  try{
+    const d=(await readJson(await fetch('/api/admin/plex/servers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:_mPlexToken})}))).data||{};
+    mFillPlexServers(d.servers||[]);
+    msg.className='small mt-1 text-success';
+    msg.textContent=(d.servers||[]).length?'✓ Signed in — pick your server, then Save.':'✓ Signed in, but no servers found.';
+  }catch(e){ msg.className='small mt-1 text-danger'; msg.textContent='Signed in, but couldn’t list servers: '+e.message; }
+  btn.disabled=false;
+}
+function mFillPlexServers(servers){
+  _mPlexServers=servers;
+  const pick=$('mPlexPick'), sel=$('mPlexServerSel'); if(!servers.length){ pick.style.display='none'; return; }
+  const opts=[]; let firstLocal=-1, idx=0;
+  servers.forEach((s,si)=>(s.connections||[]).forEach((c,ci)=>{ const kind=c.relay?'Relay':(c.local?'Local':'Remote'); opts.push('<option value="'+si+':'+ci+'">'+esc(s.name)+' — '+esc(c.address||'')+':'+c.port+' ('+kind+(c.protocol==='https'?', HTTPS':'')+')</option>'); if(firstLocal<0&&c.local&&!c.relay) firstLocal=idx; idx++; }));
+  sel.innerHTML=opts.join(''); sel.selectedIndex=firstLocal>=0?firstLocal:0; pick.style.display=''; mApplyPlexServer();
+}
+function mApplyPlexServer(){
+  const sel=$('mPlexServerSel'); if(!sel||!sel.value) return;
+  const [si,ci]=sel.value.split(':').map(Number); const s=_mPlexServers[si]; if(!s) return; const c=s.connections[ci]; if(!c) return;
+  $('s_plex_url').value=c.uri||(c.protocol+'://'+c.address+':'+c.port);
+  if(s.token) $('s_plex_key').value=s.token;
+}
+function gatherConfig(){
+  const cfg={};
+  ['radarr','sonarr'].forEach(svc=>{ const url=$('s_'+svc+'_url'); if(!url) return; const o={}; if(url.value.trim())o.url=url.value.trim(); const k=$('s_'+svc+'_key').value.trim(); if(k)o.apiKey=k; const pr=$('s_'+svc+'_prof'); const rf=$('s_'+svc+'_root'); if(pr&&pr.value)o.qualityProfileId=pr.value; if(rf&&rf.value)o.rootFolderPath=rf.value; if(Object.keys(o).length)cfg[svc]=o; });
+  const tk=$('s_tmdb_key'); if(tk&&tk.value.trim())cfg.tmdb={apiKey:tk.value.trim()};
+  const pu=$('s_plex_url'), pk=$('s_plex_key'); if(pu){ const o={}; if(pu.value.trim())o.url=pu.value.trim(); if(pk&&pk.value.trim())o.token=pk.value.trim(); if(Object.keys(o).length)cfg.plex=o; }
+  const wu=$('s_webdav_url'); if(wu){ const o={ url:wu.value.trim(), username:$('s_webdav_user').value.trim(), folder:$('s_webdav_folder').value.trim(), mode:($('s_webdav_mode')?$('s_webdav_mode').value:'redirect'), transcode:($('s_webdav_transcode')?$('s_webdav_transcode').checked:false), encSpeed:($('s_webdav_encspeed')?$('s_webdav_encspeed').value:'balanced'), hwAccel:($('s_webdav_hwaccel')?$('s_webdav_hwaccel').value:'auto') }; const wp=$('s_webdav_pass').value.trim(); if(wp)o.password=wp; cfg.webdav=o; }
+  { const du=$('s_donate_url'); if(du) cfg.donate={ url:du.value.trim(), label:($('s_donate_label')?$('s_donate_label').value.trim():'') }; }
+  { const am=$('s_autoadd_mins'), ar=$('s_autoadd_minrt'); if(am||ar) cfg.autoAdd={ intervalMinutes:Number(am?am.value:5)||0, minRuntime:Number(ar?ar.value:0)||0 }; }
+  return cfg;
+}
+async function testService(svc, btn){
+  const msg=$('s_'+svc+'_msg'); msg.textContent='Testing…'; btn.disabled=true;
+  let body;
+  if(svc==='webdav'){ body={ svc, url:$('s_webdav_url').value.trim(), username:$('s_webdav_user').value.trim(), password:$('s_webdav_pass').value.trim(), folder:$('s_webdav_folder').value.trim() }; }
+  else { body={ svc, url:$('s_'+svc+'_url').value.trim(), key:$('s_'+svc+'_key').value.trim() }; }
+  try{
+    const r=await fetch('/api/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const j=await readJson(r); const d=j.data||{};
+    if(!r.ok) throw new Error(d.message||'Test failed');
+    const prof=$('s_'+svc+'_prof'), root=$('s_'+svc+'_root');
+    if(Array.isArray(d.profiles)&&prof){ prof.innerHTML=d.profiles.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join(''); }
+    if(Array.isArray(d.folders)&&root){ root.innerHTML=d.folders.map(f=>`<option value="${esc(f.path)}">${esc(f.path)}</option>`).join(''); }
+    msg.textContent='✓ '+(svc==='webdav'?((d.videos||0)+' videos here'):(d.name||'Connected')); msg.className='small ms-2 text-success';
+  }catch(e){ msg.textContent='⚠ '+e.message; msg.className='small ms-2 text-danger'; }
+  btn.disabled=false;
+}
+async function saveSettings(){
+  const m=$('sSaveMsg'); m.textContent='Saving…';
+  try{
+    const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(gatherConfig())});
+    const j=await readJson(r); if(!r.ok) throw new Error((j.data&&j.data.message)||'Save failed ('+r.status+')');
+    await loadConfig(); await loadLibrary();
+    { const sp=$('mScanPlex'); if(sp) sp.style.display=((me&&me.role==='admin') && isConfigured('plex'))?'':'none'; }
+    { const dl=$('mDownloads'); if(dl) dl.style.display=isConfigured('webdav')?'':'none'; }
+    { const qb=$('mQueue'); if(qb) qb.style.display=(config&&config.sab&&config.sab.url&&config.sab.hasKey)?'':'none'; }
+    { const md=$('mDonate'), url=(config&&config.donate&&config.donate.url)||''; if(md){ if(url){ md.href=url; md.style.display=''; const l=$('mDonateLabel'); if(l) l.textContent=((config.donate.label||'').trim())||'Donate'; } else md.style.display='none'; } }
+    m.textContent='✓ Saved'; m.className='small text-center mt-2 text-success';
+    setTimeout(()=> settingsModal().hide(), 700);
+  }catch(e){ m.textContent='⚠ '+e.message; m.className='small text-center mt-2 text-danger'; }
+}
+
+/* ================= MENU FEATURES ================= */
+const panelModal = ()=> bootstrap.Modal.getOrCreateInstance($('panel'));
+function openPanel(title,html){ $('panelTitle').textContent=title; $('panelBody').innerHTML=html; panelModal().show(); }
+function panelSpin(title){ openPanel(title,'<div class="state"><div class="spinner-border text-secondary"></div></div>'); }
+function panelErr(msg){ $('panelBody').innerHTML='<div class="state">'+esc(msg)+'</div>'; }
+function closeMenu(){ try{ bootstrap.Offcanvas.getInstance($('menu'))?.hide(); }catch(e){} }
+function posterOf(images){ if(!Array.isArray(images))return''; const p=images.find(i=>i.coverType==='poster')||images[0]; return p?(p.remoteUrl||p.url||''):''; }
+function fmtTime(ts){ return ts? new Date(ts).toLocaleString() : '—'; }
+function fmtDur(ms){ if(ms==null)return''; const s=Math.round(ms/1000); if(s<60)return s+'s'; const m=Math.round(s/60); if(m<60)return m+'m'; const h=Math.floor(m/60); return h+'h '+(m%60)+'m'; }
+function dayStart(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
+function pad(n){ return String(n).padStart(2,'0'); }
+function svcLabel(n){ return n==='plex'?'Plex':n==='radarr'?'Radarr':n==='sonarr'?'Sonarr':n; }
+function card(inner){ return '<div class="card mb-2" style="background:var(--bg)"><div class="card-body py-2">'+inner+'</div></div>'; }
+
+/* ---- Now streaming ---- */
+function openStreaming(){ closeMenu(); loadStreaming(); }
+async function loadStreaming(){
+  panelSpin('Now streaming');
+  try{ const j=await readJson(await fetch('/api/streams')); renderStreams(j.data||{}); }
+  catch(e){ panelErr('Couldn’t load streams: '+e.message); }
+}
+function fmtKbpsM(k){ if(!k) return ''; return k>=1000?(k/1000).toFixed(1)+' Mbps':Math.round(k)+' kbps'; }
+function techRowM(t){
+  if(!t) return '';
+  const isTrans=/transcode/i.test(t.mode);
+  const cls=isTrans?'text-bg-warning':/direct stream/i.test(t.mode)?'text-bg-info':'text-bg-success';
+  const ch={1:'Mono',2:'Stereo',6:'5.1',8:'7.1'}[t.audioChannels]||(t.audioChannels?t.audioChannels+'ch':'');
+  const bits=[[t.resolution,t.videoCodec,t.audioCodec,ch].filter(Boolean).join(' ')];
+  if(t.streamBitrateKbps) bits.push(fmtKbpsM(t.streamBitrateKbps));
+  if(isTrans&&t.transcodeTo) bits.push('→ '+t.transcodeTo);
+  if(isTrans&&t.hwTranscode) bits.push('hw');
+  if(isTrans&&t.speed!=null&&t.speed<1) bits.push('⚠ falling behind');
+  return '<div class="mt-1"><span class="badge '+cls+'" style="font-size:.6rem">'+esc(t.mode)+'</span>'
+    +'<span class="small text-secondary ms-1" style="font-family:monospace;font-size:.65rem">'+esc(bits.filter(Boolean).join(' · '))+'</span></div>';
+}
+function renderStreams(d){
+  if(!d.configured) return panelErr('Plex isn’t set up. Add it in Settings to see who’s watching.');
+  if(d.error) return panelErr('Plex error: '+d.error);
+  if(!d.count) return panelErr('Nobody’s watching right now.');
+  let html='<div class="text-secondary small mb-2">'+d.count+' active stream'+(d.count===1?'':'s')+' · usernames shortened for privacy'+(d.admin?' · admin view':'')+'</div>';
+  (d.sessions||[]).forEach(s=>{
+    let title,sub;
+    if(s.type==='episode'){ title=esc(s.show||'TV Show'); const se=(s.season!=null&&s.episode!=null)?('S'+pad(s.season)+'E'+pad(s.episode)):''; sub=se+(se&&s.episodeTitle?' · ':'')+esc(s.episodeTitle||''); }
+    else if(s.type==='movie'){ title=esc(s.title||'Movie'); sub='Movie'+(s.year?' · '+esc(String(s.year)):''); }
+    else { title=esc(s.title||'Playing'); sub=esc(s.subtitle||''); }
+    const meta=['User: '+esc(s.user), s.device?esc(s.device):'', s.progress!=null?s.progress+'%':''].filter(Boolean).join(' · ');
+    html+=card('<div class="fw-bold">'+title+'</div>'+(sub?'<div class="small text-secondary">'+sub+'</div>':'')+'<div class="small text-secondary">'+meta+'</div>'+techRowM(s.tech)+(s.progress!=null?'<div class="progress mt-1" style="height:5px"><div class="progress-bar bg-warning" style="width:'+s.progress+'%"></div></div>':''));
+  });
+  $('panelBody').innerHTML=html;
+}
+
+/* ---- Calendar ---- */
+let calDays=14;
+function openCalendar(){ closeMenu(); loadCalendar(); }
+async function loadCalendar(){
+  panelSpin('Calendar');
+  await loadConfig();
+  const haveR=isConfigured('radarr'), haveS=isConfigured('sonarr');
+  if(!haveR&&!haveS) return panelErr('Add Radarr or Sonarr in Settings to see what’s coming up.');
+  const start=dayStart(new Date()), end=new Date(start.getTime()+calDays*864e5);
+  const qs='start='+start.toISOString()+'&end='+end.toISOString();
+  const events=[], errs=[];
+  await Promise.all([
+    haveR? arr('radarr','/api/v3/calendar?unmonitored=true&'+qs).then(list=>{ (list||[]).forEach(mv=>{
+      const cand=[['In Cinemas',mv.inCinemas],['Digital',mv.digitalRelease],['Physical',mv.physicalRelease]].filter(c=>c[1]).map(c=>[c[0],new Date(c[1])]).filter(c=>c[1]>=start&&c[1]<end).sort((a,b)=>a[1]-b[1]);
+      if(cand.length) events.push({kind:'movie',date:cand[0][1],title:mv.title,year:mv.year,release:cand[0][0],hasFile:!!mv.hasFile,monitored:!!mv.monitored}); }); }).catch(e=>errs.push('Radarr: '+e.message)) : null,
+    haveS? arr('sonarr','/api/v3/calendar?unmonitored=true&includeSeries=true&'+qs).then(list=>{ (list||[]).forEach(ep=>{
+      if(!ep.airDateUtc)return; const d=new Date(ep.airDateUtc); if(d<start||d>=end)return; const s=ep.series||{};
+      events.push({kind:'tv',date:d,title:s.title||'TV',se:'S'+pad(ep.seasonNumber)+'E'+pad(ep.episodeNumber),ep:ep.title||'',hasFile:!!ep.hasFile,monitored:!!ep.monitored}); }); }).catch(e=>errs.push('Sonarr: '+e.message)) : null
+  ]);
+  events.sort((a,b)=>a.date-b.date);
+  renderCalendar(events,errs);
+}
+function dayLabel(d){ const t=dayStart(new Date()),one=864e5; const diff=Math.round((dayStart(d)-t)/one); if(diff===0)return'Today'; if(diff===1)return'Tomorrow'; return d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}); }
+function renderCalendar(events,errs){
+  let html='<div class="btn-group btn-group-sm w-100 mb-2">'+[7,14,30].map(n=>'<button class="btn btn-outline-gold'+(n===calDays?' active':'')+'" data-d="'+n+'">'+n+' days</button>').join('')+'</div>';
+  if(errs&&errs.length) html+='<div class="alert alert-warning py-1 small">'+errs.map(esc).join('<br>')+'</div>';
+  if(!events.length){ html+='<div class="state">Nothing scheduled in this window.</div>'; }
+  else { let last=''; events.forEach(e=>{ const dl=dayLabel(e.date); if(dl!==last){ html+='<div class="text-secondary small fw-bold mt-3 mb-1">'+dl+'</div>'; last=dl; }
+    const tag=e.kind==='movie'?'<span class="badge text-bg-warning">'+esc(e.release)+'</span>':'<span class="badge text-bg-info">'+esc(e.se)+'</span>';
+    const dl2=e.hasFile?'<span class="badge text-bg-success ms-1">Downloaded</span>':'';
+    const sub=e.kind==='tv'&&e.ep?'<div class="small text-secondary">'+esc(e.ep)+'</div>':'';
+    const time=e.kind==='tv'?(' · '+e.date.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})):'';
+    html+=card('<div class="fw-bold">'+esc(e.title)+(e.year?' ('+e.year+')':'')+'</div>'+sub+'<div class="mt-1">'+tag+dl2+'<span class="small text-secondary ms-1">'+esc(time)+'</span></div>'); }); }
+  $('panelBody').innerHTML=html;
+  $('panelBody').querySelectorAll('[data-d]').forEach(b=> b.onclick=()=>{ calDays=Number(b.dataset.d); loadCalendar(); });
+}
+
+/* ---- Health ---- */
+function openHealth(){ closeMenu(); loadHealth(false); }
+async function loadHealth(refresh){
+  panelSpin('Health');
+  try{ const j=await readJson(await fetch('/api/health'+(refresh?'?refresh=1':''))); renderHealth(j.data||{}); }
+  catch(e){ panelErr('Couldn’t load health: '+e.message); }
+}
+function renderHealth(h){
+  const monitored=h.monitored||[];
+  if(!monitored.length) return panelErr('Add Plex / Radarr / Sonarr in Settings to track uptime.');
+  let html='<button id="hRefresh" class="btn btn-outline-gold btn-sm mb-2">↻ Refresh now</button>';
+  ['plex','radarr','sonarr'].filter(n=>monitored.includes(n)).forEach(name=>{
+    const s=(h.services||{})[name]||{up:null}; const up=s.up===true,down=s.up===false; const cls=up?'success':(down?'danger':'secondary');
+    const stateTxt=up?'Online':(down?'Offline':'Unknown'); const sinceTxt=s.since?((up?'Up since ':'Down since ')+fmtTime(s.since)):'';
+    const detail=up?((s.version?'v'+esc(s.version)+' · ':'')+(s.responseMs!=null?s.responseMs+' ms':'')):(down?esc(s.error||'unreachable'):'not checked yet');
+    html+=card('<div class="d-flex justify-content-between align-items-center"><div><div class="fw-bold">'+svcLabel(name)+' <span class="badge text-bg-'+cls+'">'+stateTxt+'</span></div><div class="small text-secondary">'+detail+'</div></div><div class="small text-secondary text-end" style="max-width:42%">'+sinceTxt+'</div></div>');
+  });
+  const events=h.events||[];
+  html+='<div class="fw-bold mt-3 mb-1">Outage history</div>';
+  if(!events.length) html+='<div class="small text-secondary">No outages recorded since monitoring began. 🎉</div>';
+  else events.slice(0,40).forEach(ev=>{ const ongoing=ev.upAt==null; const dur=ongoing?(h.now-ev.downAt):ev.durationMs;
+    html+='<div class="small mb-2"><span class="badge text-bg-'+(ongoing?'danger':'secondary')+'">'+svcLabel(ev.service)+'</span> '+(ongoing?'down since ':'was down ')+fmtTime(ev.downAt)+(ongoing?'':(' → '+fmtTime(ev.upAt)))+' · '+fmtDur(dur)+(ongoing?' & counting':'')+'</div>'; });
+  const mins=Math.round((h.intervalMs||60000)/1000);
+  html+='<div class="small text-secondary mt-2">Auto-checked every '+mins+'s while MEDIARR runs.</div>';
+  $('panelBody').innerHTML=html;
+  const rb=$('hRefresh'); if(rb) rb.onclick=()=>loadHealth(true);
+}
+
+
+/* ---- Manual release browser ---- */
+let releaseCtxM={svc:'radarr',params:{},label:'',items:[],back:null};
+function relAgeM(h){ if(h==null||!Number.isFinite(Number(h)))return ''; h=Number(h); return h<1?Math.max(1,Math.round(h*60))+'m':h<48?Math.round(h)+'h':Math.round(h/24)+'d'; }
+async function openManualReleasesM(svc,params,label,back){
+  releaseCtxM={svc,params:Object.assign({},params),label:label||'',items:[],back:back||null};
+  panelSpin('Releases — '+(label||'manual search'));
+  try{
+    const q2=new URLSearchParams({svc}); Object.entries(params||{}).forEach(([k,v])=>{if(v!=null&&v!=='')q2.set(k,v)});
+    const j=await readJson(await fetch('/api/releases?'+q2.toString())); const d=j.data||{};
+    if(d.ok===false) throw new Error(d.message||'Release search failed');
+    releaseCtxM.items=d.items||[]; renderManualReleasesM();
+  }catch(e){ panelErr('Release search failed: '+e.message); }
+}
+function renderManualReleasesM(){
+  const all=releaseCtxM.items||[];
+  let h='';
+  if(releaseCtxM.back) h+='<button class="btn btn-outline-secondary btn-sm mb-2" id="mRelBack">← Back to episodes</button>';
+  h+='<div class="input-group input-group-sm mb-2"><input id="mRelFilter" class="form-control" placeholder="Filter releases…"><span class="input-group-text" id="mRelCount">'+all.length+'</span></div><div id="mRelList"></div>';
+  $('panelBody').innerHTML=h;
+  const paint=()=>{
+    const f=(($('mRelFilter')&&$('mRelFilter').value)||'').trim().toLowerCase();
+    const items=f?all.filter(x=>[x.title,x.indexer,x.quality,x.protocol,(x.customFormats||[]).join(' '),(x.rejections||[]).join(' ')].join(' ').toLowerCase().includes(f)):all;
+    $('mRelCount').textContent=items.length+(f?'/'+all.length:'');
+    $('mRelList').innerHTML=items.length?items.map(x=>{
+      const meta=[]; if(x.quality)meta.push('<span class="badge text-bg-warning me-1">'+esc(x.quality)+'</span>'); if(x.indexer)meta.push('<span class="badge text-bg-info me-1">'+esc(x.indexer)+'</span>');
+      if(x.size)meta.push('<span class="badge text-bg-secondary me-1">'+fmtBytesM(x.size)+'</span>'); if(x.protocol)meta.push('<span class="badge text-bg-secondary me-1">'+esc(String(x.protocol).toUpperCase())+'</span>');
+      if(x.seeders)meta.push('<span class="badge text-bg-success me-1">↑ '+x.seeders+'</span>'); if(x.ageHours!=null)meta.push('<span class="badge text-bg-secondary me-1">'+relAgeM(x.ageHours)+'</span>');
+      if(x.customFormatScore)meta.push('<span class="badge text-bg-secondary me-1">CF '+(x.customFormatScore>0?'+':'')+x.customFormatScore+'</span>');
+      if(x.rejected)meta.push('<span class="badge text-bg-danger me-1">Rejected</span>');
+      return '<div class="card mb-2" style="background:var(--bg2)"><div class="card-body p-2"><div class="small fw-bold" style="word-break:break-word">'+esc(x.title||'Untitled release')+'</div><div class="mt-1">'+meta.join('')+'</div>'
+        +((x.rejections||[]).length?'<div class="small text-danger mt-1">'+esc(x.rejections.join(' · '))+'</div>':'')
+        +'<button class="btn '+(x.rejected?'btn-outline-danger':'btn-gold')+' btn-sm w-100 mt-2" data-mgrab="'+x.id+'" '+(!x.downloadAllowed?'disabled':'')+'>'+(x.rejected?'Grab anyway':'Grab release')+'</button></div></div>';
+    }).join(''):'<div class="small text-secondary py-3 text-center">No releases found.</div>';
+    $('mRelList').querySelectorAll('[data-mgrab]').forEach(b=>b.onclick=()=>grabReleaseM(b,Number(b.dataset.mgrab)));
+  };
+  $('mRelFilter').addEventListener('input',paint); paint();
+  if($('mRelBack')) $('mRelBack').onclick=()=>openSeriesReleasePickerM(releaseCtxM.back.seriesId,releaseCtxM.back.title);
+}
+async function grabReleaseM(btn,id){
+  const x=(releaseCtxM.items||[]).find(v=>Number(v.id)===id); if(!x)return;
+  const warn=x.rejected?'\n\nMarked rejected:\n'+(x.rejections||[]).join('\n'):'';
+  if(!confirm('Send this release to '+(releaseCtxM.svc==='radarr'?'Radarr':'Sonarr')+'?\n\n'+x.title+warn))return;
+  btn.disabled=true; const old=btn.textContent; btn.textContent='Sending…';
+  try{ const r=await fetch('/api/releases/grab',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({svc:releaseCtxM.svc,guid:x.guid,indexerId:x.indexerId,title:x.title})}); const j=await readJson(r); const d=j.data||{}; if(!r.ok||d.ok===false)throw new Error(d.message||('HTTP '+r.status)); btn.textContent='✓ Sent'; btn.className='btn btn-success btn-sm w-100 mt-2'; }
+  catch(e){btn.textContent='⚠ '+e.message;btn.disabled=false;setTimeout(()=>btn.textContent=old,3000);}
+}
+async function openSeriesReleasePickerM(seriesId,title){
+  panelSpin('Episodes — '+title);
+  try{
+    const [sj,ej]=await Promise.all([readJson(await fetch('/api/tv/series?seriesId='+seriesId)),readJson(await fetch('/api/tv/episodes?seriesId='+seriesId))]);
+    const series=(sj.data&&sj.data.item)||{}, eps=(ej.data&&ej.data.items)||[];
+    const by={}; eps.forEach(e=>(by[e.seasonNumber]=by[e.seasonNumber]||[]).push(e));
+    const sns=Object.keys(by).map(Number).sort((a,b)=>a-b);
+    let h='<div class="small text-secondary mb-2">Choose a season pack or a specific episode. This runs a live Sonarr indexer search.</div>';
+    h+=sns.map(sn=>{const list=by[sn].sort((a,b)=>(a.episodeNumber||0)-(b.episodeNumber||0)), lab=sn===0?'Specials':'Season '+sn;
+      return '<div class="card mb-2" style="background:var(--bg2)"><div class="card-body p-2"><div class="d-flex justify-content-between align-items-center gap-2"><b class="small">'+lab+'</b><button class="btn btn-outline-gold btn-sm" data-msrel="'+sn+'">Season releases</button></div><div class="mt-2">'
+        +list.map(e=>'<div class="d-flex align-items-center gap-2 py-1" style="border-top:1px solid var(--bs-border-color)"><span class="small fw-bold" style="width:55px">S'+pad(sn)+'E'+pad(e.episodeNumber||0)+'</span><span class="small flex-grow-1 text-truncate">'+esc(e.title||'Episode '+e.episodeNumber)+'</span><button class="btn btn-outline-secondary btn-sm" data-merel="'+e.id+'" data-melabel="S'+pad(sn)+'E'+pad(e.episodeNumber||0)+' · '+esc(e.title||'Episode '+e.episodeNumber)+'">Releases</button></div>').join('')+'</div></div></div>'; }).join('');
+    $('panelBody').innerHTML=h||'<div class="small text-secondary">No episodes found.</div>';
+    $('panelBody').querySelectorAll('[data-msrel]').forEach(b=>b.onclick=()=>openManualReleasesM('sonarr',{seriesId,seasonNumber:Number(b.dataset.msrel)},title+' · '+(Number(b.dataset.msrel)===0?'Specials':'Season '+b.dataset.msrel),{seriesId,title}));
+    $('panelBody').querySelectorAll('[data-merel]').forEach(b=>b.onclick=()=>openManualReleasesM('sonarr',{episodeId:Number(b.dataset.merel)},title+' · '+b.dataset.melabel,{seriesId,title}));
+  }catch(e){panelErr('Could not load episodes: '+e.message);}
+}
+
+/* ---- Library browsers (Radarr / Sonarr) ---- */
+function openLibrary(svc){ closeMenu(); loadLibraryBrowser(svc); }
+async function loadLibraryBrowser(svc){
+  const label=svc==='radarr'?'Movies':'Shows'; panelSpin(label+' library');
+  await loadConfig();
+  if(!isConfigured(svc)) return panelErr((svc==='radarr'?'Radarr':'Sonarr')+' isn’t set up. Configure it in Settings.');
+  try{
+    // prefer the server's background-scanned cache (much faster)
+    const j=await readJson(await fetch('/api/library/list?svc='+svc)); const d=j.data||{};
+    if(d.error) throw new Error(d.error);
+    renderLibrary(svc,label,d.items||[], d.cached?d.ageMinutes:null);
+  }
+  catch(e){ panelErr('Couldn’t load library: '+e.message); }
+}
+function libHaveStateM(it,svc){
+  if(svc==='radarr') return it.hasFile?'full':'none';
+  const st=it.statistics||{}, ec=st.episodeCount||0, efc=st.episodeFileCount||0;
+  if(!ec) return 'none';
+  if(efc>=ec) return 'full';
+  return efc>0?'partial':'none';
+}
+let libStatusM='all';
+function applyLibFilterM(){
+  const q=(($('libFilter')&&$('libFilter').value)||'').toLowerCase();
+  let shown=0;
+  $('panelBody').querySelectorAll('.libitem').forEach(el=>{
+    const okText=(el.dataset.t||'').includes(q);
+    const h=el.dataset.h||'none', mon=el.dataset.mon==='1';
+    let okStatus=true;
+    if(libStatusM==='downloaded') okStatus=(h==='full');
+    else if(libStatusM==='missing') okStatus=(h==='none');
+    else if(libStatusM==='partial') okStatus=(h==='partial');
+    else if(libStatusM==='unmonitored') okStatus=!mon;
+    if(okText&&okStatus){ el.style.removeProperty('display'); shown++; }
+    else el.style.setProperty('display','none','important');
+  });
+  const c=$('libCountM'); if(c) c.textContent=shown+' shown';
+}
+function renderLibrary(svc,label,items,cacheAge){
+  items.sort((a,b)=>String(a.sortTitle||a.title||'').localeCompare(String(b.sortTitle||b.title||'')));
+  libStatusM='all';
+  const btn=(v,l,tv)=>'<button class="btn btn-sm '+(v==='all'?'btn-gold':'btn-outline-gold')+'" data-ls="'+v+'"'+(tv?' data-tv':'')+(tv&&svc!=='sonarr'?' style="display:none"':'')+'>'+l+'</button>';
+  const ageTxt = (cacheAge==null)?'':(cacheAge<1?' · just scanned':cacheAge<60?(' · scanned '+cacheAge+'m ago'):(' · scanned '+Math.round(cacheAge/60)+'h ago'));
+  const head='<div class="text-secondary small mb-1">'+items.length+' '+label.toLowerCase()+esc(ageTxt)+'</div>'
+    +'<input id="libFilter" class="form-control form-control-sm mb-2" placeholder="Filter by title…">'
+    +'<div class="d-flex gap-1 mb-2 flex-wrap" id="libStatusM">'+btn('all','All')+btn('downloaded','✓ Downloaded')+btn('missing','✕ Missing')+btn('partial','◐ Partial',true)+btn('unmonitored','Unmonitored')+'</div>'
+    +'<div class="small text-secondary mb-1" id="libCountM"></div>';
+  const row=it=>{ const h=libHaveStateM(it,svc);
+    const st=it.statistics||{}, ec=st.episodeCount||0, efc=st.episodeFileCount||0;
+    const label2 = svc==='radarr'
+      ? (h==='full'?'<span class="text-success">Downloaded</span>':'<span class="text-warning">Missing</span>')
+      : (h==='full'?'<span class="text-success">Complete ('+efc+'/'+ec+')</span>'
+        : h==='partial'?'<span class="text-info">'+efc+'/'+ec+' eps · '+(ec-efc)+' missing</span>'
+        : '<span class="text-warning">Missing</span>');
+    const poster=posterOf(it.images);
+    return '<div class="d-flex align-items-center gap-2 py-1 libitem" style="border-bottom:1px solid var(--bs-border-color)" data-t="'+esc(String(it.title||'').toLowerCase())+'" data-h="'+h+'" data-mon="'+(it.monitored?'1':'0')+'">'
+      +(poster?'<img src="'+esc(poster)+'" style="width:34px;height:51px;object-fit:cover;border-radius:4px;flex:none" loading="lazy" onerror="this.style.display=\'none\'">':'')
+      +'<div class="flex-grow-1" style="min-width:0"><div class="small fw-bold text-truncate">'+esc(it.title||'')+(it.year?' ('+it.year+')':'')+'</div>'
+      +'<div class="small text-secondary">'+label2+(it.monitored?'':' · unmonitored')+'</div></div>'
+      +'<button class="btn btn-gold btn-sm" data-release="'+it.id+'" data-rtitle="'+esc(it.title||'')+'" style="flex:none" title="Manual releases">⚡</button>'
+      +'<button class="btn btn-outline-gold btn-sm" data-search="'+it.id+'" style="flex:none" title="Automatic search">🔍</button></div>'; };
+  $('panelBody').innerHTML=head+'<div id="libList">'+items.map(row).join('')+'</div>';
+  $('libFilter').addEventListener('input',applyLibFilterM);
+  const bar=$('libStatusM');
+  bar.querySelectorAll('[data-ls]').forEach(b=> b.onclick=()=>{ libStatusM=b.dataset.ls;
+    bar.querySelectorAll('[data-ls]').forEach(x=>{ x.classList.toggle('btn-gold',x===b); x.classList.toggle('btn-outline-gold',x!==b); });
+    applyLibFilterM(); });
+  $('panelBody').querySelectorAll('[data-release]').forEach(b=> b.onclick=()=>{const id=Number(b.dataset.release),t=b.dataset.rtitle||''; if(svc==='radarr')openManualReleasesM('radarr',{movieId:id},t); else openSeriesReleasePickerM(id,t);});
+  $('panelBody').querySelectorAll('[data-search]').forEach(b=> b.onclick=()=>libSearch(svc,b));
+  applyLibFilterM();
+}
+async function libSearch(svc,btn){
+  const id=Number(btn.dataset.search); btn.disabled=true; const o=btn.textContent; btn.textContent='…';
+  try{ const body=svc==='radarr'?{name:'MoviesSearch',movieIds:[id]}:{name:'SeriesSearch',seriesId:id};
+    await arr(svc,'/api/v3/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    btn.textContent='✓'; btn.classList.remove('btn-outline-gold'); btn.classList.add('btn-success');
+  }catch(e){ btn.textContent='⚠'; setTimeout(()=>{ btn.textContent=o; btn.disabled=false; },2200); }
+}
+
+/* ---- System update ---- */
+async function openUpdateM(fresh=true){
+  closeMenu(); panelSpin('System Update');
+  try{ const j=await readJson(await fetch('/api/admin/update'+(fresh?'?fresh=1':''))), d=j.data||{}; renderUpdateM(d); }
+  catch(e){ panelErr(e.message); }
+}
+function renderUpdateM(d){
+  const latest=d.latest||null, has=!!d.updateAvailable;
+  let html='<div class="card mb-2" style="background:var(--bg)"><div class="card-body">'
+    +'<div class="d-flex justify-content-between align-items-start gap-2"><div><div class="fw-bold">Installed v'+esc(d.currentVersion||'?')+'</div><div class="small text-secondary">'+(d.docker?'Docker · '+esc(d.currentImage||''):'Node / non-Docker')+'</div></div>'
+    +(latest?'<span class="badge '+(has?'text-bg-warning':'text-bg-success')+'">'+(has?'Update available':'Up to date')+'</span>':'')+'</div>'
+    +(latest?'<div class="mt-2 small">Latest: <b>v'+esc(latest.version)+'</b></div>':'')
+    +'</div></div>';
+  html+='<div class="card mb-2" style="background:var(--bg)"><div class="card-body"><div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="mUpEnabled" '+(d.enabled?'checked':'')+'><label class="form-check-label small" for="mUpEnabled">Enable GitHub update checks</label></div>'
+    +'<label class="form-label small">GitHub repository</label><input id="mUpRepo" class="form-control form-control-sm" value="'+esc(d.repo||'')+'" placeholder="owner/MEDIARR" '+(d.sourceLockedByImage?'disabled':'')+'>'
+    +'<div class="small text-secondary mt-1">'+(d.sourceLockedByImage?'Embedded in this release image.':'Use owner/repository for source builds.')+'</div>'
+    +'<div class="d-flex gap-2 mt-2"><button class="btn btn-gold btn-sm" id="mUpSave">Save</button><button class="btn btn-outline-secondary btn-sm" id="mUpCheck">Check now</button></div><div class="small mt-2" id="mUpMsg">'+esc(d.message||'')+'</div></div></div>';
+  if(latest){
+    html+='<div class="card" style="background:var(--bg)"><div class="card-body"><div class="fw-bold">'+esc(latest.name||latest.tag||'Latest release')+'</div><div class="small text-secondary mb-2">'+(latest.publishedAt?esc(new Date(latest.publishedAt).toLocaleString()):'')+'</div><div class="small" style="white-space:pre-wrap;max-height:40vh;overflow:auto">'+esc(latest.notes||'No release notes.')+'</div>'
+      +'<div class="d-grid gap-2 mt-3">'+(d.canAutoUpdate?'<button class="btn btn-gold" id="mUpApply" '+(has?'':'disabled')+'>'+(has?'Update to v'+esc(latest.version):'Already up to date')+'</button>':'<a class="btn btn-gold" href="'+esc(latest.url)+'" target="_blank" rel="noopener noreferrer">Open GitHub release</a>')+'</div><div class="small text-secondary mt-2" id="mUpApplyMsg">'+esc(d.canAutoUpdate?'':(d.autoUpdateReason||''))+'</div></div></div>';
+  }
+  $('panelBody').innerHTML=html;
+  $('mUpSave').onclick=saveUpdateM; $('mUpCheck').onclick=()=>openUpdateM(true); const a=$('mUpApply'); if(a)a.onclick=()=>applyUpdateM(d);
+}
+async function saveUpdateM(){
+  const msg=$('mUpMsg'); msg.textContent='Saving…';
+  try{ const r=await fetch('/api/admin/update/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:$('mUpEnabled').checked,repo:$('mUpRepo')?$('mUpRepo').value.trim():''})}), j=await readJson(r), d=j.data||{}; if(!r.ok)throw new Error(d.message||'Save failed'); renderUpdateM(d); }
+  catch(e){ msg.className='small mt-2 text-danger'; msg.textContent=e.message; }
+}
+async function applyUpdateM(d){
+  const v=d.latest&&d.latest.version; if(!v)return;
+  if(!confirm('Update MEDIARR from v'+d.currentVersion+' to v'+v+' now? A backup is created first.'))return;
+  const b=$('mUpApply'), msg=$('mUpApplyMsg'); b.disabled=true; msg.textContent='Pulling update and creating backup…';
+  try{ const r=await fetch('/api/admin/update/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}), j=await readJson(r), x=j.data||{}; if(!r.ok)throw new Error(x.message||'Update failed to start'); msg.textContent='Updater launched. MEDIARR is restarting…'; await waitUpdateM(x.targetVersion||v,msg); }
+  catch(e){ msg.className='small text-danger mt-2'; msg.textContent=e.message; b.disabled=false; }
+}
+async function waitUpdateM(target,msg){
+  const until=Date.now()+180000;
+  while(Date.now()<until){ await new Promise(r=>setTimeout(r,3000)); try{ const j=await readJson(await fetch('/api/admin/update',{cache:'no-store'})), d=j.data||{}; if((d.version||d.currentVersion)===target){ msg.className='small text-success mt-2'; msg.textContent='Updated to v'+target+'. Reloading…'; setTimeout(()=>location.reload(),700); return; } }catch(e){} }
+  msg.className='small text-warning mt-2'; msg.textContent='Could not confirm the new version. Check Docker logs; rollback may have restored the old container.';
+}
+
+/* ---- Admin ---- */
+function openAdmin(){ closeMenu(); loadAdmin(); }
+async function loadAdmin(){
+  panelSpin('Admin');
+  try{
+    const u=await readJson(await fetch('/api/admin/users'));
+    const a=await readJson(await fetch('/api/admin/adds?limit=200'));
+    renderAdmin((u.data&&u.data.users)||[], (a.data&&a.data.adds)||[]);
+  }catch(e){ panelErr('Couldn’t load admin: '+e.message); }
+}
+function renderAdmin(users,adds){
+  let html='<div class="fw-bold mb-2">Users</div>';
+  users.forEach(u=>{ const isAdmin=u.role==='admin';
+    html+='<div class="card mb-2" style="background:var(--bg)" data-u="'+esc(u.username)+'"><div class="card-body py-2">'
+      +'<div class="d-flex justify-content-between align-items-center"><div class="fw-bold">'+esc(u.username)+(u.username===(me&&me.username)?' (you)':'')+'</div><span class="badge text-bg-'+(isAdmin?'warning':'secondary')+'">'+u.role+'</span></div>'
+      +(isAdmin?'':'<div class="d-flex align-items-center gap-2 mt-2"><span class="small text-secondary">Daily limit</span><input type="number" min="0" value="'+u.dailyLimit+'" class="form-control form-control-sm lim" style="width:78px"><button class="btn btn-outline-gold btn-sm" data-act="lim">Set</button><span class="small text-secondary ms-auto">Today: '+(u.addedToday||0)+'</span></div>')
+      +'<div class="d-flex gap-2 mt-2"><button class="btn btn-outline-secondary btn-sm" data-act="role">'+(isAdmin?'Make user':'Make admin')+'</button><button class="btn btn-outline-danger btn-sm" data-act="del">Remove</button></div>'
+      +'</div></div>';
+  });
+  html+='<div class="fw-bold mt-3 mb-2">Add user</div><div class="card mb-3" style="background:var(--bg)"><div class="card-body">'
+    +'<div id="nuErr" class="small text-danger mb-1"></div>'
+    +'<input id="nuUser" class="form-control form-control-sm mb-2" placeholder="username" autocapitalize="none">'
+    +'<input id="nuPass" type="password" class="form-control form-control-sm mb-2" placeholder="password">'
+    +'<div class="row g-2"><div class="col-6"><select id="nuRole" class="form-select form-select-sm"><option value="user">user</option><option value="admin">admin</option></select></div>'
+    +'<div class="col-6"><input id="nuLimit" type="number" min="0" value="0" class="form-control form-control-sm" placeholder="daily limit (0 = ∞)"></div></div>'
+    +'<button id="nuAdd" class="btn btn-gold btn-sm mt-2 w-100">Create user</button></div></div>';
+  html+='<div class="fw-bold mb-2">Recent activity</div>';
+  html+='<div class="input-group input-group-sm mb-2"><input id="mActQuery" class="form-control" type="search" placeholder="Search title, user, or IP…" autocomplete="off"><button id="mActSearch" class="btn btn-gold">Search</button></div>';
+  html+='<div class="btn-group btn-group-sm w-100 mb-2" role="group" id="mActFilter">'
+    +'<button type="button" class="btn btn-outline-gold active" data-f="all">All</button>'
+    +'<button type="button" class="btn btn-outline-gold" data-f="add">Added</button>'
+    +'<button type="button" class="btn btn-outline-gold" data-f="download">Downloaded</button>'
+    +'<button type="button" class="btn btn-outline-gold" data-f="play">Played</button></div>';
+  html+='<div id="mActLog">'+mActRows(adds)+'</div>';
+  html+='<hr class="my-3"><div class="fw-bold mb-2">Docker controls</div>';
+  html+='<div class="small text-secondary mb-2">Admin-only Start / Stop / Restart for approved containers. The Docker socket must be mounted into MEDIARR.</div>';
+  html+='<div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="mDkEnabled"><label class="form-check-label small" for="mDkEnabled">Enable Docker controls</label></div>';
+  html+='<textarea id="mDkAllowed" rows="3" class="form-control form-control-sm mb-2" placeholder="plex\nradarr\nsonarr"></textarea>';
+  html+='<div class="d-flex gap-2 mb-2"><button class="btn btn-gold btn-sm" id="mDkSave">Save</button><button class="btn btn-outline-secondary btn-sm" id="mDkRefresh">Refresh</button><span class="small align-self-center" id="mDkMsg"></span></div>';
+  html+='<div id="mDkList"></div>';
+  html+='<hr class="my-3"><div class="fw-bold mb-2">System &amp; commands</div>';
+  html+='<div id="mSysInfo" class="small text-secondary mb-2">Loading system info…</div>';
+  html+='<div id="mShList"></div>';
+  html+='<hr class="my-3"><div class="fw-bold mb-2">Backup &amp; import</div>';
+  html+='<label class="form-label small">Create a backup</label>';
+  html+='<div class="input-group input-group-sm mb-1"><select class="form-select" id="mBkSvc"><option value="radarr">Radarr — movies</option><option value="sonarr">Sonarr — shows</option></select><button class="btn btn-gold" id="mBkDownload">⬇ Backup</button></div>';
+  html+='<div class="small mb-3" id="mBkStatus"></div>';
+  html+='<label class="form-label small">Import from a backup</label>';
+  html+='<input class="form-control form-control-sm" type="file" id="mImFile" accept="application/json,.json">';
+  html+='<div class="small text-secondary mt-1" id="mImNote">Choose a backup file to see import options.</div>';
+  html+='<div id="mImOptions" class="mt-2" style="display:none"></div>';
+  $('panelBody').innerHTML=html;
+  $('panelBody').querySelectorAll('[data-u]').forEach(c=>{ const uname=c.dataset.u;
+    const lb=c.querySelector('[data-act="lim"]'); if(lb) lb.onclick=()=>patchUser(uname,{dailyLimit:Number(c.querySelector('.lim').value)});
+    c.querySelector('[data-act="role"]').onclick=()=>{ const isA=c.querySelector('.badge').textContent==='admin'; patchUser(uname,{role:isA?'user':'admin'}); };
+    c.querySelector('[data-act="del"]').onclick=()=>{ if(confirm('Remove user "'+uname+'"?')) deleteUser(uname); };
+  });
+  $('nuAdd').onclick=createUser;
+  const sb=$('mActSearch'); if(sb) sb.onclick=mFetchActivity;
+  const sq=$('mActQuery'); if(sq) sq.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); mFetchActivity(); } });
+  const ff=$('mActFilter'); if(ff) ff.querySelectorAll('button').forEach(b=> b.onclick=()=>{ mActFilter=b.dataset.f; ff.querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b)); mFetchActivity(); });
+  { const bd=$('mBkDownload'); if(bd) bd.onclick=mDoBackup; const f=$('mImFile'); if(f) f.onchange=mOnImportFile; }
+  loadDockerM();
+  loadSystemM();
+}
+// ---- Docker controls ----
+async function loadDockerM(){
+  const list=$('mDkList'), msg=$('mDkMsg'); if(!list) return;
+  list.innerHTML='<div class="small text-secondary py-2">Loading Docker status…</div>';
+  try{
+    const j=await readJson(await fetch('/api/admin/docker')), d=j.data||{};
+    $('mDkEnabled').checked=!!d.enabled; $('mDkAllowed').value=(d.allowedContainers||[]).join('\n');
+    renderDockerM(d);
+    msg.className='small align-self-center '+(d.available?'text-success':(d.enabled?'text-danger':'text-secondary'));
+    msg.textContent=d.available?'Docker connected':(d.message||'');
+  }catch(e){ list.innerHTML='<div class="small text-danger py-2">'+esc(e.message)+'</div>'; }
+  $('mDkSave').onclick=saveDockerM; $('mDkRefresh').onclick=loadDockerM;
+}
+function renderDockerM(d){
+  const list=$('mDkList'); if(!list) return;
+  if(!d.enabled){ list.innerHTML='<div class="small text-secondary">Docker controls are disabled.</div>'; return; }
+  if(!d.available){ list.innerHTML='<div class="small text-danger">'+esc(d.message||'Docker unavailable')+'</div>'; return; }
+  if(!(d.containers||[]).length){ list.innerHTML='<div class="small text-secondary">'+esc(d.message||'No allowed containers found')+'</div>'; return; }
+  list.innerHTML=(d.containers||[]).map(c=>{
+    const running=c.state==='running';
+    return '<div class="card mb-2" style="background:var(--bg)" data-mdk="'+esc(c.allowedAs||c.name)+'"><div class="card-body py-2">'
+      +'<div class="d-flex justify-content-between gap-2"><div><div class="fw-bold">'+esc(c.name)+'</div><div class="small '+(running?'text-success':'text-secondary')+'">'+esc(c.status||c.state)+'</div><div class="text-secondary text-truncate" style="font-size:.68rem;max-width:65vw">'+esc(c.image||'')+'</div></div>'
+      +'<span class="badge '+(running?'text-bg-success':'text-bg-secondary')+' align-self-start">'+esc(c.state||'?')+'</span></div>'
+      +(c.self?'<div class="small text-warning mt-1">MEDIARR itself — controls blocked</div>':'')
+      +'<div class="d-flex gap-2 mt-2"><button class="btn btn-outline-success btn-sm flex-fill" data-mdka="start" '+(running||c.self?'disabled':'')+'>▶ Start</button><button class="btn btn-outline-warning btn-sm flex-fill" data-mdka="restart" '+(c.self?'disabled':'')+'>↻ Restart</button><button class="btn btn-outline-danger btn-sm flex-fill" data-mdka="stop" '+(!running||c.self?'disabled':'')+'>■ Stop</button></div>'
+      +'</div></div>';
+  }).join('');
+  list.querySelectorAll('[data-mdk]').forEach(row=>row.querySelectorAll('[data-mdka]').forEach(b=>b.onclick=()=>dockerActionM(row.dataset.mdk,b.dataset.mdka,b)));
+}
+async function saveDockerM(){
+  const msg=$('mDkMsg'); msg.className='small align-self-center text-secondary'; msg.textContent='Saving…';
+  const body={enabled:$('mDkEnabled').checked,allowedContainers:$('mDkAllowed').value.split(/\n|,|;/).map(x=>x.trim()).filter(Boolean)};
+  try{
+    const r=await fetch('/api/admin/docker/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}), j=await readJson(r), d=j.data||{};
+    if(!r.ok) throw new Error(d.message||'Save failed');
+    $('mDkAllowed').value=(d.allowedContainers||[]).join('\n'); renderDockerM(d);
+    msg.className='small align-self-center '+(d.available?'text-success':'text-secondary'); msg.textContent=d.available?'Saved · connected':'Saved';
+  }catch(e){ msg.className='small align-self-center text-danger'; msg.textContent=e.message; }
+}
+async function dockerActionM(container,action,btn){
+  const verb=action[0].toUpperCase()+action.slice(1);
+  if((action==='stop'||action==='restart')&&!confirm(verb+' Docker container "'+container+'"?')) return;
+  const msg=$('mDkMsg'); btn.disabled=true; msg.className='small align-self-center text-secondary'; msg.textContent=verb+'ing…';
+  try{
+    const r=await fetch('/api/admin/docker/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({container,action})}), j=await readJson(r), d=j.data||{};
+    if(!r.ok) throw new Error(d.message||'Docker action failed');
+    msg.className='small align-self-center text-success'; msg.textContent=verb+' complete'; await loadDockerM();
+  }catch(e){ msg.className='small align-self-center text-danger'; msg.textContent=e.message; btn.disabled=false; }
+}
+// ---- system info & admin commands (read/run only; add or edit them on desktop) ----
+let _mShCommands=[], _mSudo=null;
+async function loadSystemM(){
+  try{
+    const j=await readJson(await fetch('/api/admin/system')); const d=j.data||{};
+    _mShCommands=d.commands||[]; _mSudo=d.sudo;
+    const y=d.system||{};
+    const up=s2=>{ const dd=Math.floor(s2/86400),h=Math.floor(s2%86400/3600); return dd?dd+'d '+h+'h':h+'h'; };
+    const el=$('mSysInfo');
+    if(el) el.innerHTML='<b>'+esc(y.distro||y.prettyPlatform||'?')+'</b> · '+esc(y.arch||'')
+      +(y.container?' · in '+esc(y.container):'')
+      +'<br>Node '+esc(y.node||'')+' · '+(y.cpus||0)+' CPU · '+(y.freeMemMB||0)+'/'+(y.totalMemMB||0)+' MB free · up '+up(y.uptimeSeconds||0)
+      +'<br>user: '+esc(y.user||('uid '+y.uid))+(y.runningAsRoot?' <span class="text-danger">(root)</span>':'')
+      +' · sudo: '+(d.sudo&&d.sudo.passwordless?'<span class="text-success">passwordless ✓</span>':'<span class="text-warning">'+esc((d.sudo&&d.sudo.reason)||'unavailable')+'</span>');
+    renderShListM(d.enabled);
+  }catch(e){ const el=$('mSysInfo'); if(el) el.textContent='Could not read system info.'; }
+}
+function renderShListM(enabled){
+  const el=$('mShList'); if(!el) return;
+  if(!enabled){ el.innerHTML='<div class="small text-secondary">Commands are turned off. Enable them in Settings on the desktop app.</div>'; return; }
+  if(!_mShCommands.length){ el.innerHTML='<div class="small text-secondary">No commands saved. Add them in Settings on the desktop app.</div>'; return; }
+  el.innerHTML=_mShCommands.map(c=>{
+    const warn=c.needsRoot&&_mSudo&&!_mSudo.passwordless
+      ? '<div class="small text-warning" style="font-size:.65rem">⚠ needs root ('+esc(c.why||'')+') but passwordless sudo isn\u2019t set up</div>' : '';
+    return '<div class="d-flex gap-2 align-items-center py-2" style="border-bottom:1px solid var(--bs-border-color)">'
+      +'<button class="btn btn-gold btn-sm" data-run="'+esc(c.id)+'" style="flex:none">▶ Run</button>'
+      +'<div class="flex-grow-1 min-w-0"><div class="small fw-bold text-truncate">'+esc(c.name)+'</div>'
+      +'<div class="text-secondary text-truncate" style="font-family:monospace;font-size:.65rem">'+esc(c.cmd)+'</div>'+warn+'</div></div>';
+  }).join('')+'<div id="mShOut" class="small mt-2" style="display:none"></div>';
+  el.querySelectorAll('[data-run]').forEach(b=> b.onclick=()=>runShCommandM(b.dataset.run,b));
+}
+async function runShCommandM(id, btn){
+  const c=_mShCommands.find(x=>x.id===id); if(!c) return;
+  if(!confirm('Run this on the server?\n\n'+c.cmd)) return;
+  const out=$('mShOut'); out.style.display='';
+  out.innerHTML='<div class="text-secondary">Running '+esc(c.name)+'…</div>';
+  btn.disabled=true;
+  try{
+    const r=await fetch('/api/admin/shell/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+    const j=await readJson(r); const d=j.data||{};
+    if(!r.ok){ out.innerHTML='<div class="text-danger">'+esc(d.message||'failed')+'</div>'; }
+    else{
+      const res=d.result||{}, ok=res.code===0;
+      out.innerHTML='<div class="'+(ok?'text-success':'text-danger')+'">'+esc(c.name)+' — '+(ok?'exit 0':'exit '+(res.code===null?res.signal:res.code))+' · '+res.ms+'ms</div>'
+        +'<pre class="small mt-1 p-2" style="background:var(--bg2);border-radius:.4rem;white-space:pre-wrap;word-break:break-word;max-height:220px;overflow:auto">'+esc(res.out||'(no output)')+'</pre>';
+    }
+  }catch(e){ out.innerHTML='<div class="text-danger">'+esc(e.message)+'</div>'; }
+  btn.disabled=false;
+}
+let _mImport=null;
+async function mDoBackup(){
+  const svc=$('mBkSvc').value, st=$('mBkStatus');
+  if(!isConfigured(svc)){ st.className='small mb-3 text-danger'; st.textContent='⚠ '+svc+' isn’t configured'; return; }
+  st.className='small mb-3 text-secondary'; st.textContent='Fetching…';
+  try{
+    const list=await fetchLibListM(svc,true);
+    const items=(list||[]).map(it=> svc==='radarr'?{title:it.title,year:it.year,tmdbId:it.tmdbId,imdbId:it.imdbId||''}:{title:it.title,year:it.year,tvdbId:it.tvdbId,imdbId:it.imdbId||''});
+    const backup={app:'mediarr-backup',service:svc,version:1,exportedAt:new Date().toISOString(),count:items.length,items};
+    const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}));
+    a.download='mediarr-'+svc+'-backup-'+new Date().toISOString().slice(0,10)+'.json'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    st.className='small mb-3 text-success'; st.textContent='✓ '+items.length+' items exported';
+  }catch(e){ st.className='small mb-3 text-danger'; st.textContent='⚠ '+e.message; }
+}
+function mOnImportFile(e){
+  const file=e.target.files&&e.target.files[0], note=$('mImNote'), opts=$('mImOptions');
+  opts.style.display='none'; opts.innerHTML=''; if(!file) return;
+  const rd=new FileReader();
+  rd.onload=async()=>{ let d; try{ d=JSON.parse(rd.result); }catch(_){ note.textContent='That file isn’t valid JSON.'; return; }
+    if(!d||d.app!=='mediarr-backup'||!Array.isArray(d.items)||!['radarr','sonarr'].includes(d.service)){ note.textContent='That doesn’t look like a MEDIARR backup file.'; return; }
+    _mImport=d; note.textContent=d.items.length+' '+(d.service==='radarr'?'movies':'shows')+' in this backup'+(d.exportedAt?(' (from '+d.exportedAt.slice(0,10)+')'):'')+'.';
+    await mRenderImportOptions(d.service);
+  };
+  rd.readAsText(file);
+}
+async function mRenderImportOptions(svc){
+  const opts=$('mImOptions'); opts.style.display=''; opts.innerHTML='<div class="small text-secondary">Loading '+svc+' options…</div>';
+  if(!isConfigured(svc)){ opts.innerHTML='<div class="small text-danger">'+svc+' isn’t configured — add it in Settings first.</div>'; return; }
+  let profiles=[],folders=[],langs=[];
+  try{ profiles=await arr(svc,'/api/v3/qualityprofile'); folders=await arr(svc,'/api/v3/rootfolder'); if(svc==='sonarr'){ try{ langs=await arr(svc,'/api/v3/languageprofile'); }catch(_){ langs=[]; } } }
+  catch(e){ opts.innerHTML='<div class="small text-danger">Couldn’t load options: '+esc(e.message)+'</div>'; return; }
+  const po=profiles.map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
+  const fo=folders.map(f=>'<option value="'+esc(f.path)+'">'+esc(f.path)+'</option>').join('');
+  let h='<label class="form-label small">Quality profile</label><select class="form-select form-select-sm mb-2" id="mImProfile">'+po+'</select>';
+  h+='<label class="form-label small">Root folder (location on disk)</label><select class="form-select form-select-sm mb-2" id="mImFolder">'+fo+'</select>';
+  if(svc==='radarr'){
+    h+='<label class="form-label small">Minimum availability</label><select class="form-select form-select-sm mb-2" id="mImMinAvail"><option value="announced">Announced</option><option value="inCinemas">In cinemas</option><option value="released" selected>Released</option></select>';
+    h+='<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mImSearch" checked><label class="form-check-label small" for="mImSearch">Search for movie on add</label></div>';
+  } else {
+    h+='<label class="form-label small">Series type</label><select class="form-select form-select-sm mb-2" id="mImSeriesType"><option value="standard" selected>Standard</option><option value="anime">Anime</option><option value="daily">Daily</option></select>';
+    h+='<label class="form-label small">Monitor</label><select class="form-select form-select-sm mb-2" id="mImMonitorSel"><option value="all" selected>All episodes</option><option value="future">Future</option><option value="missing">Missing</option><option value="existing">Existing</option><option value="firstSeason">First season</option><option value="latestSeason">Latest season</option><option value="none">None</option></select>';
+    if(langs.length) h+='<label class="form-label small">Language profile</label><select class="form-select form-select-sm mb-2" id="mImLang">'+langs.map(l=>'<option value="'+l.id+'">'+esc(l.name)+'</option>').join('')+'</select>';
+    h+='<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mImSeasonFolder" checked><label class="form-check-label small" for="mImSeasonFolder">Use season folders</label></div>';
+    h+='<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mImSearch" checked><label class="form-check-label small" for="mImSearch">Search for missing episodes on add</label></div>';
+  }
+  h+='<div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="mImMonitored" checked><label class="form-check-label small" for="mImMonitored">Monitored</label></div>';
+  h+='<button class="btn btn-gold btn-sm w-100" id="mImRun">Import '+_mImport.items.length+' '+(svc==='radarr'?'movies':'shows')+'</button>';
+  h+='<div class="small mt-2" id="mImStatus"></div><div id="mImLog" class="small" style="display:none;max-height:200px;overflow:auto;margin-top:6px"></div>';
+  opts.innerHTML=h;
+  if(config[svc]&&config[svc].qualityProfileId){ const ps=$('mImProfile'); if(ps) ps.value=config[svc].qualityProfileId; }
+  if(config[svc]&&config[svc].rootFolderPath){ const fs2=$('mImFolder'); if(fs2) fs2.value=config[svc].rootFolderPath; }
+  $('mImRun').onclick=mRunImport;
+}
+function mLogImport(log,icon,title,msg){ const r=document.createElement('div'); r.style.borderBottom='1px solid var(--bs-border-color)'; r.innerHTML='<span class="me-1">'+icon+'</span>'+esc(title||'')+' <span class="text-secondary">'+esc(msg||'')+'</span>'; log.appendChild(r); log.scrollTop=log.scrollHeight; }
+async function mRunImport(){
+  const svc=_mImport.service, items=_mImport.items;
+  const btn=$('mImRun'), st=$('mImStatus'), log=$('mImLog'); btn.disabled=true; log.style.display=''; log.innerHTML='';
+  const qp=Number($('mImProfile').value)||1, rf=$('mImFolder').value, mon=$('mImMonitored').checked;
+  let added=0,skipped=0,failed=0,done=0;
+  for(const it of items){ done++; st.className='small text-secondary'; st.textContent='Importing… '+done+'/'+items.length;
+    try{
+      if(svc==='radarr'){
+        const term=it.tmdbId?('tmdb:'+it.tmdbId):(it.imdbId?('imdb:'+it.imdbId):encodeURIComponent(it.title||''));
+        const found=await arr('radarr','/api/v3/movie/lookup?term='+term); const obj=(found||[])[0];
+        if(!obj){ failed++; mLogImport(log,'⚠',it.title,'not found'); continue; }
+        if(obj.id){ skipped++; mLogImport(log,'•',it.title,'already in library'); continue; }
+        const body=Object.assign({},obj,{qualityProfileId:qp,rootFolderPath:rf,monitored:mon,minimumAvailability:$('mImMinAvail').value,addOptions:{searchForMovie:$('mImSearch').checked}});
+        await arr('radarr','/api/v3/movie',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      } else {
+        const term=it.tvdbId?('tvdb:'+it.tvdbId):(it.imdbId?('imdb:'+it.imdbId):encodeURIComponent(it.title||''));
+        const found=await arr('sonarr','/api/v3/series/lookup?term='+term);
+        const obj=(found||[]).find(f=> it.tvdbId? f.tvdbId===it.tvdbId : (it.imdbId? f.imdbId===it.imdbId : true))||(found||[])[0];
+        if(!obj){ failed++; mLogImport(log,'⚠',it.title,'not found'); continue; }
+        if(obj.id){ skipped++; mLogImport(log,'•',it.title,'already in library'); continue; }
+        const body=Object.assign({},obj,{qualityProfileId:qp,rootFolderPath:rf,monitored:mon,seriesType:$('mImSeriesType').value,seasonFolder:$('mImSeasonFolder').checked,addOptions:{monitor:$('mImMonitorSel').value,searchForMissingEpisodes:$('mImSearch').checked}});
+        const le=$('mImLang'); if(le) body.languageProfileId=Number(le.value)||1;
+        await arr('sonarr','/api/v3/series',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      }
+      added++; mLogImport(log,'✓',it.title,'added');
+    }catch(e){ failed++; mLogImport(log,'⚠',it.title,(e.message||'failed')); }
+  }
+  st.className='small text-success'; st.textContent='Done — '+added+' added, '+skipped+' skipped, '+failed+' failed'; btn.disabled=false;
+  try{ loadLibrary(); }catch(e){}
+}
+let mActFilter='all';
+function mActRows(adds, q){
+  if(!adds.length) return '<div class="small text-secondary">'+(q?('No matches for "'+esc(q)+'".'):'No activity logged yet.')+'</div>';
+  return adds.slice(0,300).map(a=>{
+    const act = a.type==='download'?['warning','Downloaded']:a.type==='play'?['primary','Played']:['info','Added'];
+    const svc = a.service==='radarr'?'Radarr':a.service==='sonarr'?'Sonarr':'WebDAV';
+    return '<div class="small py-1" style="border-bottom:1px solid var(--bs-border-color)">'
+      +'<div class="d-flex justify-content-between align-items-center"><span class="text-truncate">'+esc(a.username)+' · '+esc(a.title||'(untitled)')+(a.year?' ('+esc(String(a.year))+')':'')+'</span>'
+      +'<span class="badge text-bg-'+act[0]+' ms-1" style="flex:none">'+act[1]+'</span></div>'
+      +'<div class="text-secondary d-flex justify-content-between"><span>'+svc+(a.ip?' · <span style="font-family:monospace">'+esc(a.ip)+'</span>':'')+'</span><span>'+new Date(a.ts).toLocaleString()+'</span></div>'
+      +'</div>';
+  }).join('');
+}
+async function mFetchActivity(){
+  const log=$('mActLog'); if(!log) return;
+  const q=($('mActQuery')&&$('mActQuery').value||'').trim();
+  log.innerHTML='<div class="small text-secondary">Searching…</div>';
+  try{ const r=await readJson(await fetch('/api/admin/adds?limit=500&type='+encodeURIComponent(mActFilter)+'&q='+encodeURIComponent(q))); log.innerHTML=mActRows((r.data&&r.data.adds)||[], q); }
+  catch(e){ log.innerHTML='<div class="small text-danger">Search failed.</div>'; }
+}
+async function createUser(){ const err=$('nuErr'); err.textContent='';
+  const body={username:$('nuUser').value.trim(),password:$('nuPass').value,role:$('nuRole').value,dailyLimit:Number($('nuLimit').value)};
+  if(!body.username||!body.password){ err.textContent='Username and password required.'; return; }
+  try{ const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const j=await readJson(r); if(!r.ok)throw new Error((j.data&&j.data.message)||'Failed'); loadAdmin(); }
+  catch(e){ err.textContent=e.message; }
+}
+async function patchUser(u,f){ try{ const r=await fetch('/api/admin/users',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({username:u},f))}); const j=await readJson(r); if(!r.ok)throw new Error((j.data&&j.data.message)||'Failed'); loadAdmin(); }catch(e){ alert(e.message); } }
+async function deleteUser(u){ try{ const r=await fetch('/api/admin/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}); const j=await readJson(r); if(!r.ok)throw new Error((j.data&&j.data.message)||'Failed'); loadAdmin(); }catch(e){ alert(e.message); } }
+
+/* ---- Change password ---- */
+function openPassword(){ closeMenu();
+  openPanel('Change password',
+    '<div id="pwErr" class="small mb-2"></div>'
+    +'<label class="form-label small">Current password</label><input id="pwCur" type="password" class="form-control mb-2" autocomplete="current-password">'
+    +'<label class="form-label small">New password</label><input id="pwNew" type="password" class="form-control mb-2" autocomplete="new-password">'
+    +'<label class="form-label small">Confirm new password</label><input id="pwConf" type="password" class="form-control mb-3" autocomplete="new-password">'
+    +'<button id="pwSave" class="btn btn-gold w-100">Update password</button>');
+  $('pwSave').onclick=async()=>{ const cur=$('pwCur').value,nw=$('pwNew').value,cf=$('pwConf').value,err=$('pwErr'); err.className='small mb-2 text-danger';
+    if(!cur||!nw){ err.textContent='Fill in all fields.'; return; }
+    if(nw.length<4){ err.textContent='New password must be at least 4 characters.'; return; }
+    if(nw!==cf){ err.textContent='New passwords don’t match.'; return; }
+    $('pwSave').disabled=true;
+    try{ const r=await fetch('/api/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword:cur,newPassword:nw})}); const j=await readJson(r); if(!r.ok)throw new Error((j.data&&j.data.message)||'Failed');
+      err.className='small mb-2 text-success'; err.textContent='✓ Password updated.'; setTimeout(()=>panelModal().hide(),900);
+    }catch(e){ err.textContent=e.message; $('pwSave').disabled=false; }
+  };
+}
+
+/* ---- wire menu buttons ---- */
+$('mStreaming').onclick=openStreaming;
+$('mScanPlex').onclick=scanPlexMobile;
+$('mDownloads').onclick=openDownloads;
+let dlPath='';
+function fmtSize(n){ if(!n)return''; const u=['B','KB','MB','GB','TB']; let i=0,x=n; while(x>=1024&&i<u.length-1){x/=1024;i++;} return x.toFixed(x<10&&i>0?1:0)+' '+u[i]; }
+function openDownloads(){ closeMenu(); dlPath=''; loadDownloads(); }
+async function loadDownloads(){
+  panelSpin('Downloads'); await loadConfig();
+  if(!isConfigured('webdav')) return panelErr('WebDAV isn’t set up. An admin can add it in Settings.');
+  try{
+    const r=await fetch('/api/webdav/list?path='+encodeURIComponent(dlPath)); const j=await readJson(r);
+    if(!r.ok) throw new Error((j.data&&j.data.message)||('HTTP '+r.status));
+    renderDownloads(j.data||{folders:[],files:[]});
+  }catch(e){ panelErr('Couldn’t list files: '+e.message); }
+}
+function renderDownloads(d){
+  const folders=d.folders||[], files=d.files||[];
+  let html='<div class="small text-secondary mb-2">📂 /'+esc((d.path||'').split('/').filter(Boolean).join(' / '))+'</div>';
+  if(dlPath) html+='<button class="btn btn-outline-secondary btn-sm mb-2" id="dlUp">⬆️ Up one level</button>';
+  if(folders.length || files.length) html+='<input id="dlFilter" class="form-control form-control-sm mb-2" placeholder="Filter this folder…" autocomplete="off">';
+  if(!folders.length && !files.length){ html+='<div class="state">No sub-folders or videos in this folder.</div>'; }
+  folders.forEach(f=> html+='<div class="d-flex align-items-center gap-2 py-1 dlfolder dlrow" data-folder="'+esc(f.name)+'" data-name="'+esc(f.name.toLowerCase())+'" style="border-bottom:1px solid var(--bs-border-color);cursor:pointer"><span>📁</span><div class="flex-grow-1 small fw-bold text-truncate">'+esc(f.name)+'</div><span class="text-secondary">›</span></div>');
+  files.forEach(f=> html+='<div class="d-flex align-items-center gap-2 py-1 dlrow" data-name="'+esc(f.name.toLowerCase())+'" style="border-bottom:1px solid var(--bs-border-color)"><span>🎬</span><div class="flex-grow-1" style="min-width:0"><div class="small fw-bold text-truncate">'+esc(f.name)+'</div><div class="small text-secondary">'+fmtSize(f.size)+'</div></div><button class="btn btn-outline-gold btn-sm" data-play="'+esc(f.name)+'">▶</button><button class="btn btn-gold btn-sm" data-dl="'+esc(f.name)+'">⬇️</button></div>');
+  if(files.length) html+='<div class="small text-secondary mt-2">Each download counts toward your daily limit.</div>';
+  $('panelBody').innerHTML=html;
+  if($('dlUp')) $('dlUp').onclick=()=>{ const s=dlPath.split('/').filter(Boolean); s.pop(); dlPath=s.join('/'); loadDownloads(); };
+  if($('dlFilter')) $('dlFilter').addEventListener('input', e=>{ const q=e.target.value.toLowerCase(); $('panelBody').querySelectorAll('.dlrow').forEach(r=>{ if((r.dataset.name||'').includes(q)) r.style.removeProperty('display'); else r.style.setProperty('display','none','important'); }); });
+  $('panelBody').querySelectorAll('[data-folder]').forEach(el=> el.onclick=()=>{ dlPath=(dlPath?dlPath+'/':'')+el.dataset.folder; loadDownloads(); });
+  $('panelBody').querySelectorAll('[data-play]').forEach(b=> b.onclick=()=> playVideoMobile((dlPath?dlPath+'/':'')+b.dataset.play, b.dataset.play));
+  $('panelBody').querySelectorAll('[data-dl]').forEach(b=> b.onclick=()=> grabDownload((dlPath?dlPath+'/':'')+b.dataset.dl, b.dataset.dl, b));
+}
+let curPlayM=null, curHlsSidM=null;
+function stopHlsM(){ const v=$('mVideo'); if(v && v._hls){ try{ v._hls.destroy(); }catch(e){} v._hls=null; } if(curHlsSidM){ const s=curHlsSidM; curHlsSidM=null; try{ fetch('/api/webdav/hls/stop?sid='+encodeURIComponent(s)); }catch(e){} } }
+let _kaTimerM=null;
+function startKeepAliveM(what,path){
+  stopKeepAliveM();
+  const ping=()=>fetch('/api/session/keepalive',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({what:what||'playing',path:path||''})}).catch(()=>{});
+  ping(); _kaTimerM=setInterval(ping, 10*60*1000);
+}
+function stopKeepAliveM(){ if(_kaTimerM){ clearInterval(_kaTimerM); _kaTimerM=null; } }
+function playVideoMobile(path, name){
+  try{ panelModal().hide(); }catch(e){}   // close the downloads list so the player is in front
+  startKeepAliveM('streaming', path);
+  curPlayM={path,name};
+  $('playerTitle').textContent=name;
+  const ctl=$('mPlayerCtl');
+  if(config&&config.webdav&&config.webdav.ffmpeg){
+    ctl.innerHTML='<div><label class="form-label small mb-1">Quality</label><select id="mQualSel" class="form-select form-select-sm"><option value="orig">Original — no quality loss</option><option value="1080">1080p — High</option><option value="720">720p — Medium</option><option value="480">480p — Low</option></select></div>'
+      +'<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mTcOn"'+((config.webdav&&config.webdav.transcode)?' checked':'')+'><label class="form-check-label small" for="mTcOn">Transcode (fixes 5.1 / AC3 / DTS / HEVC)</label></div>'
+      +'<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mTcStereo"><label class="form-check-label small" for="mTcStereo">Downmix to stereo</label></div>';
+    $('mQualSel').onchange=loadMobileSrc; $('mTcOn').onchange=loadMobileSrc; $('mTcStereo').onchange=loadMobileSrc;
+  } else { ctl.innerHTML='<div class="small text-secondary">Install ffmpeg on the server to enable transcoding, quality settings and seeking.</div>'; }
+  const m=bootstrap.Modal.getOrCreateInstance($('player')); m.show();
+  $('mPlayerTracks').innerHTML=''; loadTracksM(curPlayM.path);
+  loadMobileSrc();
+  $('player').addEventListener('hidden.bs.modal', ()=>{ const v=$('mVideo'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} stopHlsM(); stopKeepAliveM(); }, {once:true});
+}
+function audioLabelM(a){ const ch=a.channels===6?'5.1':a.channels===8?'7.1':a.channels===2?'2.0':a.channels===1?'mono':(a.channels?a.channels+'ch':''); const bits=[a.lang,ch,a.codec].filter(Boolean).join(' • '); return (a.title?a.title+(bits?' — '+bits:''):bits)||('Track '+(a.i+1)); }
+function subLabelM(s){ return s.title || (s.lang?s.lang.toUpperCase():'') || ('Subtitle '+(s.i+1)); }
+async function loadTracksM(path){
+  const box=$('mPlayerTracks'); box.innerHTML='';
+  if(!(config&&config.webdav&&config.webdav.ffmpeg)) return;
+  try{
+    const r=await fetch('/api/webdav/tracks?path='+encodeURIComponent(path)); if(!r.ok) return; const d=await r.json();
+    if(curPlayM && curPlayM.path!==path) return;
+    let html='';
+    if(d.audio && d.audio.length>1){ html+='<div><label class="form-label small mb-1">Audio</label><select id="mAudioSel" class="form-select form-select-sm">'+d.audio.map(a=>'<option value="'+a.i+'">'+esc(audioLabelM(a))+'</option>').join('')+'</select></div>'; }
+    const tsubs=(d.subs||[]).filter(s=>s.text);
+    if(tsubs.length){ html+='<div><label class="form-label small mb-1">Subtitles</label><select id="mSubSel" class="form-select form-select-sm"><option value="">Off</option>'+tsubs.map(s=>'<option value="'+s.i+'">'+esc(subLabelM(s))+'</option>').join('')+'</select></div>'; }
+    box.innerHTML=html;
+    if($('mAudioSel')) $('mAudioSel').onchange=loadMobileSrc;
+    if($('mSubSel')) $('mSubSel').onchange=applySubM;
+  }catch(e){}
+}
+function applySubM(){
+  const v=$('mVideo'), sS=$('mSubSel'); if(!curPlayM) return;
+  [].slice.call(v.querySelectorAll('track[data-mediarr]')).forEach(t=>t.remove());
+  for(let i=0;i<v.textTracks.length;i++){ v.textTracks[i].mode='disabled'; }
+  if(sS && sS.value!==''){
+    const tr=document.createElement('track'); tr.kind='subtitles'; tr.label=sS.options[sS.selectedIndex].text; tr.srclang='und';
+    tr.src='/api/webdav/subtitle?path='+encodeURIComponent(curPlayM.path)+'&sidx='+encodeURIComponent(sS.value);
+    tr.default=true; tr.setAttribute('data-mediarr','1'); v.appendChild(tr);
+    const show=()=>{ try{ tr.track.mode='showing'; }catch(e){} }; tr.addEventListener('load',show); setTimeout(show,250); setTimeout(show,900);
+  }
+}
+function playHlsM(v, url, onerr, after){
+  if(window.Hls && window.Hls.isSupported()){
+    if(v._hls){ try{ v._hls.destroy(); }catch(e){} }
+    const hls=new Hls({ maxBufferLength:30, maxMaxBufferLength:90 }); v._hls=hls;
+    hls.on(Hls.Events.ERROR,(evt,data)=>{ if(data && data.fatal) onerr(); });
+    hls.loadSource(url); hls.attachMedia(v);
+    v.onerror=null; const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); if(after) after();
+  } else if(v.canPlayType('application/vnd.apple.mpegurl')){
+    v.onerror=onerr; v.src=url; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); if(after) after();
+  } else { onerr(); }
+}
+function loadMobileSrc(){
+  if(!curPlayM) return;
+  const v=$('mVideo'), msg=$('mPlayerMsg'), tcOn=$('mTcOn'), tcStereo=$('mTcStereo'), audioSel=$('mAudioSel'), qualSel=$('mQualSel');
+  const aidx=audioSel?(parseInt(audioSel.value,10)||0):0;
+  const q=qualSel?qualSel.value:'orig';
+  const transcoding=!!((tcOn && tcOn.checked) || (tcStereo && tcStereo.checked) || aidx>0 || q!=='orig'); msg.textContent=''; stopHlsM();
+  const onerr=()=>{
+    if(config&&config.webdav&&config.webdav.ffmpeg&&!transcoding){ msg.innerHTML='Couldn’t play directly. <a href="#" id="mTcTry" class="text-warning">Transcode it</a>.'; const a=$('mTcTry'); if(a) a.onclick=(e)=>{ e.preventDefault(); if(tcOn) tcOn.checked=true; loadMobileSrc(); }; }
+    else { msg.textContent='Can’t play this format in the browser. Use ⬇️ to download instead.'; }
+  };
+  if(transcoding){
+    const canHls=(window.Hls && window.Hls.isSupported()) || v.canPlayType('application/vnd.apple.mpegurl');
+    if(canHls){
+      msg.textContent='Preparing stream…';
+      let qs='path='+encodeURIComponent(curPlayM.path)+'&q='+q; if(tcStereo && tcStereo.checked) qs+='&ac=2'; if(aidx>0) qs+='&aidx='+aidx;
+      fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+        if(!ok || !j.sid) throw new Error((j && j.message) || 'Could not start stream');
+        curHlsSidM=j.sid; msg.textContent='';
+        playHlsM(v, '/api/webdav/hls/'+j.sid+'/index.m3u8', onerr, ()=>setTimeout(applySubM,500));
+      }).catch(e=>{ msg.textContent='Couldn’t start playback: '+e.message; });
+      return;
+    }
+    let src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path)+'&transcode=1'; if(tcStereo && tcStereo.checked) src+='&ac=2'; if(aidx>0) src+='&aidx='+aidx;
+    v.onerror=onerr; v.src=src; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubM,300);
+    return;
+  }
+  v.onerror=onerr; v.src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path); v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubM,300);
+}
+async function grabDownload(path, name, btn){
+  const o=btn.textContent; btn.disabled=true; btn.textContent='…';
+  const url='/api/webdav/download?path='+encodeURIComponent(path);
+  try{
+    const h=await fetch(url,{method:'HEAD'});
+    if(h.status===429){ btn.textContent='Limit reached'; setTimeout(()=>{ btn.textContent=o; btn.disabled=false; },2600); return; }
+    if(!h.ok){ btn.textContent='⚠'; setTimeout(()=>{ btn.textContent=o; btn.disabled=false; },2600); return; }
+    const a=document.createElement('a'); a.href=url; a.download=name; if(config&&config.webdav&&config.webdav.mode!=='proxy'){ a.target='_blank'; a.rel='noopener'; } document.body.appendChild(a); a.click(); a.remove();
+    btn.textContent='✓ Started'; btn.classList.remove('btn-gold'); btn.classList.add('btn-success');
+    setTimeout(()=>{ btn.textContent=o; btn.disabled=false; btn.classList.remove('btn-success'); btn.classList.add('btn-gold'); },3200);
+  }catch(e){ btn.textContent='⚠'; setTimeout(()=>{ btn.textContent=o; btn.disabled=false; },2600); }
+}
+async function scanPlexMobile(){
+  closeMenu();
+  openPanel('Scan Plex','<div class="state"><div class="spinner-border text-secondary"></div><div class="mt-2">Asking Plex to scan…</div></div>');
+  try{
+    const r=await fetch('/api/plex/scan',{method:'POST'}); const j=await readJson(r); const d=j.data||{};
+    if(!r.ok) throw new Error(d.message||'Scan failed');
+    if(!d.scanned) return panelErr(d.message||'No Plex libraries found to scan.');
+    $('panelBody').innerHTML='<div class="text-center" style="padding:28px 10px"><div style="font-size:42px;color:var(--gold)">✓</div><div class="fw-bold mt-2">Scan started</div><div class="text-secondary small mt-1">Plex is scanning '+d.scanned+' '+(d.scanned===1?'library':'libraries')+(d.sections&&d.sections.length?': '+d.sections.map(esc).join(', '):'')+'.</div></div>';
+  }catch(e){ panelErr('Plex scan failed: '+e.message); }
+}
+$('mMovies').onclick=()=>openLibrary('radarr');
+$('mShows').onclick=()=>openLibrary('sonarr');
+$('mCalendar').onclick=openCalendar;
+$('mHealth').onclick=openHealth;
+$('mUpdate').onclick=()=>openUpdateM();
+$('mAdmin').onclick=openAdmin;
+$('mPassword').onclick=openPassword;
+$('mUpcoming').onclick=openUpcomingM;
+$('mPlexMe').onclick=openPlexMeM;
+$('mProfile').onclick=openProfileM;
+$('mQueue').onclick=openQueueM;
+{ const st=$('abStopM'); if(st) st.onclick=async()=>{ try{ const j=await readJson(await fetch('/api/autoadd/stop',{method:'POST'})); renderAutoM(j.data||{}); }catch(e){} };
+  const hd=$('abHideM'); if(hd) hd.onclick=()=>dismissAutoM(lastAutoIdM!=null?lastAutoIdM:autoWatchingM); }
+</script>
+</body>
+</html>
