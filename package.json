@@ -1,7 +1,7 @@
 {
   "name": "mediarr",
-  "version": "1.4.0",
-  "description": "Self-hosted media discovery and management dashboard with Radarr/Sonarr webhooks, SSE realtime monitoring, first-run setup, Plex tools, playback, Docker controls, and GitHub-based updates.",
+  "version": "1.5.0",
+  "description": "Self-hosted media dashboard with unified media details, Radarr/Sonarr webhooks, SSE realtime monitoring, first-run setup, Plex tools, playback, Docker controls, and GitHub-based updates.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
