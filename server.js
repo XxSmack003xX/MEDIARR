@@ -3135,6 +3135,243 @@ async function movieFileInfo (movieId) {
   return out;
 }
 
+
+/* ---------- unified media detail ---------- */
+function mediaTitleKey (v) {
+  return String(v || '').toLowerCase().replace(/\(\d{4}\)/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+function mediaGuidIds (m) {
+  const out = { imdbId: '', tmdbId: null, tvdbId: null };
+  const vals = [];
+  if (m && m.guid) vals.push(m.guid);
+  for (const g of (m && Array.isArray(m.Guid) ? m.Guid : [])) if (g && g.id) vals.push(g.id);
+  for (const raw of vals) {
+    const x = String(raw || '');
+    let z = x.match(/imdb:\/\/(tt\d+)/i); if (z) out.imdbId = z[1];
+    z = x.match(/tmdb:\/\/(\d+)/i); if (z) out.tmdbId = Number(z[1]);
+    z = x.match(/tvdb:\/\/(\d+)/i); if (z) out.tvdbId = Number(z[1]);
+  }
+  return out;
+}
+async function findArrMediaForDetail (svc, q) {
+  const cfg = readConfig()[svc];
+  const configured = !!(cfg.url && cfg.apiKey);
+  if (!configured) return { configured: false, inLibrary: false, item: null };
+
+  let imdbId = String(q.imdbId || '').trim();
+  let tmdbId = q.tmdbId ? Number(q.tmdbId) : null;
+  let tvdbId = q.tvdbId ? Number(q.tvdbId) : null;
+  if (svc === 'sonarr' && tmdbId && !imdbId && !tvdbId) {
+    try {
+      const ext = await resolveExt('series', tmdbId);
+      imdbId = ext.imdbId || '';
+      tvdbId = ext.tvdbId ? Number(ext.tvdbId) : null;
+    } catch (_) {}
+  }
+
+  const titleKey = mediaTitleKey(q.title);
+  const year = Number(q.year) || 0;
+  const matches = x => {
+    if (!x) return false;
+    if (q.arrId && Number(x.id) === Number(q.arrId)) return true;
+    if (imdbId && x.imdbId && String(x.imdbId).toLowerCase() === imdbId.toLowerCase()) return true;
+    if (svc === 'radarr' && tmdbId && String(x.tmdbId || '') === String(tmdbId)) return true;
+    if (svc === 'sonarr' && tvdbId && String(x.tvdbId || '') === String(tvdbId)) return true;
+    if (titleKey && mediaTitleKey(x.title) === titleKey && (!year || !x.year || Number(x.year) === year)) return true;
+    return false;
+  };
+
+  let slim = null;
+  const cached = readLibCache()[svc];
+  if (cached && Array.isArray(cached.items)) slim = cached.items.find(matches) || null;
+  let raw = null;
+  if (q.arrId) {
+    const got = await arrItem(svc, Number(q.arrId));
+    if (got.ok) raw = got.item;
+  } else if (slim && slim.id) {
+    const got = await arrItem(svc, Number(slim.id));
+    if (got.ok) raw = got.item;
+  }
+  if (!raw) {
+    const all = await arrListAll(svc, svc === 'radarr' ? '/api/v3/movie' : '/api/v3/series');
+    if (all.ok) raw = all.items.find(matches) || null;
+  }
+  return { configured, inLibrary: !!raw, item: raw, imdbId, tmdbId, tvdbId };
+}
+async function sonarrFileSummary (seriesId) {
+  const eps = await seriesEpisodes(seriesId);
+  const items = eps.items || [];
+  const now = Date.now();
+  const aired = items.filter(e => e.airDateUtc && new Date(e.airDateUtc).getTime() <= now);
+  const future = items.filter(e => e.airDateUtc && new Date(e.airDateUtc).getTime() > now).sort((a,b)=>new Date(a.airDateUtc)-new Date(b.airDateUtc));
+  const real = items.filter(e => Number(e.seasonNumber) > 0);
+  const seasons = new Map();
+  for (const e of real) {
+    const sn = Number(e.seasonNumber) || 0;
+    const cur = seasons.get(sn) || { seasonNumber: sn, episodes: 0, downloaded: 0, monitored: 0, missing: 0 };
+    cur.episodes++;
+    if (e.hasFile) cur.downloaded++;
+    if (e.monitored) cur.monitored++;
+    if (e.monitored && !e.hasFile && e.airDateUtc && new Date(e.airDateUtc).getTime() <= now) cur.missing++;
+    seasons.set(sn, cur);
+  }
+
+  let files = [];
+  for (const base of ['/api/v3/episodefile?seriesId=', '/api/v1/episodefile?seriesId=', '/api/episodefile?seriesId=']) {
+    const raw = await arrRaw('sonarr', base + seriesId, 30000);
+    if (raw.status >= 200 && raw.status < 300 && raw.json !== undefined) {
+      const un = unwrapArrList(raw.json);
+      if (un.items) { files = un.items; break; }
+    }
+  }
+  const uniq = a => [...new Set(a.filter(Boolean).map(String))];
+  const quality = [], video = [], audio = [], dynamicRange = [], subtitles = [], languages = [];
+  let size = 0;
+  for (const f of files) {
+    size += Number(f.size) || 0;
+    const mi = f.mediaInfo || {};
+    quality.push(f.quality && f.quality.quality && f.quality.quality.name);
+    video.push(mi.videoCodec);
+    audio.push(mi.audioCodec);
+    dynamicRange.push(mi.videoDynamicRange || mi.videoDynamicRangeType);
+    String(mi.subtitles || '').split('/').map(x=>x.trim()).filter(Boolean).forEach(x=>subtitles.push(x));
+    for (const l of (Array.isArray(f.languages) ? f.languages : [])) languages.push(l && (l.name || l));
+  }
+  return {
+    episodes: {
+      total: real.length,
+      downloaded: real.filter(e=>e.hasFile).length,
+      monitored: real.filter(e=>e.monitored).length,
+      missing: aired.filter(e=>Number(e.seasonNumber)>0 && e.monitored && !e.hasFile).length,
+      unaired: future.length,
+      next: future[0] ? {
+        seasonNumber: future[0].seasonNumber, episodeNumber: future[0].episodeNumber,
+        title: future[0].title || '', airDateUtc: future[0].airDateUtc
+      } : null
+    },
+    seasons: [...seasons.values()].sort((a,b)=>a.seasonNumber-b.seasonNumber),
+    files: {
+      count: files.length, size,
+      qualities: uniq(quality), videoCodecs: uniq(video), audioCodecs: uniq(audio),
+      dynamicRanges: uniq(dynamicRange), subtitles: uniq(subtitles), languages: uniq(languages)
+    }
+  };
+}
+async function plexMediaAvailability (q) {
+  const cfg = readConfig().plex;
+  if (!cfg.url || !cfg.token) return { configured: false, available: false };
+  const title = String(q.title || '').trim();
+  if (!title) return { configured: true, available: false };
+  const base = normUrl(cfg.url);
+  let results = [];
+  const attempts = [
+    base + '/search?query=' + encodeURIComponent(title),
+    base + '/hubs/search?query=' + encodeURIComponent(title) + '&limit=30&includeCollections=0&includeExternalMedia=0'
+  ];
+  for (const url of attempts) {
+    const r = await plexJson(url, cfg.token);
+    if (!r.ok) continue;
+    const mc = (r.data || {}).MediaContainer || {};
+    if (Array.isArray(mc.Metadata)) results.push.apply(results, mc.Metadata);
+    for (const h of (mc.Hub || [])) if (Array.isArray(h.Metadata)) results.push.apply(results, h.Metadata);
+    if (results.length) break;
+  }
+  const want = q.type === 'series' ? 'show' : 'movie';
+  const titleKey = mediaTitleKey(title), year = Number(q.year) || 0;
+  const score = m => {
+    let n = 0; const ids = mediaGuidIds(m);
+    if (q.imdbId && ids.imdbId && String(q.imdbId).toLowerCase() === ids.imdbId.toLowerCase()) n += 100;
+    if (q.tmdbId && ids.tmdbId && String(q.tmdbId) === String(ids.tmdbId)) n += 100;
+    if (q.tvdbId && ids.tvdbId && String(q.tvdbId) === String(ids.tvdbId)) n += 100;
+    if (!m.type || m.type === want) n += 20;
+    if (mediaTitleKey(m.title) === titleKey) n += 30;
+    if (year && Number(m.year) === year) n += 10;
+    return n;
+  };
+  results = results.filter(m => !m.type || m.type === want);
+  results.sort((a,b)=>score(b)-score(a));
+  const hit = results[0];
+  if (!hit || score(hit) < 20) return { configured: true, available: false };
+
+  let machineIdentifier = '';
+  try {
+    const ident = await plexJson(base + '/identity', cfg.token);
+    machineIdentifier = String((((ident.data || {}).MediaContainer || {}).machineIdentifier) || '');
+  } catch (_) {}
+  const key = hit.key || (hit.ratingKey ? '/library/metadata/' + hit.ratingKey : '');
+  const webUrl = machineIdentifier && key
+    ? 'https://app.plex.tv/desktop/#!/server/' + encodeURIComponent(machineIdentifier) + '/details?key=' + encodeURIComponent(key)
+    : '';
+  const thumb = hit.thumb || '';
+  return {
+    configured: true, available: true,
+    ratingKey: hit.ratingKey || '', key, title: hit.title || title, year: hit.year || '',
+    type: hit.type || want, viewCount: Number(hit.viewCount) || 0, viewOffset: Number(hit.viewOffset) || 0,
+    duration: Number(hit.duration) || 0, webUrl,
+    art: thumb ? ('/api/plex/img?h=pms&p=' + encodeURIComponent(thumb)) : '',
+    ids: mediaGuidIds(hit)
+  };
+}
+async function unifiedMediaDetail (q) {
+  const type = q.type === 'series' || q.type === 'tv' || q.type === 'show' ? 'series' : 'movie';
+  const svc = type === 'movie' ? 'radarr' : 'sonarr';
+  const base = {
+    type, service: svc, title: String(q.title || '').slice(0, 300), year: Number(q.year) || null,
+    imdbId: String(q.imdbId || '').trim(), tmdbId: q.tmdbId ? Number(q.tmdbId) : null, tvdbId: q.tvdbId ? Number(q.tvdbId) : null
+  };
+
+  const found = await findArrMediaForDetail(svc, Object.assign({}, base, { arrId: Number(q.arrId) || null }));
+  if (!base.imdbId && found.imdbId) base.imdbId = found.imdbId;
+  if (!base.tmdbId && found.tmdbId) base.tmdbId = found.tmdbId;
+  if (!base.tvdbId && found.tvdbId) base.tvdbId = found.tvdbId;
+
+  const arr = {
+    configured: found.configured, inLibrary: found.inLibrary, id: found.item && found.item.id || null,
+    monitored: !!(found.item && found.item.monitored), title: found.item && found.item.title || base.title,
+    year: found.item && found.item.year || base.year,
+    rootFolderPath: found.item && found.item.rootFolderPath || '',
+    path: found.item && found.item.path || '',
+    qualityProfileId: found.item && found.item.qualityProfileId || null,
+    status: found.item && found.item.status || '',
+    minimumAvailability: found.item && found.item.minimumAvailability || '',
+    seriesType: found.item && found.item.seriesType || ''
+  };
+
+  let media = null, tv = null;
+  if (found.inLibrary && found.item) {
+    if (type === 'movie') media = await movieFileInfo(found.item.id);
+    else tv = await sonarrFileSummary(found.item.id);
+  }
+
+  let tmdb = null;
+  if (readConfig().tmdb.apiKey) {
+    try {
+      let id = base.tmdbId;
+      if (!id && base.imdbId) {
+        const find = await tmdbJson('/find/' + encodeURIComponent(base.imdbId) + '?external_source=imdb_id');
+        const list = type === 'movie' ? (find && find.movie_results) : (find && find.tv_results);
+        if (list && list.length) id = list[0].id;
+      }
+      if (id) {
+        const d = await tmdbJson('/' + (type === 'movie' ? 'movie/' : 'tv/') + id);
+        if (d) {
+          base.tmdbId = Number(id);
+          tmdb = {
+            id: Number(id), status: d.status || '', tagline: d.tagline || '',
+            originalLanguage: d.original_language || '',
+            runtime: type === 'movie' ? (Number(d.runtime) || null) : ((d.episode_run_time || [])[0] || null),
+            genres: (d.genres || []).map(x=>x.name).filter(Boolean),
+            networks: (d.networks || []).map(x=>x.name).filter(Boolean),
+            voteAverage: Number(d.vote_average) || null
+          };
+        }
+      }
+    } catch (_) {}
+  }
+  const plex = await plexMediaAvailability(Object.assign({}, base, { type }));
+  return { ok: true, identity: base, arr, media, tv, tmdb, plex, generatedAt: Date.now() };
+}
+
 async function updateArrItem (b, me) {
   const isMovie = String(b.svc || 'radarr') !== 'sonarr';
   const svc = isMovie ? 'radarr' : 'sonarr';
@@ -4451,6 +4688,18 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/tv/episodes' && req.method === 'GET') {
         const r = await seriesEpisodes(Number(u.searchParams.get('seriesId')));
         return sendJSON(res, 200, { items: r.items });
+      }
+      if (p === '/api/media/detail' && req.method === 'GET') {
+        const q = {
+          type: u.searchParams.get('type') || 'movie',
+          arrId: u.searchParams.get('arrId') || '',
+          imdbId: u.searchParams.get('imdbId') || '',
+          tmdbId: u.searchParams.get('tmdbId') || '',
+          tvdbId: u.searchParams.get('tvdbId') || '',
+          title: u.searchParams.get('title') || '',
+          year: u.searchParams.get('year') || ''
+        };
+        return sendJSON(res, 200, await unifiedMediaDetail(q));
       }
       if (p === '/api/movie/fileinfo' && req.method === 'GET') {
         let id = Number(u.searchParams.get('id')) || 0;
