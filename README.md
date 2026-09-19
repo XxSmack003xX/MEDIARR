@@ -4,7 +4,7 @@
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.4.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-1.5.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.4.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.5.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -45,6 +45,7 @@ This README is written against the **v1.4.0 source in this repository**. Feature
 - [Accounts, roles, quotas, and API keys](#accounts-roles-quotas-and-api-keys)
 - [Movie and TV discovery](#movie-and-tv-discovery)
 - [Radarr and Sonarr integration](#radarr-and-sonarr-integration)
+- [Unified media detail](#unified-media-detail)
 - [Real-time events and Live Dashboard](#real-time-events-and-live-dashboard)
 - [Manual release search](#manual-release-search)
 - [Library browser and monitoring controls](#library-browser-and-monitoring-controls)
@@ -624,6 +625,62 @@ Admins can reopen titles already present in Radarr/Sonarr and change supported s
 ### Search now
 
 MEDIARR can trigger Radarr/Sonarr commands to search for an existing movie, series, season, or episode.
+
+---
+
+## Unified media detail
+
+MEDIARR v1.5.0 adds one shared status panel to movie and TV detail views on both desktop and mobile. It is designed to answer the questions that previously required jumping between discovery, Radarr/Sonarr, Plex, file information, and release tools.
+
+The panel is populated by MEDIARR's authenticated `/api/media/detail` endpoint and can combine information from:
+
+- Radarr or Sonarr.
+- The configured Plex server.
+- TMDB, when configured.
+- Radarr/Sonarr media-file metadata already exposed by their APIs.
+
+### Movies
+
+For movies already in Radarr, the unified detail can show:
+
+- In-library and monitored state.
+- Downloaded or missing state.
+- Root folder/path.
+- File size.
+- Quality and resolution.
+- HDR/dynamic range.
+- Video codec, bit depth, frame rate, and audio codec/channel information.
+- Audio languages and subtitles.
+- Release group and edition when Radarr provides them.
+- Plex availability and watched/in-progress state.
+- TMDB status, genres, runtime, rating, and tagline.
+
+### TV shows
+
+For shows already in Sonarr, the unified detail can show:
+
+- In-library and monitored state.
+- Downloaded/total episode counts.
+- Missing monitored episodes.
+- Unaired episode count and next known episode.
+- Per-season completion percentages.
+- Aggregate episode-file size.
+- Quality formats seen across episode files.
+- Video/audio codecs and dynamic-range formats.
+- Languages and subtitles.
+- Plex availability.
+- TMDB status, genres, network information, rating, runtime, and tagline.
+
+### Unified actions
+
+Administrators can launch common actions directly from the unified section:
+
+- **Open in Plex** when the matching Plex server item can be resolved.
+- **Browse releases** using MEDIARR's existing manual-release tools.
+- **Search now** in Radarr/Sonarr.
+- **Refresh details** without closing the title.
+
+The existing title controls remain immediately below the unified panel. This means movie/series add options, Radarr/Sonarr edits, season/episode monitoring, trailers, cast/crew, recommendations, and other established workflows are preserved.
 
 ---
 
