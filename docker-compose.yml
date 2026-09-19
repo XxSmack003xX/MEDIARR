@@ -1,0 +1,27 @@
+services:
+  mediarr:
+    build: .
+    container_name: mediarr
+    init: true
+    restart: unless-stopped
+    ports:
+      - "7575:7575"
+    environment:
+      PORT: 7575
+      HOST: 0.0.0.0
+      DATA_DIR: /data
+      SESSION_HOURS: ${SESSION_HOURS:-1}
+      DOCKER_SOCKET: /var/run/docker.sock
+      MEDIARR_UPDATE_REPO: ${MEDIARR_UPDATE_REPO:-XxSmack003xX/MEDIARR}
+    volumes:
+      - ./data:/data
+      # Docker Controls: lets MEDIARR admins start/stop/restart only the
+      # explicitly allowed containers configured in the Admin panel.
+      # WARNING: access to this socket is effectively host-root privilege.
+      - ${DOCKER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock
+      # Optional: if MEDIARR's Local Folder source should browse host media,
+      # mount it here and configure the in-container path (for example /media/movies).
+      # - /mnt/media:/media:ro
+    extra_hosts:
+      # Useful on Linux when Radarr/Sonarr/Plex run directly on the Docker host.
+      - "host.docker.internal:host-gateway"
