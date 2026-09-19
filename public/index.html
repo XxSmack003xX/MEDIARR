@@ -3442,6 +3442,15 @@ async function arrLookupSrv(svc, m){
 const tmdbAdded = new Map();          // "type:tmdbId" -> true/false
 const tmdbCheckedAt = new Map();       // false answers expire so newly-added Sonarr shows can be detected
 const TMDB_NEGATIVE_TTL_MS = 10000;
+let tmdbRecheckTimer = null;
+function scheduleTmdbRecheck(scope){
+  if(tmdbRecheckTimer) return;
+  tmdbRecheckTimer = setTimeout(()=>{
+    tmdbRecheckTimer = null;
+    const root = scope || document;
+    if(root === document || root.isConnected) verifyTmdbCards(root);
+  }, TMDB_NEGATIVE_TTL_MS + 500);
+}
 function markTmdbCard(card, isAdded){
   const btn = card.querySelector('.card-add');
   if(!btn) return;
@@ -3475,12 +3484,15 @@ async function verifyTmdbCards(scope){
       if(!r.ok) continue;
       const d=await r.json(); const added=d.added||{};
       let learnedAdded = false;
+      let hasNegative = false;
       Object.keys(added).forEach(k=>{
         if(added[k] && tmdbAdded.get(k)!==true) learnedAdded=true;
         tmdbAdded.set(k, !!added[k]);
         tmdbCheckedAt.set(k, Date.now());
+        if(!added[k]) hasNegative = true;
       });
       cards.forEach(c=>{ if(tmdbAdded.get(c.dataset.tmdbkey)) markTmdbCard(c,true); });
+      if(hasNegative) scheduleTmdbRecheck(root);
       // "Hide added" filters before verification finishes, so re-filter once we learn more
       if(hideAdded && learnedAdded) { rerenderCurrentView(); return; }
     }catch(e){}
