@@ -1114,7 +1114,7 @@ async function doAdd(btn, it, opt){
     if(!r.ok || d.ok===false) throw new Error(d.message||('HTTP '+r.status));
     btn.classList.remove('btn-gold','btn-outline-gold'); btn.classList.add('btn-success');
     btn.textContent = d.alreadyInLibrary ? '✓ In library' : '✓ Added';
-    await refreshLiveIdsM(true); await loadLibrary(true);
+    await refreshLiveIdsM(true); await loadLibrary();
     if(lastItems.length) paint();
   }catch(e){
     btn.classList.add('btn-danger');
