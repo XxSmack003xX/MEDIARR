@@ -1395,6 +1395,7 @@ async function homeUpcoming (username) {
       };
     }
     if (next) out.push({
+      type: 'series', service: 'sonarr',
       title: f.title, poster: f.poster || '', imdbId: f.imdbId || '', tmdbId: f.tmdbId || null,
       tvdbId: f.tvdbId || null, next, inSonarr: !!match
     });
@@ -1420,7 +1421,7 @@ function homeRequests (username, limit) {
         : !!(hit.statistics && Number(hit.statistics.episodeFileCount) > 0);
     }
     out.push({
-      ts: e.ts, type: e.type, service: svc, title: e.title || '', year: e.year || '',
+      ts: e.ts, type: svc === 'sonarr' ? 'series' : 'movie', service: svc, title: e.title || '', year: e.year || '',
       inLibrary: !!hit, ready, status: ready ? 'Available' : hit ? 'In library' : 'Requested',
       arrId: hit && hit.id || null, imdbId: hit && hit.imdbId || '',
       tmdbId: hit && hit.tmdbId || null, tvdbId: hit && hit.tvdbId || null,
@@ -1522,7 +1523,7 @@ async function homeDiscover () {
   return out.slice(0,16);
 }
 async function userHomeData (me) {
-  const favorites = userFavs(me.username).slice().sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,20);
+  const favorites = userFavs(me.username).slice().sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,20).map(x => Object.assign({}, x, { type: 'series', service: 'sonarr' }));
   const [history, cont, watchlist, upcoming, discover] = await Promise.all([
     homePlexHistory(me.username, 18).catch(e=>({linked:!!getUserPlex(me.username),configured:!!readConfig().plex.url,items:[],error:e.message})),
     homePlexContinue(me.username, 18).catch(e=>({linked:!!getUserPlex(me.username),configured:!!readConfig().plex.url,items:[],error:e.message})),
