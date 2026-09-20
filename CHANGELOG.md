@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.5
+
+- Fixed a Unified Media Status regression that could display **Radarr movies as Sonarr TV shows** even though the underlying library match was correctly coming from Radarr.
+- `/api/media/detail` now exposes its normalized media `type` and authoritative Arr `service` at the top level in addition to the existing nested identity object.
+- The shared Unified Media Status client now normalizes media type primarily from the authoritative Radarr/Sonarr service, with nested identity/type fallbacks for compatibility.
+- Movie detail panels now correctly show **Radarr**, movie download/file information, and movie technical details instead of **Sonarr**, Episodes `0 / 0`, and TV library status.
+- TV shows continue to use Sonarr, episode progress, TV library status, and TV Favorites.
+- Favorites, manual release browsing, Search Now, and service labels now all use the same normalized media-type decision so their behavior cannot disagree with the status cards.
+- The server-side response fix also protects clients that still have an older cached `v150.js` from the original missing top-level type field.
+
 ## 1.6.4
 
 - Added in-app **new version available** notifications for MEDIARR administrators on desktop and mobile.
