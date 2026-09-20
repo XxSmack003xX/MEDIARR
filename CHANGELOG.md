@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.1
+
+- Fixed movie and TV-show detection when opening media details from personalized User Home sections.
+- User Home click handling now treats the authoritative Arr service as the primary media-type signal: Radarr items open as movies and Sonarr items open as TV series.
+- Fixed TV-only **Favorites** and **Up Next** items being able to fall through to movie/Radarr detail handling.
+- Fixed historical **My Requests** items using stale media-type values instead of their actual Radarr/Sonarr service.
+- Added normalized handling for movie/film and series/show/tv/episode/season type aliases, with TVDB/Sonarr state used as additional TV signals.
+- Updated User Home Movie/TV badges to use the same normalized classifier as click behavior so the badge and opened detail type stay consistent.
+
 ## 1.6.0
 
 - Added personalized **User Home Pages** for every signed-in MEDIARR account on desktop and mobile.
