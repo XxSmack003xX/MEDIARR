@@ -17,7 +17,7 @@ function style(){
     '.umd-progress{height:5px;background:rgba(127,138,158,.22);border-radius:99px;overflow:hidden;margin-top:8px}.umd-progress span{display:block;height:100%;background:var(--gold,#d9a441)}',
     '.umd-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.umd-chip{font-size:10px;font-weight:800;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:999px;padding:4px 7px;background:var(--bg,#0c111b)}',
     '.umd-tech{margin-top:9px;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:12px;overflow:hidden}.umd-tech-head{padding:9px 11px;font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:900;color:var(--muted,#8f9bb3);background:var(--panel2,var(--bg2,#171e2a))}.umd-tech-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.umd-tech-cell{padding:9px 11px;border-top:1px solid var(--line,var(--bs-border-color,#2a3447));border-right:1px solid var(--line,var(--bs-border-color,#2a3447));min-width:0}.umd-tech-cell:nth-child(4n){border-right:0}.umd-tech-cell b{display:block;font-size:11px;overflow:hidden;text-overflow:ellipsis}.umd-tech-cell span{display:block;font-size:9px;color:var(--muted,#8f9bb3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}',
-    '.umd-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.umd-btn{border:1px solid var(--line,var(--bs-border-color,#2a3447));background:var(--panel2,var(--bg2,#171e2a));color:var(--txt,var(--bs-body-color,#eef3ff));border-radius:8px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer;text-decoration:none}.umd-btn.primary{background:var(--gold,#d9a441);border-color:var(--gold,#d9a441);color:#17120a}.umd-btn.good{border-color:#35d07f;color:#35d07f}.umd-btn:disabled{opacity:.55;cursor:default}',
+    '.umd-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.umd-btn{border:1px solid var(--line,var(--bs-border-color,#2a3447));background:var(--panel2,var(--bg2,#171e2a));color:var(--txt,var(--bs-body-color,#eef3ff));border-radius:8px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer;text-decoration:none}.umd-btn.primary{background:var(--gold,#d9a441);border-color:var(--gold,#d9a441);color:#17120a}.umd-btn.good{border-color:#35d07f;color:#35d07f}.umd-btn.favorite-on{border-color:#ff4d6d;color:#ff6b82;background:rgba(255,77,109,.08)}.umd-btn:disabled{opacity:.55;cursor:default}',
     '.umd-seasons{margin-top:9px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px}.umd-season{border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:8px;padding:7px 8px;background:var(--bg,#0c111b)}.umd-season b{font-size:10px}.umd-season div{font-size:9px;color:var(--muted,#8f9bb3);margin-top:2px}',
     '.umd-loading{padding:12px;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:10px;color:var(--muted,#8f9bb3);font-size:11px}.umd-error{padding:10px;border:1px solid rgba(255,98,108,.4);border-radius:10px;color:#ff747d;font-size:11px}',
     '@media(max-width:760px){.umd-grid{grid-template-columns:1fr 1fr}.umd-tech-grid{grid-template-columns:1fr 1fr}.umd-tech-cell:nth-child(4n){border-right:1px solid var(--line,var(--bs-border-color,#2a3447))}.umd-tech-cell:nth-child(2n){border-right:0}}'
@@ -30,6 +30,37 @@ function cell(label,value){
   return '<div class="umd-tech-cell"><span>'+esc(label)+'</span><b>'+esc(value)+'</b></div>';
 }
 function chips(items){ return (items||[]).filter(Boolean).map(function(x){return '<span class="umd-chip">'+esc(x)+'</span>';}).join(''); }
+function normTitle(v){return String(v||'').toLowerCase().replace(/\(\d{4}\)/g,'').replace(/[^a-z0-9]+/g,' ').trim();}
+function favoriteMatch(f,d){
+  var id=d.identity||{};
+  if(id.imdbId&&f.imdbId&&String(id.imdbId).toLowerCase()===String(f.imdbId).toLowerCase())return true;
+  if(id.tvdbId&&f.tvdbId&&String(id.tvdbId)===String(f.tvdbId))return true;
+  if(id.tmdbId&&f.tmdbId&&String(id.tmdbId)===String(f.tmdbId))return true;
+  return !!(id.title&&f.title&&normTitle(id.title)===normTitle(f.title));
+}
+async function favoriteState(d){
+  if(d.type==='movie')return {favorited:false};
+  try{
+    var x=await get('/api/favorites'),list=Array.isArray(x.favorites)?x.favorites:[];
+    return {favorited:list.some(function(f){return favoriteMatch(f,d);})};
+  }catch(_){return {favorited:false};}
+}
+function favoriteItem(d,o){
+  var id=d.identity||{},a=d.arr||{},p=d.plex||{};
+  return {
+    title:id.title||a.title||o.title||'',
+    imdbId:id.imdbId||'',
+    tmdbId:id.tmdbId||null,
+    tvdbId:id.tvdbId||null,
+    poster:o.poster||p.art||''
+  };
+}
+function setFavoriteButton(btn,on){
+  if(!btn)return;
+  btn.dataset.favorited=on?'1':'0';
+  btn.classList.toggle('favorite-on',on);
+  btn.textContent=on?'♥ Remove from Favorites':'♡ Add to Favorites';
+}
 function serviceCard(d){
   var a=d.arr||{}, name=d.type==='movie'?'Radarr':'Sonarr';
   if(!a.configured)return '<div class="umd-card"><div class="umd-k">'+name+'</div><div class="umd-v"><span class="umd-dot"></span>Not configured</div><div class="umd-sub">Configure '+name+' in Settings.</div></div>';
@@ -78,8 +109,9 @@ function tech(d){
   var seasons=(tv.seasons||[]).map(function(x){var pct=fmtPct(x.downloaded,x.episodes);return '<div class="umd-season"><b>Season '+x.seasonNumber+' · '+pct+'%</b><div>'+x.downloaded+'/'+x.episodes+' downloaded · '+x.missing+' missing</div><div class="umd-progress"><span style="width:'+pct+'%"></span></div></div>';}).join('');
   return '<div class="umd-tech"><div class="umd-tech-head">TV library status</div><div class="umd-tech-grid">'+rows2+'</div></div>'+(seasons?'<div class="umd-seasons">'+seasons+'</div>':'');
 }
-function actionHtml(d,o){
+function actionHtml(d,o,fav){
   var a=d.arr||{},h='<div class="umd-actions">';
+  if(d.type!=='movie')h+='<button class="umd-btn'+(fav&&fav.favorited?' favorite-on':'')+'" data-umd-favorite data-favorited="'+(fav&&fav.favorited?'1':'0')+'">'+(fav&&fav.favorited?'♥ Remove from Favorites':'♡ Add to Favorites')+'</button>';
   if(d.plex&&d.plex.available&&d.plex.webUrl)h+='<a class="umd-btn good" target="_blank" rel="noopener" href="'+esc(d.plex.webUrl)+'">▶ Open in Plex</a>';
   if(a.inLibrary&&o.admin){
     h+='<button class="umd-btn primary" data-umd-release>⚡ Browse releases</button>';
@@ -90,6 +122,24 @@ function actionHtml(d,o){
 }
 function wireActions(mount,d,o){
   var ref=mount.querySelector('[data-umd-refresh]');if(ref)ref.onclick=function(){load(o,true);};
+  var fav=mount.querySelector('[data-umd-favorite]');
+  if(fav)fav.onclick=async function(){
+    var was=fav.dataset.favorited==='1',old=fav.textContent;
+    fav.disabled=true;fav.textContent=was?'Removing…':'Adding…';
+    try{
+      var r=await fetch('/api/favorites',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:was?'remove':'add',item:favoriteItem(d,o)})});
+      var j={};try{j=await r.json();}catch(_){}
+      if(!r.ok)throw new Error(j.message||('HTTP '+r.status));
+      setFavoriteButton(fav,!!j.favorited);
+      if(window.MEDIARRUserHome&&typeof window.MEDIARRUserHome.refresh==='function')window.MEDIARRUserHome.refresh();
+      try{window.dispatchEvent(new CustomEvent('mediarr:favorites-changed',{detail:{favorited:!!j.favorited,item:favoriteItem(d,o)}}));}catch(_){}
+    }catch(e){
+      fav.textContent='⚠ '+(e.message||'Favorite failed');
+      setTimeout(function(){fav.textContent=old;fav.disabled=false;},2200);
+      return;
+    }
+    fav.disabled=false;
+  };
   var rel=mount.querySelector('[data-umd-release]');
   if(rel)rel.onclick=function(){
     try{
@@ -123,10 +173,11 @@ async function load(o,refresh){
   mount.innerHTML='<div class="umd-loading">'+(refresh?'Refreshing':'Loading unified media status')+'…</div>';
   try{
     var d=await get('/api/media/detail?'+qs({type:o.type,arrId:o.arrId,imdbId:o.imdbId,tmdbId:o.tmdbId,tvdbId:o.tvdbId,title:o.title,year:o.year}));
+    var fav=await favoriteState(d);
     mount.innerHTML='<div class="umd-head"><div class="umd-title">Unified media status</div><div class="umd-time">Live from MEDIARR · '+new Date(d.generatedAt||Date.now()).toLocaleTimeString()+'</div></div>'+
       '<div class="umd-grid">'+serviceCard(d)+downloadCard(d)+plexCard(d)+mediaCard(d)+'</div>'+
       ((d.tmdb&&d.tmdb.tagline)?'<div class="umd-row">'+chips([d.tmdb.tagline].concat(d.tmdb.networks||[]))+'</div>':'')+
-      tech(d)+actionHtml(d,o);
+      tech(d)+actionHtml(d,o,fav);
     wireActions(mount,d,o);
   }catch(e){mount.innerHTML='<div class="umd-error">Could not load unified media status: '+esc(e.message)+'</div>';}
 }

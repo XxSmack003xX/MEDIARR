@@ -957,7 +957,7 @@ async function openDetail(it){
     window.MEDIARRUnifiedDetail.load({
       mount:'unifiedMediaDetailM', surface:'mobile', type:it.kind==='movie'?'movie':'series',
       arrId:libItem&&libItem.id, imdbId:it.imdb||'', tmdbId:it.tmdb||'',
-      tvdbId:libItem&&libItem.tvdbId||'', title:title||it.title||'', year:year||it.year||'', admin:!!(me&&me.role==='admin')
+      tvdbId:libItem&&libItem.tvdbId||'', title:title||it.title||'', year:year||it.year||'', poster:poster||it.poster||'', admin:!!(me&&me.role==='admin')
     });
   }
   const addEl=$('dAdd'); if(addEl) addEl.onclick=()=> doAdd(addEl, it, $('dOpt')?$('dOpt').value:null);

@@ -3823,7 +3823,7 @@ function renderDetail(m, limited){
     window.MEDIARRUnifiedDetail.load({
       mount:'unifiedMediaDetail', surface:'desktop', type:isMovie?'movie':'series',
       arrId:lib&&lib.id, imdbId:detailCtx.imdbId||'', tmdbId:detailCtx.tmdbId||'',
-      tvdbId:lib&&lib.tvdbId||'', title:m.name||'', year:String(m.releaseInfo||'').slice(0,4), admin:isAdmin
+      tvdbId:lib&&lib.tvdbId||'', title:m.name||'', year:String(m.releaseInfo||'').slice(0,4), poster:m.poster||'', admin:isAdmin
     });
   }
   if(trailerKey) renderDesktopTrailer(trailerKey);
