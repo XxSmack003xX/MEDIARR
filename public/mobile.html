@@ -217,6 +217,7 @@
 
 <script src="/bootstrap.bundle.min.js"></script>
 <script src="/hls.min.js"></script>
+<script src="/v160.js"></script>
 <script>
 const TMDB_IMG='https://image.tmdb.org/t/p/w342';
 const TMDB_PROFILE='https://image.tmdb.org/t/p/w185';
@@ -418,6 +419,11 @@ function spinner(msg){ $('results').innerHTML='<div class="col-12"><div class="s
 
 async function showHome(){
   if(mode!=='title'||q.length>=2) return;
+  if(window.MEDIARRUserHome){
+    pager=null;
+    const handled=await window.MEDIARRUserHome.show({ surface:'mobile', mount:'results', user:me });
+    if(handled){ $('more').innerHTML=''; return; }
+  }
   if(!isConfigured('tmdb')){ pager=null; state('Type a title above to search. <br>(Add a TMDB key in Settings for studio/person/year search and a home feed.)'); return; }
   if(homeState){ pager={ hasMore:()=>!homeState.done, loadMore:loadHomePages }; renderItems(homeState.items,'Recently released'); return; }
   spinner('Loading recently released…');
