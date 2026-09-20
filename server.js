@@ -3644,7 +3644,7 @@ async function unifiedMediaDetail (q) {
     } catch (_) {}
   }
   const plex = await plexMediaAvailability(Object.assign({}, base, { type }));
-  return { ok: true, identity: base, arr, media, tv, tmdb, plex, generatedAt: Date.now() };
+  return { ok: true, type, service: svc, identity: base, arr, media, tv, tmdb, plex, generatedAt: Date.now() };
 }
 
 async function updateArrItem (b, me) {

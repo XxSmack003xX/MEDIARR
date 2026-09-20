@@ -30,6 +30,17 @@ function cell(label,value){
   return '<div class="umd-tech-cell"><span>'+esc(label)+'</span><b>'+esc(value)+'</b></div>';
 }
 function chips(items){ return (items||[]).filter(Boolean).map(function(x){return '<span class="umd-chip">'+esc(x)+'</span>';}).join(''); }
+function mediaKind(d){
+  d=d||{};
+  var id=d.identity||{},svc=String(d.service||id.service||'').toLowerCase(),t=String(d.type||id.type||'').toLowerCase();
+  if(svc==='radarr')return 'movie';
+  if(svc==='sonarr')return 'series';
+  if(t==='movie'||t==='film')return 'movie';
+  if(t==='series'||t==='show'||t==='tv'||t==='episode'||t==='season')return 'series';
+  if(d.tv&&d.tv.episodes)return 'series';
+  if(d.media)return 'movie';
+  return 'movie';
+}
 function normTitle(v){return String(v||'').toLowerCase().replace(/\(\d{4}\)/g,'').replace(/[^a-z0-9]+/g,' ').trim();}
 function favoriteMatch(f,d){
   var id=d.identity||{};
@@ -39,7 +50,7 @@ function favoriteMatch(f,d){
   return !!(id.title&&f.title&&normTitle(id.title)===normTitle(f.title));
 }
 async function favoriteState(d){
-  if(d.type==='movie')return {favorited:false};
+  if(mediaKind(d)==='movie')return {favorited:false};
   try{
     var x=await get('/api/favorites'),list=Array.isArray(x.favorites)?x.favorites:[];
     return {favorited:list.some(function(f){return favoriteMatch(f,d);})};
@@ -62,7 +73,7 @@ function setFavoriteButton(btn,on){
   btn.textContent=on?'♥ Remove from Favorites':'♡ Add to Favorites';
 }
 function serviceCard(d){
-  var a=d.arr||{}, name=d.type==='movie'?'Radarr':'Sonarr';
+  var a=d.arr||{}, name=mediaKind(d)==='movie'?'Radarr':'Sonarr';
   if(!a.configured)return '<div class="umd-card"><div class="umd-k">'+name+'</div><div class="umd-v"><span class="umd-dot"></span>Not configured</div><div class="umd-sub">Configure '+name+' in Settings.</div></div>';
   if(!a.inLibrary)return '<div class="umd-card"><div class="umd-k">'+name+'</div><div class="umd-v"><span class="umd-dot warn"></span>Not in library</div><div class="umd-sub">Ready to add from the controls below.</div></div>';
   var bits=[a.monitored?'Monitored':'Unmonitored',a.status,a.minimumAvailability,a.seriesType].filter(Boolean);
@@ -70,7 +81,7 @@ function serviceCard(d){
 }
 function downloadCard(d){
   if(!d.arr||!d.arr.inLibrary)return '<div class="umd-card"><div class="umd-k">Download</div><div class="umd-v"><span class="umd-dot"></span>Not tracked</div><div class="umd-sub">Add the title to begin tracking.</div></div>';
-  if(d.type==='movie'){
+  if(mediaKind(d)==='movie'){
     var m=d.media||{}, have=!!m.hasFile;
     return '<div class="umd-card"><div class="umd-k">Download</div><div class="umd-v"><span class="umd-dot '+(have?'good':'warn')+'"></span>'+(have?'Downloaded':'Missing')+'</div><div class="umd-sub">'+(have?esc(fmtBytes((m.file&&m.file.size)||m.sizeOnDisk)):'Radarr has no movie file yet.')+'</div></div>';
   }
@@ -91,7 +102,7 @@ function mediaCard(d){
   return '<div class="umd-card"><div class="umd-k">Media</div><div class="umd-v">'+esc(status||'Details')+'</div><div class="umd-sub">'+esc([genre,t.runtime?(t.runtime+' min'):'',t.voteAverage?('★ '+t.voteAverage.toFixed(1)):''].filter(Boolean).join(' · '))+'</div></div>';
 }
 function tech(d){
-  if(d.type==='movie'){
+  if(mediaKind(d)==='movie'){
     var m=d.media||{},f=m.file||{},v=f.video||{},a=f.audio||{};
     if(!m.hasFile||!f)return '';
     var rows='';
@@ -110,8 +121,8 @@ function tech(d){
   return '<div class="umd-tech"><div class="umd-tech-head">TV library status</div><div class="umd-tech-grid">'+rows2+'</div></div>'+(seasons?'<div class="umd-seasons">'+seasons+'</div>':'');
 }
 function actionHtml(d,o,fav){
-  var a=d.arr||{},h='<div class="umd-actions">';
-  if(d.type!=='movie')h+='<button class="umd-btn'+(fav&&fav.favorited?' favorite-on':'')+'" data-umd-favorite data-favorited="'+(fav&&fav.favorited?'1':'0')+'">'+(fav&&fav.favorited?'♥ Remove from Favorites':'♡ Add to Favorites')+'</button>';
+  var a=d.arr||{},kind=mediaKind(d),h='<div class="umd-actions">';
+  if(kind!=='movie')h+='<button class="umd-btn'+(fav&&fav.favorited?' favorite-on':'')+'" data-umd-favorite data-favorited="'+(fav&&fav.favorited?'1':'0')+'">'+(fav&&fav.favorited?'♥ Remove from Favorites':'♡ Add to Favorites')+'</button>';
   if(d.plex&&d.plex.available&&d.plex.webUrl)h+='<a class="umd-btn good" target="_blank" rel="noopener" href="'+esc(d.plex.webUrl)+'">▶ Open in Plex</a>';
   if(a.inLibrary&&o.admin){
     h+='<button class="umd-btn primary" data-umd-release>⚡ Browse releases</button>';
@@ -143,7 +154,7 @@ function wireActions(mount,d,o){
   var rel=mount.querySelector('[data-umd-release]');
   if(rel)rel.onclick=function(){
     try{
-      if(d.type==='movie'){
+      if(mediaKind(d)==='movie'){
         if(typeof window.openReleases==='function')window.openReleases('radarr',{movieId:d.arr.id},d.arr.title||d.identity.title);
         else if(typeof window.openManualReleasesM==='function')window.openManualReleasesM('radarr',{movieId:d.arr.id},d.arr.title||d.identity.title);
       }else{
@@ -159,8 +170,9 @@ function wireActions(mount,d,o){
   if(sr)sr.onclick=async function(){
     sr.disabled=true;var old=sr.textContent;sr.textContent='Searching…';
     try{
-      var cmd=d.type==='movie'?{name:'MoviesSearch',movieIds:[d.arr.id]}:{name:'SeriesSearch',seriesId:d.arr.id};
-      var r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({svc:d.type==='movie'?'radarr':'sonarr',cmd:cmd})});
+      var kind=mediaKind(d);
+      var cmd=kind==='movie'?{name:'MoviesSearch',movieIds:[d.arr.id]}:{name:'SeriesSearch',seriesId:d.arr.id};
+      var r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({svc:kind==='movie'?'radarr':'sonarr',cmd:cmd})});
       if(!r.ok)throw new Error('HTTP '+r.status);sr.textContent='✓ Search started';
     }catch(e){sr.textContent='⚠ Search failed';}
     setTimeout(function(){sr.disabled=false;sr.textContent=old;},2500);
@@ -173,6 +185,9 @@ async function load(o,refresh){
   mount.innerHTML='<div class="umd-loading">'+(refresh?'Refreshing':'Loading unified media status')+'…</div>';
   try{
     var d=await get('/api/media/detail?'+qs({type:o.type,arrId:o.arrId,imdbId:o.imdbId,tmdbId:o.tmdbId,tvdbId:o.tvdbId,title:o.title,year:o.year}));
+    var normalizedKind=mediaKind(d);
+    d.type=normalizedKind;
+    d.service=normalizedKind==='movie'?'radarr':'sonarr';
     var fav=await favoriteState(d);
     mount.innerHTML='<div class="umd-head"><div class="umd-title">Unified media status</div><div class="umd-time">Live from MEDIARR · '+new Date(d.generatedAt||Date.now()).toLocaleTimeString()+'</div></div>'+
       '<div class="umd-grid">'+serviceCard(d)+downloadCard(d)+plexCard(d)+mediaCard(d)+'</div>'+
