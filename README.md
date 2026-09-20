@@ -4,7 +4,7 @@
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.5.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-1.6.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.5.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.6.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -43,6 +43,7 @@ This README is written against the **v1.5.0 source in this repository**. Feature
 - [Configuration and persistent data](#configuration-and-persistent-data)
 - [Networking with Docker](#networking-with-docker)
 - [Accounts, roles, quotas, and API keys](#accounts-roles-quotas-and-api-keys)
+- [User home pages](#user-home-pages)
 - [Movie and TV discovery](#movie-and-tv-discovery)
 - [Radarr and Sonarr integration](#radarr-and-sonarr-integration)
 - [Unified media detail](#unified-media-detail)
@@ -78,6 +79,14 @@ This README is written against the **v1.5.0 source in this repository**. Feature
 ---
 
 ## Highlights
+
+### Personalized home
+
+- Give every MEDIARR account its own signed-in home page.
+- Surface personal Plex Continue Watching, Watchlist, and Recently Watched data when linked.
+- Track each user's recent MEDIARR requests and whether they are merely requested, in-library, or available.
+- Show favorite-show upcoming episodes and personalized recommendations.
+- Fall back gracefully when Plex or TMDB is not configured.
 
 ### Discovery and requests
 
@@ -561,6 +570,32 @@ Users can create/revoke their own API key for MEDIARR's external `/api/v1` inter
 
 ---
 
+## User home pages
+
+MEDIARR v1.6.0 replaces the generic signed-in landing feed with a personalized **User Home** on both desktop and mobile. The page is assembled by the authenticated `/api/home` endpoint, so personal sections are scoped to the current MEDIARR account rather than being shared globally.
+
+Depending on which services the user has linked and which integrations the administrator has configured, the home page can include:
+
+- **Continue Watching** from the user's linked Plex profile.
+- **My Requests** from that MEDIARR username's Radarr/Sonarr add history, with Requested, In library, and Available states.
+- **Up Next** for upcoming episodes from that user's favorite TV shows.
+- The user's **Plex Watchlist**.
+- The user's MEDIARR **Favorites**.
+- **Recently Available** media from Radarr/Sonarr library state.
+- **Recommended for You**, seeded from recent Plex viewing and MEDIARR favorites when TMDB is configured.
+- **Recently Watched** from the linked Plex profile.
+- **Discover Now** as a generic recently-released/airing fallback when TMDB is configured.
+
+The page also shows small per-user summary cards for Plex linkage, request usage, favorites, and recent request availability.
+
+### Privacy and Plex profiles
+
+Plex home data is tied to the Plex account/profile linked to the current MEDIARR user. MEDIARR does not intentionally use another user's Plex history as a fallback. When a server-owner Plex token must be used to read scoped history, MEDIARR only does so after resolving the exact Plex account id for that linked user.
+
+Users who have not linked Plex still get MEDIARR request/favorite/library sections. Users without TMDB simply do not receive the recommendation/discovery rails.
+
+---
+
 ## Movie and TV discovery
 
 MEDIARR supports several discovery modes.
@@ -839,9 +874,10 @@ Supported user features include:
 
 - Plex PIN/OAuth-style sign-in flow.
 - Plex Home user selection/switching.
+- Personalized Continue Watching on the MEDIARR home page.
 - Watchlist browsing.
 - Watchlist add/remove.
-- Watch history.
+- Watch history / Recently Watched.
 - Artwork proxying.
 
 ### Active Plex streams
