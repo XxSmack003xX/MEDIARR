@@ -143,7 +143,7 @@ This README is written against the **v1.6.2 source in this repository**. Feature
 - Configuration snapshots and restore.
 - Notifications to multiple providers.
 - RSS-based automatic additions.
-- Docker Start / Stop / Restart controls using an explicit allow-list.
+- Docker Start / Stop / Restart / Update controls using an explicit allow-list.
 - Saved maintenance commands.
 - GitHub Release update checking and Docker self-update with rollback.
 - Admin-controlled automatic playback selection and a live Transcode Dashboard.
@@ -1138,7 +1138,7 @@ A one-click Docker update also creates a configuration backup before replacing t
 
 ## Docker container controls
 
-MEDIARR can provide administrator-only Start / Restart / Stop controls for selected Docker containers.
+MEDIARR can provide administrator-only Start / Restart / Stop / Update controls for selected Docker containers. Update pulls the container's currently configured image tag, compares the resulting image ID, and recreates the container only when a newer image was actually pulled.
 
 The default allow-list is:
 
@@ -1181,9 +1181,13 @@ Then:
 The API:
 
 - Requires an administrator session.
-- Accepts only Start, Stop, and Restart actions.
+- Accepts only Start, Stop, Restart, and Update actions.
 - Requires an exact allowed container/service match.
-- Refuses to control MEDIARR's own container.
+- Refuses to control MEDIARR's own container; MEDIARR itself continues to use the dedicated System Update flow.
+- Update refreshes the currently configured image tag; it does not silently change pinned version tags to `latest`.
+- Update is disabled for immutable digest/image-ID references.
+- When an image changes, MEDIARR recreates the container with its existing environment, ports, mounts/volumes, networks, restart policy, labels, device/resource settings, and running/stopped state.
+- If recreation fails, MEDIARR attempts to restore the previous container using its previous image ID.
 - Does not accept arbitrary Docker API paths from the browser.
 
 > [!CAUTION]

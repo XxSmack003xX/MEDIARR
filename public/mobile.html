@@ -1694,7 +1694,7 @@ function renderAdmin(users,adds){
   html+='<div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="mPlayAuto"><label class="form-check-label small" for="mPlayAuto">Automatic playback selection</label></div>';
   html+='<div class="d-flex gap-2 mb-2"><button class="btn btn-gold btn-sm" id="mPlaySave">Save</button><button class="btn btn-outline-secondary btn-sm" id="mPlayDash">Open dashboard</button><span class="small align-self-center" id="mPlayMsg"></span></div>';
   html+='<hr class="my-3"><div class="fw-bold mb-2">Docker controls</div>';
-  html+='<div class="small text-secondary mb-2">Admin-only Start / Stop / Restart for approved containers. The Docker socket must be mounted into MEDIARR.</div>';
+  html+='<div class="small text-secondary mb-2">Admin-only Start / Stop / Restart / Update for approved containers. Update pulls the currently configured image tag and safely recreates the container only when the image changed. The Docker socket must be mounted into MEDIARR.</div>';
   html+='<div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="mDkEnabled"><label class="form-check-label small" for="mDkEnabled">Enable Docker controls</label></div>';
   html+='<textarea id="mDkAllowed" rows="3" class="form-control form-control-sm mb-2" placeholder="plex\nradarr\nsonarr"></textarea>';
   html+='<div class="d-flex gap-2 mb-2"><button class="btn btn-gold btn-sm" id="mDkSave">Save</button><button class="btn btn-outline-secondary btn-sm" id="mDkRefresh">Refresh</button><span class="small align-self-center" id="mDkMsg"></span></div>';
@@ -1760,7 +1760,7 @@ function renderDockerM(d){
       +'<div class="d-flex justify-content-between gap-2"><div><div class="fw-bold">'+esc(c.name)+'</div><div class="small '+(running?'text-success':'text-secondary')+'">'+esc(c.status||c.state)+'</div><div class="text-secondary text-truncate" style="font-size:.68rem;max-width:65vw">'+esc(c.image||'')+'</div></div>'
       +'<span class="badge '+(running?'text-bg-success':'text-bg-secondary')+' align-self-start">'+esc(c.state||'?')+'</span></div>'
       +(c.self?'<div class="small text-warning mt-1">MEDIARR itself — controls blocked</div>':'')
-      +'<div class="d-flex gap-2 mt-2"><button class="btn btn-outline-success btn-sm flex-fill" data-mdka="start" '+(running||c.self?'disabled':'')+'>▶ Start</button><button class="btn btn-outline-warning btn-sm flex-fill" data-mdka="restart" '+(c.self?'disabled':'')+'>↻ Restart</button><button class="btn btn-outline-danger btn-sm flex-fill" data-mdka="stop" '+(!running||c.self?'disabled':'')+'>■ Stop</button></div>'
+      +'<div class="d-flex gap-2 mt-2 flex-wrap"><button class="btn btn-outline-success btn-sm flex-fill" data-mdka="start" '+(running||c.self?'disabled':'')+'>▶ Start</button><button class="btn btn-outline-warning btn-sm flex-fill" data-mdka="restart" '+(c.self?'disabled':'')+'>↻ Restart</button><button class="btn btn-outline-info btn-sm flex-fill" data-mdka="update" '+(!c.updatable?'disabled':'')+'>⬇ Update</button><button class="btn btn-outline-danger btn-sm flex-fill" data-mdka="stop" '+(!running||c.self?'disabled':'')+'>■ Stop</button></div>'
       +'</div></div>';
   }).join('');
   list.querySelectorAll('[data-mdk]').forEach(row=>row.querySelectorAll('[data-mdka]').forEach(b=>b.onclick=()=>dockerActionM(row.dataset.mdk,b.dataset.mdka,b)));
@@ -1776,13 +1776,15 @@ async function saveDockerM(){
   }catch(e){ msg.className='small align-self-center text-danger'; msg.textContent=e.message; }
 }
 async function dockerActionM(container,action,btn){
-  const verb=action[0].toUpperCase()+action.slice(1);
+  const verb={start:'Start',stop:'Stop',restart:'Restart',update:'Update'}[action]||action;
+  const doing={start:'Starting',stop:'Stopping',restart:'Restarting',update:'Updating'}[action]||verb;
   if((action==='stop'||action==='restart')&&!confirm(verb+' Docker container "'+container+'"?')) return;
-  const msg=$('mDkMsg'); btn.disabled=true; msg.className='small align-self-center text-secondary'; msg.textContent=verb+'ing…';
+  if(action==='update'&&!confirm('Update Docker container "'+container+'"?\n\nMEDIARR will pull its currently configured image tag and recreate the container only if the image changed. Pinned version tags stay pinned.')) return;
+  const msg=$('mDkMsg'); btn.disabled=true; msg.className='small align-self-center text-secondary'; msg.textContent=doing+(action==='update'?' · this can take a few minutes':'')+'…';
   try{
     const r=await fetch('/api/admin/docker/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({container,action})}), j=await readJson(r), d=j.data||{};
     if(!r.ok) throw new Error(d.message||'Docker action failed');
-    msg.className='small align-self-center text-success'; msg.textContent=verb+' complete'; await loadDockerM();
+    msg.className='small align-self-center text-success'; msg.textContent=action==='update'?(d.updated?'Update complete':'Image already current'):(verb+' complete'); await loadDockerM();
   }catch(e){ msg.className='small align-self-center text-danger'; msg.textContent=e.message; btn.disabled=false; }
 }
 // ---- system info & admin commands (read/run only; add or edit them on desktop) ----

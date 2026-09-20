@@ -96,7 +96,7 @@ const DEFAULT_CONFIG = {
   sab: { url: '', apiKey: '' },   // SABnzbd — queue + history, visible to every signed-in user
   backup: { onChange: true, everyDays: 7, keep: 20 },   // auto-snapshot of all settings
   shell: { enabled: false, commands: [] },   // admin-defined restart/maintenance commands
-  dockerControl: { enabled: false, allowedContainers: ['plex', 'radarr', 'sonarr'] },   // admin-only start/stop/restart via Docker Engine API
+  dockerControl: { enabled: false, allowedContainers: ['plex', 'radarr', 'sonarr'] },   // admin-only start/stop/restart/update via Docker Engine API
   update: { repo: '', enabled: true },   // GitHub owner/repo; official images bake this in via MEDIARR_UPDATE_REPO
   rss: { enabled: false, feeds: [], intervalMinutes: 30, addMovies: true, addSeries: true, maxPerRun: 15, minYear: 0 },
   plexBlock: { enabled: false, ips: [], message: 'This device is not permitted to stream. Please contact the server owner.' }   // background library scan; minimum 60 minutes  // minutes between each add; minRuntime = skip titles shorter than this (0 = off)
@@ -3863,9 +3863,9 @@ async function dockerApiVersion () {
   _dockerApiVersion = String(r.data.ApiVersion);
   return _dockerApiVersion;
 }
-async function dockerApi (method, apiPath, timeoutMs) {
+async function dockerApi (method, apiPath, timeoutMs, body, extraHeaders) {
   const version = await dockerApiVersion();
-  const r = await dockerRawRequest(method, '/v' + version + apiPath, timeoutMs);
+  const r = await dockerRawRequest(method, '/v' + version + apiPath, timeoutMs, body, extraHeaders);
   if (r.status >= 200 && r.status < 300) return r;
   // Docker returns 304 for a start/stop that would not change state; treat it as harmless.
   if (r.status === 304) return r;
@@ -3883,6 +3883,179 @@ function dockerIsSelf (c) {
   const host = String(os.hostname() || '').toLowerCase();
   return !!(host && c && c.Id && String(c.Id).toLowerCase().startsWith(host));
 }
+function dockerImageCanUpdate (image) {
+  const x = String(image || '').trim();
+  return !!x && !/^sha256:/i.test(x) && !/@sha256:/i.test(x);
+}
+function dockerImagePullSpec (image) {
+  const x = String(image || '').trim();
+  if (!dockerImageCanUpdate(x)) throw new Error('This container uses an immutable image digest/ID and cannot be updated from this panel');
+  const slash = x.lastIndexOf('/'), colon = x.lastIndexOf(':');
+  const tagged = colon > slash;
+  const fromImage = tagged ? x.slice(0, colon) : x;
+  const tag = tagged ? x.slice(colon + 1) : 'latest';
+  if (!fromImage || !tag) throw new Error('Could not determine the container image tag');
+  return { fromImage, tag, ref: fromImage + ':' + tag };
+}
+function dockerRecreateHostConfig (inspect) {
+  const h = (inspect && inspect.HostConfig) || {}, out = {};
+  const keys = [
+    'Binds','PortBindings','RestartPolicy','NetworkMode','ExtraHosts','GroupAdd','Devices','DeviceRequests',
+    'CapAdd','CapDrop','SecurityOpt','Privileged','ReadonlyRootfs','Tmpfs','ShmSize','Init','Runtime','Dns',
+    'DnsOptions','DnsSearch','Sysctls','IpcMode','PidMode','UTSMode','UsernsMode','LogConfig','Links',
+    'VolumeDriver','VolumesFrom','PublishAllPorts','CgroupnsMode','Cgroup','OomScoreAdj','StorageOpt',
+    'CpuShares','Memory','NanoCpus','CgroupParent','BlkioWeight','BlkioWeightDevice','BlkioDeviceReadBps',
+    'BlkioDeviceWriteBps','BlkioDeviceReadIOps','BlkioDeviceWriteIOps','CpuPeriod','CpuQuota',
+    'CpuRealtimePeriod','CpuRealtimeRuntime','CpusetCpus','CpusetMems','DeviceCgroupRules',
+    'MemoryReservation','MemorySwap','MemorySwappiness','OomKillDisable','PidsLimit','Ulimits',
+    'CpuCount','CpuPercent','IOMaximumIOps','IOMaximumBandwidth','MaskedPaths','ReadonlyPaths'
+  ];
+  for (const k of keys) if (h[k] != null) out[k] = h[k];
+  const binds = Array.isArray(out.Binds) ? out.Binds.slice() : [];
+  const destinations = new Set();
+  for (const b of binds) {
+    const parts = String(b || '').split(':');
+    if (parts.length >= 2) destinations.add(parts[1]);
+  }
+  for (const m of ((inspect && inspect.Mounts) || [])) {
+    if (!m || !m.Destination || destinations.has(m.Destination)) continue;
+    if (m.Type === 'volume' && m.Name) binds.push(String(m.Name) + ':' + String(m.Destination) + (m.RW === false ? ':ro' : ''));
+    else if (m.Type === 'bind' && m.Source) binds.push(String(m.Source) + ':' + String(m.Destination) + (m.RW === false ? ':ro' : ''));
+    destinations.add(m.Destination);
+  }
+  if (binds.length) out.Binds = binds;
+  out.AutoRemove = false;
+  return out;
+}
+function dockerRecreateNetworking (inspect) {
+  const nets = inspect && inspect.NetworkSettings && inspect.NetworkSettings.Networks || {}, ep = {};
+  for (const [name,n] of Object.entries(nets)) {
+    if (!name || !n) continue;
+    const aliases = (n.Aliases || []).filter(a => a && a !== inspect.Id && !String(inspect.Id || '').startsWith(String(a)));
+    ep[name] = {};
+    if (aliases.length) ep[name].Aliases = aliases;
+    if (n.DriverOpts) ep[name].DriverOpts = n.DriverOpts;
+    if (n.IPAMConfig) ep[name].IPAMConfig = n.IPAMConfig;
+    if (Array.isArray(n.Links) && n.Links.length) ep[name].Links = n.Links;
+  }
+  return Object.keys(ep).length ? { EndpointsConfig: ep } : undefined;
+}
+function dockerRecreateBody (inspect, image) {
+  const c = (inspect && inspect.Config) || {};
+  const body = {
+    Image: image,
+    Hostname: c.Hostname || undefined,
+    Domainname: c.Domainname || undefined,
+    User: c.User || undefined,
+    AttachStdin: c.AttachStdin,
+    AttachStdout: c.AttachStdout,
+    AttachStderr: c.AttachStderr,
+    ExposedPorts: c.ExposedPorts || undefined,
+    Tty: c.Tty,
+    OpenStdin: c.OpenStdin,
+    StdinOnce: c.StdinOnce,
+    Env: c.Env || undefined,
+    Cmd: c.Cmd || undefined,
+    Healthcheck: c.Healthcheck || undefined,
+    Volumes: c.Volumes || undefined,
+    WorkingDir: c.WorkingDir || undefined,
+    Entrypoint: c.Entrypoint || undefined,
+    NetworkDisabled: c.NetworkDisabled,
+    MacAddress: c.MacAddress || undefined,
+    Labels: c.Labels || undefined,
+    StopSignal: c.StopSignal || undefined,
+    StopTimeout: c.StopTimeout,
+    Shell: c.Shell || undefined,
+    HostConfig: dockerRecreateHostConfig(inspect)
+  };
+  const net = dockerRecreateNetworking(inspect); if (net) body.NetworkingConfig = net;
+  for (const k of Object.keys(body)) if (body[k] === undefined) delete body[k];
+  return body;
+}
+async function dockerInspectContainer (id) {
+  return (await dockerApi('GET', '/containers/' + encodeURIComponent(id) + '/json', 10000)).data || {};
+}
+async function dockerInspectImage (ref) {
+  return (await dockerApi('GET', '/images/' + encodeURIComponent(ref) + '/json', 10000)).data || {};
+}
+async function dockerPullConfiguredImage (image) {
+  const spec = dockerImagePullSpec(image), version = await dockerApiVersion();
+  const r = await dockerRawRequest('POST',
+    '/v' + version + '/images/create?fromImage=' + encodeURIComponent(spec.fromImage) + '&tag=' + encodeURIComponent(spec.tag),
+    15 * 60 * 1000);
+  if (r.status < 200 || r.status >= 300) throw new Error((r.data && r.data.message) || ('Docker image pull failed (HTTP ' + r.status + ')'));
+  const errLine = String(r.body || '').split(/\r?\n/).filter(Boolean).map(x => { try { return JSON.parse(x); } catch (_) { return null; } }).find(x => x && (x.error || x.errorDetail));
+  if (errLine) throw new Error(errLine.error || (errLine.errorDetail && errLine.errorDetail.message) || 'Docker image pull failed');
+  const img = await dockerInspectImage(spec.ref);
+  if (!img.Id) throw new Error('Docker pulled the image but did not return an image ID');
+  return { ref: spec.ref, id: String(img.Id) };
+}
+async function dockerCreateReplacement (name, body, start) {
+  const r = await dockerApi('POST', '/containers/create?name=' + encodeURIComponent(name), 30000, body);
+  const id = r.data && r.data.Id;
+  if (!id) throw new Error('Docker did not return a replacement container ID');
+  if (start) await dockerApi('POST', '/containers/' + encodeURIComponent(id) + '/start', 30000);
+  return String(id);
+}
+async function dockerRemoveReplacement (id) {
+  if (!id) return;
+  try { await dockerApi('POST', '/containers/' + encodeURIComponent(id) + '/stop?t=10', 30000); } catch (_) {}
+  try { await dockerApi('DELETE', '/containers/' + encodeURIComponent(id) + '?force=1', 30000); } catch (_) {}
+}
+async function dockerWaitRunning (id, seconds) {
+  const end = Date.now() + (seconds || 15) * 1000;
+  while (Date.now() < end) {
+    const c = await dockerInspectContainer(id), s = c.State || {};
+    if (s.Running) return c;
+    if (s.Dead || s.Status === 'exited') throw new Error(s.Error || 'Replacement container exited during startup');
+    await new Promise(r => setTimeout(r, 500));
+  }
+  throw new Error('Replacement container did not enter the running state');
+}
+const _dockerUpdating = new Set();
+async function dockerUpdateAllowedContainer (target) {
+  const lock = String(target && (target.fullId || target.name) || '');
+  if (!lock) throw new Error('Container could not be identified');
+  if (_dockerUpdating.has(lock)) throw new Error('An update is already running for this container');
+  _dockerUpdating.add(lock);
+  try {
+    const old = await dockerInspectContainer(target.fullId);
+    const name = String(old.Name || target.name || '').replace(/^\/+/, '');
+    const imageRef = String(old.Config && old.Config.Image || target.image || '').trim();
+    const oldImageId = String(old.Image || '').trim();
+    const wasRunning = !!(old.State && old.State.Running);
+    if (!name || !imageRef || !oldImageId) throw new Error('Could not capture the current container configuration for rollback');
+    const pulled = await dockerPullConfiguredImage(imageRef);
+    if (pulled.id === oldImageId) return { updated: false, message: 'Image is already current', image: pulled.ref, imageId: pulled.id, containerId: target.fullId };
+    const oldBody = dockerRecreateBody(old, oldImageId);
+    const newBody = dockerRecreateBody(old, pulled.ref);
+    let removed = false, replacement = '';
+    try {
+      if (wasRunning) await dockerApi('POST', '/containers/' + encodeURIComponent(target.fullId) + '/stop?t=10', 30000);
+      await dockerApi('DELETE', '/containers/' + encodeURIComponent(target.fullId), 30000);
+      removed = true;
+      replacement = await dockerCreateReplacement(name, newBody, wasRunning);
+      if (wasRunning) await dockerWaitRunning(replacement, 20);
+      return { updated: true, message: 'Container updated successfully', image: pulled.ref, previousImageId: oldImageId, imageId: pulled.id, containerId: replacement, wasRunning };
+    } catch (e) {
+      if (!removed) {
+        if (wasRunning) { try { await dockerApi('POST', '/containers/' + encodeURIComponent(target.fullId) + '/start', 30000); } catch (_) {} }
+        throw e;
+      }
+      if (replacement) await dockerRemoveReplacement(replacement);
+      try {
+        const rollback = await dockerCreateReplacement(name, oldBody, wasRunning);
+        if (wasRunning) await dockerWaitRunning(rollback, 20);
+        throw new Error('Update failed; previous container was restored: ' + e.message);
+      } catch (rollbackError) {
+        if (String(rollbackError.message || '').startsWith('Update failed; previous container was restored:')) throw rollbackError;
+        throw new Error('Update failed and rollback also failed: ' + e.message + ' · rollback: ' + rollbackError.message);
+      }
+    }
+  } finally {
+    _dockerUpdating.delete(lock);
+  }
+}
 async function dockerAllowedContainers () {
   const cfg = readConfig().dockerControl || DEFAULT_CONFIG.dockerControl;
   const allowed = normalizeDockerAllowed(cfg.allowedContainers);
@@ -3898,7 +4071,8 @@ async function dockerAllowedContainers () {
       service: (c.Labels && c.Labels['com.docker.compose.service']) || '',
       image: c.Image || '', state: c.State || '', status: c.Status || '',
       allowedAs: aliases.find(a => wanted.has(String(a).toLowerCase())) || '',
-      self: dockerIsSelf(c)
+      self: dockerIsSelf(c),
+      updatable: !dockerIsSelf(c) && dockerImageCanUpdate(c.Image || '')
     };
   }).sort((a,b) => a.name.localeCompare(b.name));
 }
@@ -4741,7 +4915,7 @@ const server = http.createServer(async (req, res) => {
         const body = JSON.parse(await readBody(req) || '{}');
         const action = String(body.action || '').toLowerCase();
         const requested = String(body.container || '').trim().replace(/^\/+/, '');
-        if (!['start', 'stop', 'restart'].includes(action)) return sendJSON(res, 400, { message: 'Action must be start, stop, or restart' });
+        if (!['start', 'stop', 'restart', 'update'].includes(action)) return sendJSON(res, 400, { message: 'Action must be start, stop, restart, or update' });
         const cfg = readConfig().dockerControl || DEFAULT_CONFIG.dockerControl;
         if (!cfg.enabled) return sendJSON(res, 409, { message: 'Docker controls are disabled' });
         const allowed = normalizeDockerAllowed(cfg.allowedContainers).map(x => x.toLowerCase());
@@ -4751,7 +4925,15 @@ const server = http.createServer(async (req, res) => {
         if (!matches.length) return sendJSON(res, 404, { message: 'Allowed container was not found' });
         if (matches.length > 1) return sendJSON(res, 409, { message: 'More than one container matches "' + requested + '". Use unique container names in the allow-list.' });
         const target = matches[0];
-        if (target.self) return sendJSON(res, 409, { message: 'MEDIARR cannot stop or restart its own container from this panel' });
+        if (target.self) return sendJSON(res, 409, { message: 'MEDIARR cannot be controlled from this panel; use System Update for MEDIARR itself' });
+        if (action === 'update') {
+          if (!target.updatable) return sendJSON(res, 409, { message: 'This container uses an immutable image digest/ID and cannot be updated from this panel' });
+          const result = await dockerUpdateAllowedContainer(target);
+          try { logAdd({ ts: Date.now(), type: 'docker', title: 'update ' + target.name + (result.updated ? '' : ' (already current)'), username: me.username, role: me.role, ip: clientIp(req), service: 'docker' }); } catch (_) {}
+          const after = await dockerAllowedContainers();
+          const current = after.find(c => String(c.allowedAs || '').toLowerCase() === requested.toLowerCase() || String(c.name || '').toLowerCase() === target.name.toLowerCase() || String(c.service || '').toLowerCase() === requested.toLowerCase()) || target;
+          return sendJSON(res, 200, { ok: true, action, updated: !!result.updated, message: result.message, image: result.image, previousImageId: result.previousImageId || '', imageId: result.imageId || '', container: current });
+        }
         const apiAction = action === 'start' ? '/start' : action === 'stop' ? '/stop?t=10' : '/restart?t=10';
         await dockerApi('POST', '/containers/' + encodeURIComponent(target.fullId) + apiAction, 25000);
         try { logAdd({ ts: Date.now(), type: 'docker', title: action + ' ' + target.name, username: me.username, role: me.role, ip: clientIp(req), service: 'docker' }); } catch (_) {}

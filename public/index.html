@@ -5053,7 +5053,7 @@ async function loadAdmin(){
     </div>
     <div class="admin-sec" style="margin-top:24px">
       <h3>Docker controls</h3>
-      <div class="small" style="color:var(--muted);margin-bottom:12px">Start, stop, or restart approved Docker containers such as Plex, Radarr, and Sonarr. <b>Security:</b> the Docker socket provides host-level control, so this panel is admin-only and only exact names in the allow-list can be controlled.</div>
+      <div class="small" style="color:var(--muted);margin-bottom:12px">Start, stop, restart, or update approved Docker containers such as Plex, Radarr, and Sonarr. Update pulls the container's currently configured image tag and recreates it only when that tag points to a newer image. <b>Security:</b> the Docker socket provides host-level control, so this panel is admin-only and only exact names in the allow-list can be controlled.</div>
       <div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="dkEnabled" style="width:auto"> Enable Docker container controls</label>
         <div class="small">The Docker socket must be mounted into MEDIARR. The included Docker Compose file does this automatically.</div>
       </div>
@@ -5595,6 +5595,7 @@ function renderDockerControls(d){
       <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
         <button class="btn btn-ghost" data-dka="start" style="padding:6px 9px;font-size:11px" ${running||c.self?'disabled':''}>▶ Start</button>
         <button class="btn btn-ghost" data-dka="restart" style="padding:6px 9px;font-size:11px" ${c.self?'disabled':''}>↻ Restart</button>
+        <button class="btn btn-ghost" data-dka="update" style="padding:6px 9px;font-size:11px" ${!c.updatable?'disabled':''}>⬇ Update</button>
         <button class="btn btn-ghost" data-dka="stop" style="padding:6px 9px;font-size:11px" ${!running||c.self?'disabled':''}>■ Stop</button>
       </span></div>`;
   }).join('');
@@ -5611,13 +5612,15 @@ async function saveDockerControls(){
   }catch(e){ msg.className='test-status err'; msg.textContent='✕ '+e.message; }
 }
 async function dockerAction(container,action,btn){
-  const verb=action[0].toUpperCase()+action.slice(1);
+  const verb={start:'Start',stop:'Stop',restart:'Restart',update:'Update'}[action]||action;
+  const doing={start:'Starting',stop:'Stopping',restart:'Restarting',update:'Updating'}[action]||verb;
   if((action==='stop'||action==='restart')&&!confirm(verb+' Docker container "'+container+'"?')) return;
-  const msg=document.getElementById('dkMsg'); btn.disabled=true; msg.className='test-status load'; msg.textContent=verb+'ing '+container+'…';
+  if(action==='update'&&!confirm('Update Docker container "'+container+'"?\n\nMEDIARR will pull its currently configured image tag and, only if the image changed, recreate the container with its existing settings. Pinned version tags stay pinned.')) return;
+  const msg=document.getElementById('dkMsg'); btn.disabled=true; msg.className='test-status load'; msg.textContent=doing+' '+container+(action==='update'?' · this can take a few minutes':'')+'…';
   try{
     const r=await fetch('/api/admin/docker/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({container,action})}), d=await r.json();
     if(!r.ok) throw new Error(d.message||'Docker action failed');
-    msg.className='test-status ok'; msg.textContent='✓ '+verb+' command completed';
+    msg.className='test-status ok'; msg.textContent=action==='update'?(d.updated?'✓ Update complete':'✓ Image already current'):('✓ '+verb+' command completed');
     await loadDockerControls();
   }catch(e){ msg.className='test-status err'; msg.textContent='✕ '+e.message; btn.disabled=false; }
 }

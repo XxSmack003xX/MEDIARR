@@ -15,7 +15,7 @@ services:
       MEDIARR_UPDATE_REPO: ${MEDIARR_UPDATE_REPO:-XxSmack003xX/MEDIARR}
     volumes:
       - ./data:/data
-      # Docker Controls: lets MEDIARR admins start/stop/restart only the
+      # Docker Controls: lets MEDIARR admins start/stop/restart/update only the
       # explicitly allowed containers configured in the Admin panel.
       # WARNING: access to this socket is effectively host-root privilege.
       - ${DOCKER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock
