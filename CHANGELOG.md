@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.2
+
+- Added an **Add to Favorites / Remove from Favorites** control for TV shows directly inside the shared Unified Media Status panel.
+- The favorite control is available to signed-in users on both desktop and mobile and uses MEDIARR's existing per-user TV favorites store.
+- Unified Media Status now detects the current favorite state using IMDb, TVDB, TMDB, and normalized title matching.
+- Favorites changed from the Unified Media Status panel immediately invalidate the personalized User Home cache so the Favorites and Up Next sections refresh correctly.
+- Passed poster artwork through the desktop and mobile unified-detail launch paths so shows favorited from the status panel retain artwork on User Home.
+
 ## 1.6.1
 
 - Fixed movie and TV-show detection when opening media details from personalized User Home sections.
