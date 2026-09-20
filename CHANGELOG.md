@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.4
+
+- Added in-app **new version available** notifications for MEDIARR administrators on desktop and mobile.
+- When a newer published GitHub Release is detected, MEDIARR shows a popup with the installed and available versions and a **Review update** button.
+- **Review update** opens the existing System Update screen so the administrator can read release notes and use the normal automatic-update/download flow.
+- Added a persistent **NEW** badge to the System Update menu item while a newer version remains available.
+- Added **Later** dismissal behavior so the same release does not repeatedly interrupt the same browser; a future MEDIARR version will trigger a new notification.
+- Update availability is checked after administrator sign-in, periodically while the app is open, and again when the desktop tab becomes active.
+- Update notifications remain administrator-only because System Update is restricted to administrators.
+
 ## 1.6.3
 
 - Added an administrator-only **Update** button to Docker Controls on both desktop and mobile, alongside Start, Restart, and Stop.
