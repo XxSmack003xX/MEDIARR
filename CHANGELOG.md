@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.3
+
+- Added an administrator-only **Update** button to Docker Controls on both desktop and mobile, alongside Start, Restart, and Stop.
+- Docker Update pulls the container's currently configured image tag and compares the pulled image ID with the container's existing image before making changes.
+- Containers are left untouched when the configured tag is already current.
+- When a newer image is pulled, MEDIARR recreates the allowed container while preserving its name, environment, command/entrypoint, ports, restart policy, mounts and named/anonymous volumes, networks/aliases, labels, devices, security options, resource limits, healthcheck, and running/stopped state.
+- Added rollback protection: if the replacement container cannot be created or started, MEDIARR attempts to restore the previous container from its exact previous image ID.
+- Docker Update remains constrained by the existing explicit container/service allow-list and administrator authentication.
+- MEDIARR's own container cannot be updated from Docker Controls; it continues to use the dedicated System Update workflow.
+- Update is disabled for containers created from immutable image digests or raw image IDs. Pinned version tags remain pinned and are never silently changed to `latest`.
+
 ## 1.6.2
 
 - Added an **Add to Favorites / Remove from Favorites** control for TV shows directly inside the shared Unified Media Status panel.
