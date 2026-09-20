@@ -238,7 +238,7 @@ function plexHeaders (clientId, token) {
 function appVersionSafe () { try { return JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version || '1.0'; } catch (e) { return '1.0'; } }
 
 /* ---------- per-user Plex account (watchlist / history / stats) ---------- */
-const PLEX_DISCOVER = 'https://discover.provider.plex.tv';
+const PLEX_DISCOVER = process.env.PLEX_DISCOVER_URL || 'https://discover.provider.plex.tv';
 const PLEX_METADATA = 'https://metadata.provider.plex.tv';
 function getUserPlex (username) { const u = findUser(username); return (u && u.plex) || null; }
 function setUserPlex (username, plex) {
