@@ -1219,7 +1219,7 @@ Keep this feature disabled unless you specifically need it.
 
 ## System Update
 
-MEDIARR v1.3.0 adds an administrator-only System Update page.
+MEDIARR v1.3.0 adds an administrator-only System Update page. Administrators are also notified in-app when MEDIARR detects a newer published release: desktop and mobile show a one-time-per-version popup with a **Review update** button that opens System Update, while the Update menu keeps a **NEW** badge as long as an update is available.
 
 ### Release checking
 

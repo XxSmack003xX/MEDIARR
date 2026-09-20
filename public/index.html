@@ -660,7 +660,7 @@
       </div>
       <div class="settings-btn" id="openUpdate" style="display:none" title="Check for MEDIARR updates">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/><path d="M3 12A9 9 0 0 1 18.5 5.8L21 8"/><path d="M21 3v5h-5"/></svg>
-      Update
+      Update <span id="updateNavBadge" style="display:none;margin-left:auto;font-size:9px;font-weight:900;letter-spacing:.5px;padding:2px 6px;border-radius:999px;background:var(--gold);color:#17120a">NEW</span>
       </div>
     </section>
       <section class="side-nav-section side-nav-support">
@@ -1125,6 +1125,21 @@
       <button class="x" id="closeUpdate">&times;</button>
     </div>
     <div class="modal-body" id="updateBody"></div>
+  </div>
+</div>
+
+<!-- New-version notification -->
+<div class="overlay" id="updateNoticeOverlay">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-head">
+      <h2>MEDIARR update available</h2>
+      <button class="x" id="closeUpdateNotice">&times;</button>
+    </div>
+    <div class="modal-body" id="updateNoticeBody"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="updateNoticeLater">Later</button>
+      <button class="btn btn-gold" id="updateNoticeReview">Review update</button>
+    </div>
   </div>
 </div>
 
@@ -4899,6 +4914,51 @@ async function loadTranscodeDashboard(showError){
   catch(e){ if(showError) document.getElementById('transcodesBody').innerHTML='<div class="state"><div class="big">Dashboard unavailable</div>'+esc(e.message)+'</div>'; }
 }
 
+/* ---------- update availability notification ---------- */
+let updateNoticeTimerD=null, updateNoticeDataD=null;
+function updateNoticeKeyD(version){ return 'mediarr:update-notice:'+String(version||''); }
+function updateNoticeSeenD(version){ try{return localStorage.getItem(updateNoticeKeyD(version))==='1';}catch(e){return false;} }
+function markUpdateNoticeSeenD(version){ try{localStorage.setItem(updateNoticeKeyD(version),'1');}catch(e){} }
+function setUpdateNavBadgeD(show,version){
+  const b=document.getElementById('updateNavBadge'); if(!b)return;
+  b.style.display=show?'inline-flex':'none';
+  b.title=show&&version?'v'+version+' is available':'';
+}
+function closeUpdateNoticeD(markSeen){
+  const d=updateNoticeDataD, v=d&&d.latest&&d.latest.version;
+  if(markSeen&&v) markUpdateNoticeSeenD(v);
+  document.getElementById('updateNoticeOverlay').classList.remove('show');
+}
+function showUpdateNoticeD(d){
+  const latest=d.latest||{}, v=latest.version||'';
+  if(!v||updateNoticeSeenD(v))return;
+  updateNoticeDataD=d;
+  const body=document.getElementById('updateNoticeBody');
+  body.innerHTML='<div style="font-size:15px;font-weight:850;margin-bottom:8px">A new MEDIARR release is ready.</div>'
+    +'<div class="api-doc"><b>Installed:</b> v'+esc(d.currentVersion||'?')+'<br><b>Available:</b> v'+esc(v)
+    +(latest.name&&latest.name!==('MEDIARR v'+v)?'<br><b>Release:</b> '+esc(latest.name):'')
+    +'</div><div class="small" style="color:var(--muted);margin-top:12px">Review the release notes and update options from System Update.</div>';
+  document.getElementById('updateNoticeOverlay').classList.add('show');
+}
+async function checkUpdateNoticeD(fresh){
+  if(!currentUser||currentUser.role!=='admin')return;
+  try{
+    const r=await fetch('/api/admin/update'+(fresh?'?fresh=1':''),{cache:'no-store'}), d=await r.json();
+    if(!r.ok)return;
+    const available=!!(d.updateAvailable&&d.latest&&d.latest.version);
+    setUpdateNavBadgeD(available,available?d.latest.version:'');
+    if(available) showUpdateNoticeD(d);
+  }catch(e){}
+}
+document.getElementById('closeUpdateNotice').onclick=()=>closeUpdateNoticeD(true);
+document.getElementById('updateNoticeLater').onclick=()=>closeUpdateNoticeD(true);
+document.getElementById('updateNoticeReview').onclick=()=>{
+  const d=updateNoticeDataD, v=d&&d.latest&&d.latest.version;
+  if(v)markUpdateNoticeSeenD(v);
+  document.getElementById('updateNoticeOverlay').classList.remove('show');
+  openSystemUpdate(true);
+};
+
 /* ---------- system update ---------- */
 document.getElementById('openUpdate').onclick = ()=> openSystemUpdate();
 document.getElementById('closeUpdate').onclick = ()=> updateOverlay.classList.remove('show');
@@ -6080,6 +6140,11 @@ async function onAuthed(){
   // v1.4+ first-run configuration is handled by the shared setup wizard.
   qInput.focus();
   showHome();   // greet with recently released movies
+  if(updateNoticeTimerD) clearInterval(updateNoticeTimerD);
+  if(currentUser&&currentUser.role==='admin'){
+    setTimeout(()=>checkUpdateNoticeD(false),900);
+    updateNoticeTimerD=setInterval(()=>{ if(!document.hidden) checkUpdateNoticeD(false); },30*60*1000);
+  }else setUpdateNavBadgeD(false,'');
   pollStreams();
   if(window.__pollTimer) clearInterval(window.__pollTimer);
   window.__pollTimer = setInterval(()=>{ if(!document.hidden) pollStreams(); }, 30000);
@@ -6091,6 +6156,7 @@ async function onAuthed(){
       try{ pollStreams(); }catch(e){}
       try{ if(autoPoll) pollAuto(); }catch(e){}
       try{ if(missPoll) pollMiss(); }catch(e){}
+      try{ if(currentUser&&currentUser.role==='admin') checkUpdateNoticeD(false); }catch(e){}
     });
   }
 }
