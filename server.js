@@ -302,7 +302,12 @@ function plexCard (m, host) {
     summary: (m.summary || '').slice(0, 400),
     rating: m.rating || m.audienceRating || null,
     duration: m.duration || 0,
+    viewOffset: Number(m.viewOffset) || 0,
+    viewCount: Number(m.viewCount) || 0,
     viewedAt: m.viewedAt ? m.viewedAt * 1000 : null,
+    localRatingKey: m.ratingKey || '',
+    key: m.key || (m.ratingKey ? '/library/metadata/' + m.ratingKey : ''),
+    ids: (typeof mediaGuidIds === 'function') ? mediaGuidIds(m) : { imdbId:'', tmdbId:null, tvdbId:null },
     art: thumb ? ('/api/plex/img?h=' + host + '&p=' + encodeURIComponent(thumb)) : '',
     absArt: /^https?:\/\//i.test(thumb)
   };
@@ -1275,6 +1280,275 @@ async function favoritesUpcoming (username, res) {
   });
   sendJSON(res, 200, { items, favorites: favs.length });
 }
+
+/* ---------- personalized user home ---------- */
+const homeRecCache = new Map();
+function homePosterFromArr (it) {
+  const p = it && Array.isArray(it.images) && it.images[0];
+  return p ? (p.remoteUrl || p.url || '') : '';
+}
+function homePlexWebUrl (machineIdentifier, key) {
+  if (!machineIdentifier || !key) return '';
+  return 'https://app.plex.tv/desktop/#!/server/' + encodeURIComponent(machineIdentifier)
+    + '/details?key=' + encodeURIComponent(key);
+}
+async function homePlexMachineIdentifier () {
+  const cfg = readConfig().plex;
+  if (!cfg.url || !cfg.token) return '';
+  try {
+    const r = await plexJson(normUrl(cfg.url) + '/identity', cfg.token);
+    return r.ok ? String((((r.data || {}).MediaContainer || {}).machineIdentifier) || '') : '';
+  } catch (_) { return ''; }
+}
+async function homePlexHistory (username, limit) {
+  const px = getUserPlex(username);
+  const cfg = readConfig().plex;
+  if (!px || !px.token) return { linked: false, configured: !!cfg.url, items: [] };
+  if (!cfg.url) return { linked: true, configured: false, items: [] };
+  const base = normUrl(cfg.url);
+  let acctId = await plexServerAccountId(base, px.token, px);
+  if (acctId != null && px.accountId == null) { px.accountId = acctId; setUserPlex(username, px); }
+  const q = '?sort=viewedAt:desc&X-Plex-Container-Start=0&X-Plex-Container-Size=' + Math.max(1, Math.min(50, limit || 16))
+    + (acctId != null ? '&accountID=' + encodeURIComponent(acctId) : '');
+  let r = await plexJson(base + '/status/sessions/history/all' + q, px.token);
+  // Admin-token fallback is allowed only when we know the exact Plex account id.
+  if (!r.ok && cfg.token && acctId != null) r = await plexJson(base + '/status/sessions/history/all' + q, cfg.token);
+  if (!r.ok) return { linked: true, configured: true, items: [], error: r.message || ('HTTP ' + r.status) };
+  const machine = await homePlexMachineIdentifier();
+  const items = plexItemsFrom(r.data).map(m => {
+    const x = plexCard(m, 'pms');
+    x.webUrl = homePlexWebUrl(machine, x.key);
+    return x;
+  });
+  return { linked: true, configured: true, account: px.username || username, items };
+}
+async function homePlexContinue (username, limit) {
+  const px = getUserPlex(username);
+  const cfg = readConfig().plex;
+  if (!px || !px.token) return { linked: false, configured: !!cfg.url, items: [] };
+  if (!cfg.url) return { linked: true, configured: false, items: [] };
+  const base = normUrl(cfg.url), size = Math.max(1, Math.min(30, limit || 16));
+  const attempts = [
+    base + '/hubs/home/continueWatching?X-Plex-Container-Start=0&X-Plex-Container-Size=' + size + '&includeMeta=1',
+    base + '/hubs?count=' + size + '&onlyTransient=1'
+  ];
+  let raw = [];
+  for (const url of attempts) {
+    const r = await plexJson(url, px.token);
+    if (!r.ok) continue;
+    const mc = (r.data || {}).MediaContainer || {};
+    if (Array.isArray(mc.Metadata)) raw = mc.Metadata;
+    if (!raw.length && Array.isArray(mc.Hub)) {
+      const hub = mc.Hub.find(h => /continue/i.test(String(h.title || h.identifier || h.type || '')));
+      if (hub && Array.isArray(hub.Metadata)) raw = hub.Metadata;
+    }
+    if (raw.length) break;
+  }
+  const machine = await homePlexMachineIdentifier();
+  const items = raw.slice(0, size).map(m => {
+    const x = plexCard(m, 'pms');
+    const dur = Number(x.duration) || 0, off = Number(x.viewOffset) || 0;
+    x.progressPct = dur ? Math.max(0, Math.min(100, Math.round(off / dur * 100))) : 0;
+    x.webUrl = homePlexWebUrl(machine, x.key);
+    return x;
+  });
+  return { linked: true, configured: true, account: px.username || username, items };
+}
+async function homePlexWatchlist (username, limit) {
+  const px = getUserPlex(username);
+  if (!px || !px.token) return { linked: false, items: [] };
+  const size = Math.max(1, Math.min(30, limit || 16));
+  const url = PLEX_DISCOVER + '/library/sections/watchlist/all?includeCollections=1&includeExternalMedia=1&includeAdvanced=1&includeMeta=1'
+    + '&X-Plex-Container-Start=0&X-Plex-Container-Size=' + size;
+  try {
+    const r = await upstream(url, { headers: plexHeaders(ensurePlexClientId(), px.token), timeout: 8000 });
+    if (r.status < 200 || r.status >= 300) return { linked: true, items: [], error: 'HTTP ' + r.status };
+    const data = JSON.parse(r.body.toString('utf8') || '{}');
+    const raw = plexItemsFrom(data);
+    return { linked: true, items: raw.slice(0, size).map(m => plexCard(m, 'meta')) };
+  } catch (e) { return { linked: true, items: [], error: e.message }; }
+}
+async function homeUpcoming (username) {
+  const favs = userFavs(username);
+  if (!favs.length) return [];
+  const seriesRes = await arrListAll('sonarr', '/api/v3/series');
+  const series = seriesRes.ok ? seriesRes.items : [];
+  const now = Date.now(), out = [];
+  for (const f of favs.slice(0, 40)) {
+    let next = null, match = series.find(x =>
+      (f.tvdbId && Number(x.tvdbId) === Number(f.tvdbId)) ||
+      (f.imdbId && x.imdbId && String(x.imdbId).toLowerCase() === String(f.imdbId).toLowerCase()) ||
+      normTitle(x.title) === normTitle(f.title));
+    if (match) {
+      const eps = (await arrJson('sonarr', '/api/v3/episode?seriesId=' + match.id)) || [];
+      const future = eps.filter(e => Number(e.seasonNumber) > 0 && e.airDateUtc && new Date(e.airDateUtc).getTime() > now)
+        .sort((a,b) => new Date(a.airDateUtc) - new Date(b.airDateUtc));
+      if (future[0]) next = {
+        season: Number(future[0].seasonNumber), episode: Number(future[0].episodeNumber),
+        name: future[0].title || '', airDate: future[0].airDateUtc
+      };
+    } else if (f.tmdbId) {
+      const tv = await tmdbJson('/tv/' + f.tmdbId);
+      if (tv && tv.next_episode_to_air) next = {
+        season: tv.next_episode_to_air.season_number, episode: tv.next_episode_to_air.episode_number,
+        name: tv.next_episode_to_air.name || '', airDate: tv.next_episode_to_air.air_date
+      };
+    }
+    if (next) out.push({
+      title: f.title, poster: f.poster || '', imdbId: f.imdbId || '', tmdbId: f.tmdbId || null,
+      tvdbId: f.tvdbId || null, next, inSonarr: !!match
+    });
+  }
+  out.sort((a,b) => new Date(a.next.airDate) - new Date(b.next.airDate));
+  return out.slice(0, 16);
+}
+function homeRequests (username, limit) {
+  const cache = readLibCache();
+  const rows = readAdds().adds.filter(e =>
+    e.username === username && (e.service === 'radarr' || e.service === 'sonarr') &&
+    (e.type === 'movie' || e.type === 'series'));
+  const seen = new Set(), out = [];
+  for (const e of rows) {
+    const svc = e.service === 'sonarr' ? 'sonarr' : 'radarr';
+    const k = svc + '|' + normTitle(e.title) + '|' + String(e.year || '');
+    if (seen.has(k)) continue; seen.add(k);
+    const items = cache[svc] && Array.isArray(cache[svc].items) ? cache[svc].items : [];
+    const hit = items.find(x => normTitle(x.title) === normTitle(e.title) && (!e.year || !x.year || String(x.year) === String(e.year)));
+    let ready = false;
+    if (hit) {
+      ready = svc === 'radarr' ? !!hit.hasFile
+        : !!(hit.statistics && Number(hit.statistics.episodeFileCount) > 0);
+    }
+    out.push({
+      ts: e.ts, type: e.type, service: svc, title: e.title || '', year: e.year || '',
+      inLibrary: !!hit, ready, status: ready ? 'Available' : hit ? 'In library' : 'Requested',
+      arrId: hit && hit.id || null, imdbId: hit && hit.imdbId || '',
+      tmdbId: hit && hit.tmdbId || null, tvdbId: hit && hit.tvdbId || null,
+      poster: homePosterFromArr(hit)
+    });
+    if (out.length >= (limit || 16)) break;
+  }
+  return out;
+}
+function homeRecentlyAvailable (limit) {
+  const c = readLibCache(), all = [];
+  for (const svc of ['radarr','sonarr']) {
+    const items = c[svc] && Array.isArray(c[svc].items) ? c[svc].items : [];
+    for (const x of items) {
+      const ready = svc === 'radarr' ? !!x.hasFile
+        : !!(x.statistics && Number(x.statistics.episodeFileCount) > 0);
+      if (!ready) continue;
+      all.push({
+        type: svc === 'radarr' ? 'movie' : 'series', service: svc, arrId: x.id,
+        title: x.title || '', year: x.year || '', imdbId: x.imdbId || '',
+        tmdbId: x.tmdbId || null, tvdbId: x.tvdbId || null, added: x.added || '',
+        poster: homePosterFromArr(x),
+        progress: svc === 'sonarr' && x.statistics ? {
+          downloaded: Number(x.statistics.episodeFileCount) || 0,
+          total: Number(x.statistics.episodeCount) || 0
+        } : null
+      });
+    }
+  }
+  all.sort((a,b) => {
+    const at = a.added ? new Date(a.added).getTime() : 0, bt = b.added ? new Date(b.added).getTime() : 0;
+    if (bt !== at) return bt - at;
+    return String(a.title).localeCompare(String(b.title));
+  });
+  return all.slice(0, limit || 16);
+}
+async function homeRecommendations (username, history, favorites) {
+  const cfg = readConfig();
+  if (!cfg.tmdb.apiKey) return [];
+  const cacheKey = username + '|' + (history[0] && (history[0].show || history[0].title) || '') + '|' + favorites.map(x=>x.key).slice(0,5).join(',');
+  const old = homeRecCache.get(cacheKey);
+  if (old && Date.now() - old.ts < 10 * 60000) return old.items;
+  const seeds = [];
+  for (const f of favorites) if (f.tmdbId) seeds.push({ type:'tv', id:Number(f.tmdbId), title:f.title });
+  for (const h of history.slice(0, 8)) {
+    const type = h.type === 'episode' || h.type === 'show' ? 'tv' : 'movie';
+    const ids = h.ids || {};
+    if (ids.tmdbId) seeds.push({ type, id:Number(ids.tmdbId), title:h.show || h.title });
+    else seeds.push({ type, title:h.show || h.title, year:h.year || '' });
+  }
+  const seenSeeds = new Set(), unique = seeds.filter(x => {
+    const k = x.type + '|' + (x.id || normTitle(x.title)); if (seenSeeds.has(k)) return false; seenSeeds.add(k); return true;
+  }).slice(0, 2);
+  const out = [], seen = new Set();
+  for (const seed of unique) {
+    let id = seed.id;
+    if (!id && seed.title) {
+      const d = await tmdbJson('/search/' + (seed.type === 'tv' ? 'tv' : 'movie') + '?query=' + encodeURIComponent(seed.title));
+      const hits = d && d.results || [];
+      const hit = (seed.year && hits.find(x => String((x.release_date || x.first_air_date || '')).slice(0,4) === String(seed.year))) || hits[0];
+      id = hit && hit.id;
+    }
+    if (!id) continue;
+    let d = await tmdbJson('/' + seed.type + '/' + id + '/recommendations?page=1');
+    let rows = d && d.results || [];
+    if (!rows.length) { d = await tmdbJson('/' + seed.type + '/' + id + '/similar?page=1'); rows = d && d.results || []; }
+    for (const r of rows) {
+      if (!r.poster_path) continue;
+      const k = seed.type + ':' + r.id; if (seen.has(k)) continue; seen.add(k);
+      out.push({
+        type: seed.type === 'tv' ? 'series' : 'movie', tmdbId: r.id,
+        title: r.title || r.name || '', year: String(r.release_date || r.first_air_date || '').slice(0,4),
+        poster: 'https://image.tmdb.org/t/p/w342' + r.poster_path,
+        overview: String(r.overview || '').slice(0, 300)
+      });
+      if (out.length >= 16) break;
+    }
+    if (out.length >= 16) break;
+  }
+  homeRecCache.set(cacheKey, { ts: Date.now(), items: out });
+  if (homeRecCache.size > 100) for (const [k,v] of homeRecCache) if (Date.now() - v.ts > 3600000) homeRecCache.delete(k);
+  return out;
+}
+async function homeDiscover () {
+  if (!readConfig().tmdb.apiKey) return [];
+  const [mv,tv] = await Promise.all([
+    tmdbJson('/movie/now_playing?page=1'),
+    tmdbJson('/tv/on_the_air?page=1')
+  ]);
+  const movies = ((mv && mv.results) || []).filter(x=>x.poster_path).slice(0,8).map(x=>({
+    type:'movie',tmdbId:x.id,title:x.title||'',year:String(x.release_date||'').slice(0,4),
+    poster:'https://image.tmdb.org/t/p/w342'+x.poster_path
+  }));
+  const shows = ((tv && tv.results) || []).filter(x=>x.poster_path).slice(0,8).map(x=>({
+    type:'series',tmdbId:x.id,title:x.name||'',year:String(x.first_air_date||'').slice(0,4),
+    poster:'https://image.tmdb.org/t/p/w342'+x.poster_path
+  }));
+  const out=[]; for(let i=0;i<Math.max(movies.length,shows.length);i++){ if(movies[i])out.push(movies[i]); if(shows[i])out.push(shows[i]); }
+  return out.slice(0,16);
+}
+async function userHomeData (me) {
+  const favorites = userFavs(me.username).slice().sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,20);
+  const [history, cont, watchlist, upcoming, discover] = await Promise.all([
+    homePlexHistory(me.username, 18).catch(e=>({linked:!!getUserPlex(me.username),configured:!!readConfig().plex.url,items:[],error:e.message})),
+    homePlexContinue(me.username, 18).catch(e=>({linked:!!getUserPlex(me.username),configured:!!readConfig().plex.url,items:[],error:e.message})),
+    homePlexWatchlist(me.username, 18).catch(e=>({linked:!!getUserPlex(me.username),items:[],error:e.message})),
+    homeUpcoming(me.username).catch(()=>[]),
+    homeDiscover().catch(()=>[])
+  ]);
+  const recs = await homeRecommendations(me.username, history.items || [], favorites).catch(()=>[]);
+  return {
+    ok:true, generatedAt:Date.now(),
+    user:{ username:me.username, role:me.role, dailyLimit:me.dailyLimit||0, addedToday:me.addedToday||addsTodayCount(me.username) },
+    plex:{
+      linked:!!(history.linked || cont.linked || watchlist.linked),
+      configured:!!readConfig().plex.url,
+      account:history.account || cont.account || '',
+      continueWatching:cont.items || [], recentlyWatched:history.items || [], watchlist:watchlist.items || [],
+      errors:[history.error,cont.error,watchlist.error].filter(Boolean)
+    },
+    favorites, upcoming,
+    requests:homeRequests(me.username,18),
+    recentlyAvailable:homeRecentlyAvailable(18),
+    recommendations:recs,
+    discover
+  };
+}
+
 function startOfToday () { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
 // Count only limit-relevant actions (adds + downloads) toward the daily limit — never plays.
 function addsTodayCount (username) { const t = startOfToday(); return readAdds().adds.filter(e => e.username === username && e.ts >= t && e.type !== 'play').length; }
@@ -4069,7 +4343,8 @@ function slimPoster (images) {
 function slimItem (it, svc) {
   const base = {
     id: it.id, title: it.title, sortTitle: it.sortTitle || it.title, year: it.year || '',
-    monitored: !!it.monitored, images: slimPoster(it.images), imdbId: it.imdbId || ''
+    monitored: !!it.monitored, images: slimPoster(it.images), imdbId: it.imdbId || '',
+    added: it.added || it.dateAdded || ''
   };
   if (svc === 'radarr') { base.hasFile = !!it.hasFile; base.tmdbId = it.tmdbId || null; base.sizeOnDisk = it.sizeOnDisk || 0; }
   else {
@@ -4880,6 +5155,9 @@ const server = http.createServer(async (req, res) => {
         return plexHistory(me.username, lim, res);
       }
       if (p === '/api/plex/img' && req.method === 'GET') return plexImage(me.username, u.searchParams.get('h') || 'pms', u.searchParams.get('p') || '', res);
+
+      // ---- personalized user home ----
+      if (p === '/api/home' && req.method === 'GET') return sendJSON(res, 200, await userHomeData(me));
 
       // ---- favorite TV shows (per user) ----
       if (p === '/api/favorites' && req.method === 'GET') {
