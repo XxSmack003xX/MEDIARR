@@ -1184,6 +1184,7 @@
 </div>
 
 <script src="/hls.min.js"></script>
+<script src="/v160.js"></script>
 <script>
 let config = null;            // sanitized config from server
 let sideNavLastFocus = null;
@@ -2923,6 +2924,10 @@ function triggerSearch(q){
 /* ---------- home screen: recently released movies ---------- */
 async function showHome(){
   if(mode!=='title' || qInput.value.trim().length>=2) return;
+  if(window.MEDIARRUserHome){
+    const handled = await window.MEDIARRUserHome.show({ surface:'desktop', mount:'results', user:currentUser });
+    if(handled) return;
+  }
   if(!isConfigured('tmdb')){
     const tip = (currentUser && currentUser.role==='admin')
       ? ' <div class="small" style="margin-top:8px">Tip: add a free TMDB key in <a href="#" onclick="openSettings(false);return false;">Settings</a> to see recently released movies here.</div>' : '';
