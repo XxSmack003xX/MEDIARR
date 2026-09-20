@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.6.0
+
+- Added personalized **User Home Pages** for every signed-in MEDIARR account on desktop and mobile.
+- Replaced the generic landing feed with a user-focused dashboard that prioritizes **Continue Watching**, **My Requests**, and **Up Next**.
+- Added per-user Plex **Continue Watching**, **Recently Watched**, and **Watchlist** sections when that MEDIARR user has linked a Plex account/profile.
+- Added **My Requests** status tracking from MEDIARR's own per-user add history, with Requested, In library, and Available states derived from Radarr/Sonarr library state.
+- Added **Up Next** for upcoming episodes from each user's MEDIARR favorite TV shows.
+- Added personalized **Favorites**, **Recently Available**, **Recommended for You**, and **Discover Now** rails.
+- Recommendations use recent Plex viewing and MEDIARR favorites as seeds when TMDB is configured, with a short per-user recommendation cache.
+- Added authenticated `/api/home` aggregation; home data is scoped to the current MEDIARR username and linked Plex profile.
+- Plex history fallback to the server owner token is allowed only when MEDIARR has resolved the exact Plex account id, avoiding cross-user history leakage.
+- Added Arr `added` timestamps to the compact library cache so recently available media can be ordered by library-add time.
+- Added shared `public/v160.js` home UI and included it in source/Docker release archives.
+
 ## 1.5.0
 
 - Added a shared **Unified Media Detail** panel to desktop and mobile title details.
