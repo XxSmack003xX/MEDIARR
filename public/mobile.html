@@ -82,6 +82,11 @@
         <div class="mb-3"><label class="form-label small">Username</label><input id="authUser" class="form-control" autocomplete="username" autocapitalize="none"></div>
         <div class="mb-3"><label class="form-label small">Password</label><input id="authPass" type="password" class="form-control" autocomplete="current-password"></div>
         <button id="authSubmit" class="btn btn-gold w-100">Sign in</button>
+        <div id="authAccessActionsM" class="d-grid gap-2 mt-2">
+          <button id="authRegisterToggleM" class="btn btn-outline-secondary" type="button">Request access</button>
+          <button id="authPlexM" class="btn btn-outline-gold" type="button">Sign in with Plex</button>
+        </div>
+        <div id="authAccessHintM" class="small text-secondary text-center mt-2">New registrations require administrator approval before access is granted.</div>
         <div class="text-center mt-3"><a href="/?d=1" class="small text-secondary">Use the desktop site</a></div>
       </div>
     </div>
@@ -160,7 +165,7 @@
     <button id="mHealth" class="btn btn-outline-gold text-start">💓 Health</button>
     <button id="mUpdate" class="btn btn-outline-gold text-start">⬆️ System Update <span id="mUpdateBadge" class="badge text-bg-warning float-end d-none">NEW</span></button>
     <button id="mTranscodes" class="btn btn-outline-gold text-start">🎛️ Transcode Dashboard</button>
-    <button id="mAdmin" class="btn btn-outline-gold text-start">👥 Admin</button>
+    <button id="mAdmin" class="btn btn-outline-gold text-start">👥 Admin <span id="mRegistrationBadge" class="badge text-bg-danger float-end d-none">0</span></button>
     <button id="mSettings" class="btn btn-outline-gold text-start">⚙️ Settings</button>
     <button id="mPassword" class="btn btn-outline-gold text-start">🔑 Change password</button>
     <a id="mDonate" href="#" target="_blank" rel="noopener noreferrer" class="btn text-start" style="display:none;background:#ffc439;border-color:#ffc439;color:#003087;font-weight:800">❤️ <span id="mDonateLabel">Donate</span></a>
@@ -186,6 +191,20 @@
     <div class="modal-content">
       <div class="modal-header"><h6 class="modal-title">Settings</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body" id="settingsBody"></div>
+    </div>
+  </div>
+</div>
+
+<!-- New registration notification -->
+<div class="modal fade" id="registrationNoticeM" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title">New access request</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="registrationNoticeMBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" id="mRegistrationNoticeLater">Later</button>
+        <button type="button" class="btn btn-gold" id="mRegistrationNoticeReview">Review requests</button>
+      </div>
     </div>
   </div>
 </div>
@@ -264,34 +283,70 @@ function isConfigured(svc){ if(svc==='tmdb')return !!(config&&config.tmdb&&confi
   showAuth(needed);
 })();
 
-function showAuth(needed){
+function paintAuthModeM(mode){
+  const setup=mode==='setup', register=mode==='register';
   $('appView').classList.add('d-none'); $('authView').classList.remove('d-none');
-  $('authTitle').textContent = needed ? 'Create admin account' : 'Sign in';
-  $('authSubmit').textContent = needed ? 'Create account' : 'Sign in';
-  $('authView').dataset.mode = needed ? 'setup' : 'login';
+  $('authTitle').textContent = setup ? 'Create admin account' : register ? 'Request access' : 'Sign in';
+  $('authSubmit').textContent = setup ? 'Create account' : register ? 'Register' : 'Sign in';
+  $('authRegisterToggleM').textContent=register?'Back to sign in':'Request access';
+  $('authAccessActionsM').classList.toggle('d-none',setup);
+  $('authAccessHintM').classList.toggle('d-none',setup);
+  $('authPass').autocomplete=register?'new-password':'current-password';
+  $('authView').dataset.mode = mode;
+  $('authErr').classList.add('d-none'); $('authErr').classList.remove('alert-success'); $('authErr').classList.add('alert-danger'); $('authErr').textContent='';
 }
+function showAuth(needed){ paintAuthModeM(needed?'setup':'login'); }
 $('authSubmit').onclick = async ()=>{
   const u=$('authUser').value.trim(), p=$('authPass').value, err=$('authErr');
-  err.classList.add('d-none');
+  err.classList.add('d-none'); err.classList.remove('alert-success'); err.classList.add('alert-danger');
   if(!u||!p){ err.textContent='Enter a username and password.'; err.classList.remove('d-none'); return; }
-  const setup = $('authView').dataset.mode==='setup';
+  const mode=$('authView').dataset.mode||'login', endpoint=mode==='setup'?'setup':mode==='register'?'register':'login';
   $('authSubmit').disabled=true;
   try{
-    const r=await fetch('/api/'+(setup?'setup':'login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
-    const j=await readJson(r);
-    if(r.ok && j.data){ me=j.data; $('authPass').value=''; onAuthed(); }
-    else if(j.data&&j.data.message) throw new Error(j.data.message);
+    const r=await fetch('/api/'+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
+    const j=await readJson(r),d=j.data||{};
+    if(mode==='register'&&r.ok&&d.pending){
+      $('authPass').value=''; paintAuthModeM('login');
+      err.classList.remove('d-none','alert-danger'); err.classList.add('alert-success'); err.textContent=d.message||'Registration submitted. Wait for administrator approval.';
+    } else if(r.ok&&d&&!d.pending){ me=d; $('authPass').value=''; onAuthed(); }
+    else if(d&&d.message) throw new Error(d.message);
     else if(j.empty) throw new Error('No response from the server. If you use a reverse proxy, make sure it forwards /api.');
     else throw new Error('Sign-in failed ('+r.status+').');
   }catch(e){ err.textContent=e.message; err.classList.remove('d-none'); }
   $('authSubmit').disabled=false;
 };
+async function beginPlexAuthM(){
+  const btn=$('authPlexM'),err=$('authErr'); err.classList.add('d-none'); err.classList.remove('alert-success'); err.classList.add('alert-danger'); btn.disabled=true;
+  let popup=null; try{popup=window.open('about:blank','mediarr_plex_auth','width=760,height=720');}catch(e){}
+  try{
+    const sj=await readJson(await fetch('/api/auth/plex/pin',{method:'POST'})),s=sj.data||{};
+    if(!s.authUrl)throw new Error(s.message||'Could not start Plex sign-in');
+    if(popup)popup.location.href=s.authUrl; else {err.innerHTML='Popup blocked. <a href="'+esc(s.authUrl)+'" target="_blank" rel="noopener">Open Plex sign-in</a>, then return here.';err.classList.remove('d-none');}
+    const until=Date.now()+180000;
+    while(Date.now()<until){
+      await new Promise(r=>setTimeout(r,1800));
+      const r=await fetch('/api/auth/plex/check?id='+encodeURIComponent(s.id)+'&nonce='+encodeURIComponent(s.nonce),{cache:'no-store'}),j=await readJson(r),d=j.data||{};
+      if(r.status===202&&d.pending){
+        if(popup&&!popup.closed)popup.close();
+        err.classList.remove('d-none','alert-danger');err.classList.add('alert-success');err.textContent=d.message||'Plex registration is waiting for administrator approval.';btn.disabled=false;return;
+      }
+      if(!r.ok)throw new Error(d.message||'Plex sign-in failed');
+      if(!d.authorized)continue;
+      if(d.user){if(popup&&!popup.closed)popup.close();me=d.user;onAuthed();return;}
+    }
+    throw new Error('Plex sign-in timed out. Try again.');
+  }catch(e){if(popup&&!popup.closed)popup.close();err.classList.remove('d-none');err.textContent=e.message;}
+  btn.disabled=false;
+}
+$('authRegisterToggleM').onclick=()=>paintAuthModeM(($('authView').dataset.mode||'login')==='register'?'login':'register');
+$('authPlexM').onclick=beginPlexAuthM;
 
 async function onAuthed(){
   $('authView').classList.add('d-none'); $('appView').classList.remove('d-none');
   $('menuUser').textContent = me ? ('Signed in as '+me.username+(me.role==='admin'?' (admin)':'')) : '';
   const adminOnly = (me&&me.role==='admin');
   ['mMovies','mShows','mUpdate','mTranscodes','mAdmin','mSettings'].forEach(id=>{ const el=$(id); if(el) el.style.display = adminOnly?'':'none'; });
+  $('mPassword').style.display=(me&&me.hasPassword===false)?'none':'';
   await loadConfig();
   const sp=$('mScanPlex'); if(sp) sp.style.display=(adminOnly && isConfigured('plex'))?'':'none';
   const dl=$('mDownloads'); if(dl) dl.style.display=isConfigured('webdav')?'':'none';
@@ -302,10 +357,13 @@ async function onAuthed(){
   pollAutoM();
   await loadLibrary(); showHome();
   if(updateNoticeTimerM)clearInterval(updateNoticeTimerM);
+  if(registrationNoticeTimerM)clearInterval(registrationNoticeTimerM);
   if(adminOnly){
     setTimeout(()=>checkUpdateNoticeM(false),900);
     updateNoticeTimerM=setInterval(()=>{if(!document.hidden)checkUpdateNoticeM(false);},30*60*1000);
-  }else setUpdateBadgeM(false,'');
+    setTimeout(()=>checkRegistrationNoticeM(true),1100);
+    registrationNoticeTimerM=setInterval(()=>{if(!document.hidden)checkRegistrationNoticeM(true);},30000);
+  }else {setUpdateBadgeM(false,'');setRegistrationBadgeM(0);}
 }
 
 async function loadConfig(){ try{ const j=await readJson(await fetch('/api/config')); config=j.data||{}; }catch(e){ config={}; } }
@@ -1632,6 +1690,39 @@ function openTranscodesM(){
   $('panel').addEventListener('hidden.bs.modal',()=>{if(tcPollM){clearInterval(tcPollM);tcPollM=null;}},{once:true});
 }
 
+/* ---- Pending registration notification ---- */
+let registrationNoticeTimerM=null, registrationNoticeDataM=null;
+function registrationRequestKeyM(u){return String(u.username||'')+'|'+String(u.requestedAt||u.createdAt||0);}
+function registrationSeenM(){try{const a=JSON.parse(localStorage.getItem('mediarr:registration-notices')||'[]');return new Set(Array.isArray(a)?a:[]);}catch(e){return new Set();}}
+function markRegistrationsSeenM(list){try{const s=registrationSeenM();(list||[]).forEach(u=>s.add(registrationRequestKeyM(u)));localStorage.setItem('mediarr:registration-notices',JSON.stringify(Array.from(s).slice(-200)));}catch(e){}}
+function setRegistrationBadgeM(count){const b=$('mRegistrationBadge');if(!b)return;b.classList.toggle('d-none',!(count>0));b.textContent=String(count||0);}
+function hideRegistrationNoticeM(mark){
+  const p=registrationNoticeDataM&&registrationNoticeDataM.pending||[];if(mark)markRegistrationsSeenM(p);
+  bootstrap.Modal.getOrCreateInstance($('registrationNoticeM')).hide();
+}
+function showRegistrationNoticeM(d){
+  const pending=d.pending||[],seen=registrationSeenM(),unseen=pending.filter(u=>!seen.has(registrationRequestKeyM(u)));
+  if(!unseen.length)return;
+  registrationNoticeDataM=d;
+  $('registrationNoticeMBody').innerHTML='<div class="fw-bold mb-2">'+unseen.length+' new '+(unseen.length===1?'person has':'people have')+' requested access.</div>'
+    +unseen.slice(0,6).map(u=>'<div class="card mb-2" style="background:var(--bg)"><div class="card-body py-2"><b>'+esc(u.username)+'</b><div class="small text-secondary">'+esc(u.registrationMethod==='plex'?'Plex':'Username/password')+(u.requestedAt?' · '+esc(new Date(u.requestedAt).toLocaleString()):'')+'</div></div></div>').join('')
+    +(unseen.length>6?'<div class="small text-secondary">+'+(unseen.length-6)+' more request(s)</div>':'')
+    +'<div class="small text-secondary mt-2">Access remains blocked until an administrator approves the account.</div>';
+  bootstrap.Modal.getOrCreateInstance($('registrationNoticeM')).show();
+}
+async function checkRegistrationNoticeM(showPopup){
+  if(!(me&&me.role==='admin'))return;
+  try{
+    const j=await readJson(await fetch('/api/admin/registrations',{cache:'no-store'})),d=j.data||{};
+    setRegistrationBadgeM(d.count||0);if(showPopup!==false&&d.count)showRegistrationNoticeM(d);
+  }catch(e){}
+}
+$('mRegistrationNoticeLater').onclick=()=>hideRegistrationNoticeM(true);
+$('mRegistrationNoticeReview').onclick=()=>{
+  const p=registrationNoticeDataM&&registrationNoticeDataM.pending||[];markRegistrationsSeenM(p);
+  bootstrap.Modal.getOrCreateInstance($('registrationNoticeM')).hide();setTimeout(openAdmin,180);
+};
+
 /* ---- Update availability notification ---- */
 let updateNoticeTimerM=null, updateNoticeDataM=null;
 function updateNoticeKeyM(version){return 'mediarr:update-notice:'+String(version||'');}
@@ -1727,12 +1818,13 @@ async function loadAdmin(){
   }catch(e){ panelErr('Couldn’t load admin: '+e.message); }
 }
 function renderAdmin(users,adds){
-  let html='<div class="fw-bold mb-2">Users</div>';
-  users.forEach(u=>{ const isAdmin=u.role==='admin';
+  const pendingCount=users.filter(u=>u.approved===false).length;
+  let html='<div class="fw-bold mb-2">Users</div>'+(pendingCount?'<div class="alert alert-warning py-2 small"><b>'+pendingCount+' pending access '+(pendingCount===1?'request':'requests')+'.</b> Approve an account before that person can sign in.</div>':'');
+  users.forEach(u=>{ const isAdmin=u.role==='admin',pending=u.approved===false,provider=u.registrationMethod==='plex'?'Plex':u.registrationMethod==='password'?'Username/password':u.registrationMethod==='admin'?'Admin-created':'Local';
     html+='<div class="card mb-2" style="background:var(--bg)" data-u="'+esc(u.username)+'"><div class="card-body py-2">'
-      +'<div class="d-flex justify-content-between align-items-center"><div class="fw-bold">'+esc(u.username)+(u.username===(me&&me.username)?' (you)':'')+'</div><span class="badge text-bg-'+(isAdmin?'warning':'secondary')+'">'+u.role+'</span></div>'
-      +(isAdmin?'':'<div class="d-flex align-items-center gap-2 mt-2"><span class="small text-secondary">Daily limit</span><input type="number" min="0" value="'+u.dailyLimit+'" class="form-control form-control-sm lim" style="width:78px"><button class="btn btn-outline-gold btn-sm" data-act="lim">Set</button><span class="small text-secondary ms-auto">Today: '+(u.addedToday||0)+'</span></div>')
-      +'<div class="d-flex gap-2 mt-2"><button class="btn btn-outline-secondary btn-sm" data-act="role">'+(isAdmin?'Make user':'Make admin')+'</button><button class="btn btn-outline-danger btn-sm" data-act="del">Remove</button></div>'
+      +'<div class="d-flex justify-content-between align-items-center"><div><div class="fw-bold">'+esc(u.username)+(u.username===(me&&me.username)?' (you)':'')+'</div><div class="small text-secondary">'+esc(provider)+(u.plexUsername?' · '+esc(u.plexUsername):'')+'</div></div><span class="badge text-bg-'+(pending?'danger':isAdmin?'warning':'secondary')+'">'+(pending?'pending':u.role)+'</span></div>'
+      +(pending?'':isAdmin?'':'<div class="d-flex align-items-center gap-2 mt-2"><span class="small text-secondary">Daily limit</span><input type="number" min="0" value="'+u.dailyLimit+'" class="form-control form-control-sm lim" style="width:78px"><button class="btn btn-outline-gold btn-sm" data-act="lim">Set</button><span class="small text-secondary ms-auto">Today: '+(u.addedToday||0)+'</span></div>')
+      +'<div class="d-flex gap-2 mt-2">'+(pending?'<button class="btn btn-outline-success btn-sm" data-act="approve">Approve</button><button class="btn btn-outline-danger btn-sm" data-act="del">Reject</button>':'<button class="btn btn-outline-secondary btn-sm" data-act="role">'+(isAdmin?'Make user':'Make admin')+'</button><button class="btn btn-outline-danger btn-sm" data-act="del">Remove</button>')+'</div>'
       +'</div></div>';
   });
   html+='<div class="fw-bold mt-3 mb-2">Add user</div><div class="card mb-3" style="background:var(--bg)"><div class="card-body">'
@@ -1774,8 +1866,9 @@ function renderAdmin(users,adds){
   $('panelBody').innerHTML=html;
   $('panelBody').querySelectorAll('[data-u]').forEach(c=>{ const uname=c.dataset.u;
     const lb=c.querySelector('[data-act="lim"]'); if(lb) lb.onclick=()=>patchUser(uname,{dailyLimit:Number(c.querySelector('.lim').value)});
-    c.querySelector('[data-act="role"]').onclick=()=>{ const isA=c.querySelector('.badge').textContent==='admin'; patchUser(uname,{role:isA?'user':'admin'}); };
-    c.querySelector('[data-act="del"]').onclick=()=>{ if(confirm('Remove user "'+uname+'"?')) deleteUser(uname); };
+    const rb=c.querySelector('[data-act="role"]'); if(rb) rb.onclick=()=>{ const isA=c.querySelector('.badge').textContent==='admin'; patchUser(uname,{role:isA?'user':'admin'}); };
+    const ab=c.querySelector('[data-act="approve"]'); if(ab) ab.onclick=()=>patchUser(uname,{approved:true});
+    const db=c.querySelector('[data-act="del"]'); if(db) db.onclick=()=>{ if(confirm((ab?'Reject access request from ':'Remove user "')+uname+(ab?'?':'"?'))) deleteUser(uname); };
   });
   $('nuAdd').onclick=createUser;
   const sb=$('mActSearch'); if(sb) sb.onclick=mFetchActivity;
@@ -2007,8 +2100,8 @@ async function createUser(){ const err=$('nuErr'); err.textContent='';
   try{ const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const j=await readJson(r); if(!r.ok)throw new Error((j.data&&j.data.message)||'Failed'); loadAdmin(); }
   catch(e){ err.textContent=e.message; }
 }
-async function patchUser(u,f){ try{ const r=await fetch('/api/admin/users',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({username:u},f))}); const j=await readJson(r); if(!r.ok)throw new Error((j.data&&j.data.message)||'Failed'); loadAdmin(); }catch(e){ alert(e.message); } }
-async function deleteUser(u){ try{ const r=await fetch('/api/admin/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}); const j=await readJson(r); if(!r.ok)throw new Error((j.data&&j.data.message)||'Failed'); loadAdmin(); }catch(e){ alert(e.message); } }
+async function patchUser(u,f){ try{ const r=await fetch('/api/admin/users',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({username:u},f))}); const j=await readJson(r); if(!r.ok)throw new Error((j.data&&j.data.message)||'Failed'); await loadAdmin(); checkRegistrationNoticeM(false); }catch(e){ alert(e.message); } }
+async function deleteUser(u){ try{ const r=await fetch('/api/admin/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u})}); const j=await readJson(r); if(!r.ok)throw new Error((j.data&&j.data.message)||'Failed'); await loadAdmin(); checkRegistrationNoticeM(false); }catch(e){ alert(e.message); } }
 
 /* ---- Change password ---- */
 function openPassword(){ closeMenu();
