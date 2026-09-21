@@ -554,6 +554,11 @@
     <div class="field"><label>Password</label><input type="password" id="authPass" autocomplete="current-password"></div>
     <div class="auth-err" id="authErr"></div>
     <button class="btn btn-gold" id="authSubmit" style="width:100%">Sign in</button>
+    <div id="authAccessActions" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+      <button class="btn btn-ghost" id="authRegisterToggle" type="button">Request access</button>
+      <button class="btn btn-ghost" id="authPlex" type="button">Sign in with Plex</button>
+    </div>
+    <div id="authAccessHint" class="small" style="text-align:center;color:var(--muted);margin-top:10px;line-height:1.45">New registrations require administrator approval before access is granted.</div>
   </div>
 </div>
 <div class="wrap">
@@ -656,7 +661,7 @@
       </div>
       <div class="settings-btn" id="openAdmin" style="display:none">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      Admin
+      Admin <span id="registrationNavBadge" style="display:none;margin-left:auto;min-width:20px;height:20px;padding:0 6px;border-radius:999px;align-items:center;justify-content:center;background:var(--red);color:#fff;font-size:10px;font-weight:900">0</span>
       </div>
       <div class="settings-btn" id="openUpdate" style="display:none" title="Check for MEDIARR updates">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/><path d="M3 12A9 9 0 0 1 18.5 5.8L21 8"/><path d="M21 3v5h-5"/></svg>
@@ -1125,6 +1130,21 @@
       <button class="x" id="closeUpdate">&times;</button>
     </div>
     <div class="modal-body" id="updateBody"></div>
+  </div>
+</div>
+
+<!-- New registration notification -->
+<div class="overlay" id="registrationNoticeOverlay">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-head">
+      <h2>New access request</h2>
+      <button class="x" id="closeRegistrationNotice">&times;</button>
+    </div>
+    <div class="modal-body" id="registrationNoticeBody"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" id="registrationNoticeLater">Later</button>
+      <button class="btn btn-gold" id="registrationNoticeReview">Review requests</button>
+    </div>
   </div>
 </div>
 
@@ -4364,16 +4384,25 @@ const pwOverlay = document.getElementById('pwOverlay');
 [settingsOverlay, detailOverlay, healthOverlay, streamsOverlay, adminOverlay, updateOverlay, transcodesOverlay, pwOverlay, calendarOverlay, libraryOverlay].forEach(o=>{ o.addEventListener('click', e=>{ if(e.target===o) o.classList.remove('show'); }); });
 
 /* ---------- auth ---------- */
-let authMode = 'login';   // 'login' | 'setup'
+let authMode = 'login';   // 'login' | 'register' | 'setup'
 const authScreen = document.getElementById('authScreen');
-function showAuth(setupNeeded){
-  authMode = setupNeeded ? 'setup' : 'login';
-  document.getElementById('authTitle').textContent = setupNeeded ? 'Create admin account' : 'Sign in';
-  document.getElementById('authSub').textContent = setupNeeded
+function paintAuthModeD(mode){
+  authMode = mode;
+  const setup=mode==='setup', register=mode==='register';
+  document.getElementById('authTitle').textContent = setup ? 'Create admin account' : register ? 'Request access' : 'Sign in';
+  document.getElementById('authSub').textContent = setup
     ? 'First run — set up the administrator login.'
+    : register ? 'Create a username and password. An administrator must approve the request before you can sign in.'
     : 'Enter your credentials to continue.';
-  document.getElementById('authSubmit').textContent = setupNeeded ? 'Create account' : 'Sign in';
-  document.getElementById('authErr').textContent = '';
+  document.getElementById('authSubmit').textContent = setup ? 'Create account' : register ? 'Register' : 'Sign in';
+  document.getElementById('authRegisterToggle').textContent = register ? 'Back to sign in' : 'Request access';
+  document.getElementById('authAccessActions').style.display = setup ? 'none' : 'grid';
+  document.getElementById('authAccessHint').style.display = setup ? 'none' : '';
+  document.getElementById('authPass').autocomplete = register ? 'new-password' : 'current-password';
+  const err=document.getElementById('authErr'); err.textContent=''; err.style.color='';
+}
+function showAuth(setupNeeded){
+  paintAuthModeD(setupNeeded ? 'setup' : 'login');
   authScreen.classList.remove('hidden');
   if(themePref==='random') rollRandomTheme();   // fresh theme each time the login screen appears
   bgStart();
@@ -4794,28 +4823,69 @@ function dropletShade(ctx, x, y, r){
 async function submitAuth(){
   const username = document.getElementById('authUser').value.trim();
   const password = document.getElementById('authPass').value;
-  const err = document.getElementById('authErr');
+  const err = document.getElementById('authErr'); err.style.color='';
   if(!username || !password){ err.textContent='Enter a username and password.'; return; }
   const btn = document.getElementById('authSubmit'); btn.disabled=true;
   try{
-    const r = await fetch('/api/'+(authMode==='setup'?'setup':'login'), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
-    const j = await readJson(r);
-    if(r.ok && j.data){
-      currentUser = j.data; sessionExpired = false; hideAuth(); document.getElementById('authPass').value='';
+    const endpoint=authMode==='setup'?'setup':authMode==='register'?'register':'login';
+    const r = await fetch('/api/'+endpoint, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+    const j = await readJson(r), data=j.data||{};
+    if(authMode==='register' && r.ok && data.pending){
+      document.getElementById('authPass').value='';
+      paintAuthModeD('login');
+      err.style.color='var(--green)';
+      err.textContent=data.message||'Registration submitted. Wait for an administrator to approve your account.';
+    } else if(r.ok && data && !data.pending){
+      currentUser = data; sessionExpired = false; hideAuth(); document.getElementById('authPass').value='';
       onAuthed();
-    } else if(j.data && j.data.message){
-      throw new Error(j.data.message);                       // normal server error (e.g. wrong password)
+    } else if(data && data.message){
+      throw new Error(data.message);
     } else if(j.empty){
       throw new Error(`No response from the server (status ${r.status||'network error'}). If you're behind a reverse proxy like Caddy, make sure it forwards every path — including /api — to MEDIARR.`);
     } else if(j.bad){
       throw new Error(`The server returned a non-JSON response (status ${r.status}). Your reverse proxy is likely serving files itself instead of forwarding /api requests to MEDIARR — use "reverse_proxy" for the whole site.`);
     } else {
-      throw new Error('Login failed (status '+r.status+').');
+      throw new Error('Sign-in failed (status '+r.status+').');
     }
-  }catch(e){ err.textContent = e.message; }
+  }catch(e){ err.style.color=''; err.textContent = e.message; }
+  btn.disabled=false;
+}
+async function beginPlexAuthD(){
+  const btn=document.getElementById('authPlex'), err=document.getElementById('authErr');
+  err.style.color=''; err.textContent='Opening Plex sign-in…'; btn.disabled=true;
+  let popup=null;
+  try{ popup=window.open('about:blank','mediarr_plex_auth','width=760,height=720'); }catch(e){}
+  try{
+    const start=await fetch('/api/auth/plex/pin',{method:'POST'}), sj=await readJson(start), s=sj.data||{};
+    if(!start.ok) throw new Error(s.message||'Could not start Plex sign-in');
+    if(popup) popup.location.href=s.authUrl; else err.innerHTML='Popup blocked. <a href="'+esc(s.authUrl)+'" target="_blank" rel="noopener">Open Plex sign-in</a>, then return here.';
+    const until=Date.now()+180000;
+    while(Date.now()<until){
+      await new Promise(r=>setTimeout(r,1800));
+      const r=await fetch('/api/auth/plex/check?id='+encodeURIComponent(s.id)+'&nonce='+encodeURIComponent(s.nonce),{cache:'no-store'});
+      const j=await readJson(r), d=j.data||{};
+      if(r.status===202 && d.pending){
+        if(popup&&!popup.closed)popup.close();
+        err.style.color='var(--green)'; err.textContent=d.message||'Plex registration submitted and is waiting for administrator approval.';
+        btn.disabled=false; return;
+      }
+      if(!r.ok) throw new Error(d.message||'Plex sign-in failed');
+      if(!d.authorized) continue;
+      if(d.user){
+        if(popup&&!popup.closed)popup.close();
+        currentUser=d.user; sessionExpired=false; hideAuth(); onAuthed(); return;
+      }
+    }
+    throw new Error('Plex sign-in timed out. Try again.');
+  }catch(e){
+    if(popup&&!popup.closed)popup.close();
+    err.style.color=''; err.textContent=e.message;
+  }
   btn.disabled=false;
 }
 document.getElementById('authSubmit').onclick = submitAuth;
+document.getElementById('authRegisterToggle').onclick=()=>paintAuthModeD(authMode==='register'?'login':'register');
+document.getElementById('authPlex').onclick=beginPlexAuthD;
 document.getElementById('authPass').addEventListener('keydown', e=>{ if(e.key==='Enter') submitAuth(); });
 document.getElementById('authUser').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('authPass').focus(); });
 document.getElementById('logoutBtn').onclick = async ()=>{ try{ await fetch('/api/logout',{method:'POST'}); }catch(e){} location.reload(); };
@@ -4858,7 +4928,7 @@ function applyRoleUI(){
   document.getElementById('openUpdate').style.display = admin ? '' : 'none';
   document.getElementById('openTranscodes').style.display = admin ? '' : 'none';
   document.getElementById('logoutBtn').style.display = '';
-  document.getElementById('pwBtn').style.display = '';
+  document.getElementById('pwBtn').style.display = (currentUser && currentUser.hasPassword===false) ? 'none' : '';
   updateUserChip();
 }
 function updateUserChip(){
@@ -4913,6 +4983,55 @@ async function loadTranscodeDashboard(showError){
   try{ const r=await fetch('/api/admin/transcodes',{cache:'no-store'}), d=await r.json(); if(!r.ok)throw new Error(d.message||'Could not load dashboard'); renderTranscodeDashboard(d); }
   catch(e){ if(showError) document.getElementById('transcodesBody').innerHTML='<div class="state"><div class="big">Dashboard unavailable</div>'+esc(e.message)+'</div>'; }
 }
+
+/* ---------- pending registration notification ---------- */
+let registrationNoticeTimerD=null, registrationNoticeDataD=null;
+function registrationRequestKeyD(u){return String(u.username||'')+'|'+String(u.requestedAt||u.createdAt||0);}
+function registrationSeenD(){
+  try{const a=JSON.parse(localStorage.getItem('mediarr:registration-notices')||'[]');return new Set(Array.isArray(a)?a:[]);}catch(e){return new Set();}
+}
+function markRegistrationsSeenD(list){
+  try{
+    const seen=registrationSeenD(); (list||[]).forEach(u=>seen.add(registrationRequestKeyD(u)));
+    localStorage.setItem('mediarr:registration-notices',JSON.stringify(Array.from(seen).slice(-200)));
+  }catch(e){}
+}
+function setRegistrationBadgeD(count){
+  const b=document.getElementById('registrationNavBadge'); if(!b)return;
+  b.style.display=count>0?'inline-flex':'none'; b.textContent=String(count||0);
+}
+function closeRegistrationNoticeD(mark){
+  const p=registrationNoticeDataD&&registrationNoticeDataD.pending||[];
+  if(mark)markRegistrationsSeenD(p);
+  document.getElementById('registrationNoticeOverlay').classList.remove('show');
+}
+function showRegistrationNoticeD(d){
+  const pending=d.pending||[], seen=registrationSeenD(), unseen=pending.filter(u=>!seen.has(registrationRequestKeyD(u)));
+  if(!unseen.length)return;
+  registrationNoticeDataD=d;
+  document.getElementById('registrationNoticeBody').innerHTML=
+    '<div style="font-weight:850;font-size:15px;margin-bottom:10px">'+unseen.length+' new '+(unseen.length===1?'person has':'people have')+' requested access.</div>'
+    +unseen.slice(0,6).map(u=>'<div class="api-doc" style="margin:7px 0"><b>'+esc(u.username)+'</b> · '+esc(u.registrationMethod==='plex'?'Plex':'Username/password')+(u.requestedAt?'<br><span style="color:var(--muted)">'+esc(new Date(u.requestedAt).toLocaleString())+'</span>':'')+'</div>').join('')
+    +(unseen.length>6?'<div class="small" style="color:var(--muted)">+'+(unseen.length-6)+' more request(s)</div>':'')
+    +'<div class="small" style="color:var(--muted);margin-top:10px">Access remains blocked until an administrator approves the account.</div>';
+  document.getElementById('registrationNoticeOverlay').classList.add('show');
+}
+async function checkRegistrationNoticeD(showPopup){
+  if(!currentUser||currentUser.role!=='admin')return;
+  try{
+    const r=await fetch('/api/admin/registrations',{cache:'no-store'}),d=await r.json();
+    if(!r.ok)return;
+    setRegistrationBadgeD(d.count||0);
+    if(showPopup!==false && d.count)showRegistrationNoticeD(d);
+  }catch(e){}
+}
+document.getElementById('closeRegistrationNotice').onclick=()=>closeRegistrationNoticeD(true);
+document.getElementById('registrationNoticeLater').onclick=()=>closeRegistrationNoticeD(true);
+document.getElementById('registrationNoticeReview').onclick=()=>{
+  const p=registrationNoticeDataD&&registrationNoticeDataD.pending||[]; markRegistrationsSeenD(p);
+  document.getElementById('registrationNoticeOverlay').classList.remove('show');
+  openAdmin();
+};
 
 /* ---------- update availability notification ---------- */
 let updateNoticeTimerD=null, updateNoticeDataD=null;
@@ -5225,18 +5344,19 @@ function wirePlaybackAdmin(){
   const dash=document.getElementById('playDashOpen'); if(dash) dash.onclick=()=>{ adminOverlay.classList.remove('show'); openTranscodeDashboard(); };
 }
 function renderAdminUsers(users){
-  const t = document.getElementById('utable');
-  let html = `<div class="urow head"><div class="c-user">User</div><div class="c-role">Role</div><div class="c-lim">Daily limit</div><div class="c-used">Today</div><div class="c-act">Actions</div></div>`;
+  const t = document.getElementById('utable'), pendingCount=users.filter(u=>u.approved===false).length;
+  let html = pendingCount?'<div class="note" style="margin-bottom:12px"><b>'+pendingCount+' pending access '+(pendingCount===1?'request':'requests')+'.</b> Approve an account before that person can sign in.</div>':'';
+  html += `<div class="urow head"><div class="c-user">User</div><div class="c-role">Role</div><div class="c-lim">Daily limit</div><div class="c-used">Today</div><div class="c-act">Actions</div></div>`;
   users.forEach(u=>{
-    const isAdmin = u.role==='admin';
+    const isAdmin = u.role==='admin', pending=u.approved===false;
+    const provider=u.registrationMethod==='plex'?'Plex':u.registrationMethod==='password'?'Username/password':u.registrationMethod==='admin'?'Admin-created':'Local';
     html += `<div class="urow" data-u="${esc(u.username)}">
-      <div class="c-user">${esc(u.username)}${u.username===currentUser.username?' (you)':''}</div>
-      <div class="c-role"><span class="rolebadge ${u.role}">${u.role}</span></div>
-      <div class="c-lim">${isAdmin?'<span style="color:var(--muted)">∞</span>':`<input class="lim-input" type="number" min="0" value="${u.dailyLimit}"> <button class="mini ghost" data-act="setlim">Set</button>`}</div>
-      <div class="c-used">${isAdmin?'—':(u.addedToday||0)}</div>
+      <div class="c-user">${esc(u.username)}${u.username===currentUser.username?' (you)':''}<div style="font-size:10px;color:var(--muted);margin-top:3px">${esc(provider)}${u.plexUsername?' · '+esc(u.plexUsername):''}</div></div>
+      <div class="c-role"><span class="rolebadge ${pending?'user':u.role}">${pending?'pending':u.role}</span></div>
+      <div class="c-lim">${pending?'—':isAdmin?'<span style="color:var(--muted)">∞</span>':`<input class="lim-input" type="number" min="0" value="${u.dailyLimit}"> <button class="mini ghost" data-act="setlim">Set</button>`}</div>
+      <div class="c-used">${pending?'—':isAdmin?'—':(u.addedToday||0)}</div>
       <div class="c-act">
-        <button class="mini ghost" data-act="role">${isAdmin?'Make user':'Make admin'}</button>
-        <button class="mini ghost" data-act="del">Remove</button>
+        ${pending?'<button class="mini ghost" data-act="approve" style="color:var(--green)">Approve</button><button class="mini ghost" data-act="del">Reject</button>':'<button class="mini ghost" data-act="role">'+(isAdmin?'Make user':'Make admin')+'</button><button class="mini ghost" data-act="del">Remove</button>'}
       </div>
     </div>`;
   });
@@ -5245,11 +5365,15 @@ function renderAdminUsers(users){
     const uname = row.dataset.u;
     const setBtn = row.querySelector('[data-act="setlim"]');
     if(setBtn) setBtn.onclick = ()=> patchUser(uname, { dailyLimit: Number(row.querySelector('.lim-input').value) });
-    row.querySelector('[data-act="role"]').onclick = ()=>{
+    const roleBtn=row.querySelector('[data-act="role"]');
+    if(roleBtn) roleBtn.onclick = ()=>{
       const makingAdmin = !row.querySelector('.rolebadge').classList.contains('admin');
       patchUser(uname, { role: makingAdmin?'admin':'user' });
     };
-    row.querySelector('[data-act="del"]').onclick = ()=>{ if(confirm('Remove user "'+uname+'"?')) deleteUser(uname); };
+    const approveBtn=row.querySelector('[data-act="approve"]');
+    if(approveBtn) approveBtn.onclick=()=>patchUser(uname,{approved:true});
+    const delBtn=row.querySelector('[data-act="del"]');
+    if(delBtn) delBtn.onclick = ()=>{ if(confirm((approveBtn?'Reject access request from ':'Remove user "')+uname+(approveBtn?'?':'"?'))) deleteUser(uname); };
   });
 }
 let _actFilter = 'all';
@@ -6116,14 +6240,14 @@ async function patchUser(username, fields){
   try{
     const r = await fetch('/api/admin/users',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({username},fields))});
     const data = await r.json(); if(!r.ok) throw new Error(data.message||'Failed');
-    loadAdmin();
+    await loadAdmin(); checkRegistrationNoticeD(false);
   }catch(e){ alert(e.message); }
 }
 async function deleteUser(username){
   try{
     const r = await fetch('/api/admin/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username})});
     const data = await r.json(); if(!r.ok) throw new Error(data.message||'Failed');
-    loadAdmin();
+    await loadAdmin(); checkRegistrationNoticeD(false);
   }catch(e){ alert(e.message); }
 }
 
@@ -6141,10 +6265,13 @@ async function onAuthed(){
   qInput.focus();
   showHome();   // greet with recently released movies
   if(updateNoticeTimerD) clearInterval(updateNoticeTimerD);
+  if(registrationNoticeTimerD) clearInterval(registrationNoticeTimerD);
   if(currentUser&&currentUser.role==='admin'){
     setTimeout(()=>checkUpdateNoticeD(false),900);
     updateNoticeTimerD=setInterval(()=>{ if(!document.hidden) checkUpdateNoticeD(false); },30*60*1000);
-  }else setUpdateNavBadgeD(false,'');
+    setTimeout(()=>checkRegistrationNoticeD(true),1100);
+    registrationNoticeTimerD=setInterval(()=>{ if(!document.hidden) checkRegistrationNoticeD(true); },30000);
+  }else { setUpdateNavBadgeD(false,''); setRegistrationBadgeD(0); }
   pollStreams();
   if(window.__pollTimer) clearInterval(window.__pollTimer);
   window.__pollTimer = setInterval(()=>{ if(!document.hidden) pollStreams(); }, 30000);
@@ -6157,6 +6284,7 @@ async function onAuthed(){
       try{ if(autoPoll) pollAuto(); }catch(e){}
       try{ if(missPoll) pollMiss(); }catch(e){}
       try{ if(currentUser&&currentUser.role==='admin') checkUpdateNoticeD(false); }catch(e){}
+      try{ if(currentUser&&currentUser.role==='admin') checkRegistrationNoticeD(true); }catch(e){}
     });
   }
 }
