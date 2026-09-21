@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.6.6
+
+- Added public **Request access** registration on desktop and mobile using MEDIARR username/password credentials.
+- Added **Sign in with Plex** on the login screen. The first successful Plex authorization creates a pending MEDIARR account; after administrator approval, the same Plex account can sign directly into MEDIARR on future visits.
+- Every public registration is created as **pending** and cannot create a session, use a personal API key, or access authenticated MEDIARR APIs until an administrator approves it.
+- Existing MEDIARR accounts remain implicitly approved when upgrading, and administrator-created users continue to be active immediately.
+- Added administrator approval/rejection controls to User Management on desktop and mobile, including registration provider details and Plex usernames where available.
+- Added a pending-access count badge to the Admin menu plus in-app popup notifications when new registrations arrive. Dismissed requests stay visible in User Management until approved or rejected.
+- Added an authenticated `/api/admin/registrations` endpoint for pending-request counts/details and extended the existing user-management PATCH route with approval state.
+- Added registration abuse protection with per-IP rate limits for password registrations and Plex authorization starts.
+- Plex public sign-in uses nonce-bound PIN requests and maps accounts by a stable Plex account ID rather than display name, avoiding automatic merges into existing local usernames.
+- Preserved stable Plex account identity across Plex Home profile switching and added compatibility recovery for previously linked users whose stored profile ID differs from the root Plex account ID.
+- Plex-only MEDIARR accounts do not expose the password-change control unless a MEDIARR password exists.
+
 ## 1.6.5
 
 - Fixed a Unified Media Status regression that could display **Radarr movies as Sonarr TV shows** even though the underlying library match was correctly coming from Radarr.

@@ -4,7 +4,7 @@
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.6.5-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-1.6.6-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.6.5 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.6.6 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -513,6 +513,23 @@ Do not configure `/mnt/media/movies` unless that is also the path inside the con
 ## Accounts, roles, quotas, and API keys
 
 MEDIARR has its own account system.
+
+### Registration and access approval
+
+After the first administrator account has been created, the login screen supports two public access-request methods:
+
+- **Request access** with a MEDIARR username and password.
+- **Sign in with Plex**. The first successful Plex authorization creates a MEDIARR access request tied to that Plex account; after approval, Plex can be used as the sign-in method.
+
+Every public registration starts in a **pending** state. Pending accounts cannot sign in, create authenticated sessions, or use MEDIARR personal API keys until an administrator approves them.
+
+Administrators receive an in-app notification when new access requests arrive. The Admin menu shows the current pending-request count, and User Management provides **Approve** and **Reject** actions on both desktop and mobile.
+
+Existing accounts from releases before v1.6.6 are treated as already approved, so upgrading does not lock out existing users. Accounts created manually by an administrator are active immediately.
+
+Plex registration is matched by the stable Plex account identity rather than by username/display name. MEDIARR does not automatically merge a Plex login into an existing local account simply because the names match.
+
+Public registration endpoints are rate-limited to reduce automated account-request flooding.
 
 ### Administrator accounts
 
