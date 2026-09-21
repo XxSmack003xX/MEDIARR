@@ -245,7 +245,14 @@ function setUserPlex (username, plex) {
   const data = readUsers();
   const u = data.users.find(x => x.username.toLowerCase() === String(username).toLowerCase());
   if (!u) return false;
-  if (plex) u.plex = plex; else delete u.plex;
+  if (plex) {
+    const prev = u.plex || {}, next = Object.assign({}, plex);
+    if (next.accountId == null) {
+      if (prev.accountId != null) next.accountId = prev.accountId;
+      else if (next.rootToken && next.token && next.rootToken === next.token && next.id != null) next.accountId = next.id;
+    }
+    u.plex = next;
+  } else delete u.plex;
   writeUsers(data); return true;
 }
 // Some plex.tv endpoints answer XML no matter what Accept says, so keep the raw text
@@ -1054,7 +1061,29 @@ function userApproved (u) { return !!u && u.approved !== false; }
 function findUsersByPlexAccountId (id) {
   const key = String(id == null ? '' : id);
   if (!key) return [];
-  return readUsers().users.filter(u => u.plex && u.plex.id != null && String(u.plex.id) === key);
+  return readUsers().users.filter(u => u.plex && (
+    (u.plex.accountId != null && String(u.plex.accountId) === key) ||
+    (u.plex.accountId == null && u.plex.id != null && String(u.plex.id) === key)
+  ));
+}
+async function resolvePlexAccountMatch (plexId) {
+  let matches = findUsersByPlexAccountId(plexId);
+  if (matches.length || !plexId) return matches;
+  // Older users may have switched to a Plex Home profile before accountId existed.
+  // Resolve the stored root token once so the stable account can be recovered safely.
+  const data = readUsers(); let changed = false;
+  for (const u of data.users) {
+    const px = u.plex || {}, root = px.rootToken || '';
+    if (!root) continue;
+    try {
+      const acct = await plexJson('https://plex.tv/api/v2/user', root);
+      const id = acct.ok && acct.data && acct.data.id != null ? String(acct.data.id) : '';
+      if (!id) continue;
+      if (String(px.accountId || '') !== id) { px.accountId = acct.data.id; u.plex = px; changed = true; }
+    } catch (_) {}
+  }
+  if (changed) writeUsers(data);
+  return findUsersByPlexAccountId(plexId);
 }
 function pendingRegistrations () {
   return readUsers().users.filter(u => !userApproved(u)).sort((a,b)=>(a.requestedAt||a.createdAt||0)-(b.requestedAt||b.createdAt||0));
@@ -4772,7 +4801,7 @@ const server = http.createServer(async (req, res) => {
       const id = String(u.searchParams.get('id') || '').replace(/[^0-9]/g, ''), nonce = String(u.searchParams.get('nonce') || '');
       prunePublicPlexPins();
       const pendingPin = publicPlexPins.get(id);
-      if (!id || !nonce || !pendingPin || !crypto.timingSafeEqual(Buffer.from(nonce.padEnd(48,'0').slice(0,48)), Buffer.from(String(pendingPin.nonce).padEnd(48,'0').slice(0,48))))
+      if (!id || !/^[a-f0-9]{48}$/i.test(nonce) || !pendingPin || !crypto.timingSafeEqual(Buffer.from(nonce, 'utf8'), Buffer.from(String(pendingPin.nonce), 'utf8')))
         return sendJSON(res, 400, { message: 'That Plex sign-in request is no longer valid. Start again.' });
       const pin = await plexJson('https://plex.tv/api/v2/pins/' + id, '');
       if (!pin.ok) return sendJSON(res, 502, { message: 'Plex returned HTTP ' + pin.status });
@@ -4783,11 +4812,11 @@ const server = http.createServer(async (req, res) => {
       const info = acct.data || {}, plexId = info.id != null ? String(info.id) : '';
       if (!plexId) { publicPlexPins.delete(id); return sendJSON(res, 502, { message: 'Plex did not return an account identifier.' }); }
       publicPlexPins.delete(id);
-      const matches = findUsersByPlexAccountId(plexId);
+      const matches = await resolvePlexAccountMatch(plexId);
       if (matches.length > 1) return sendJSON(res, 409, { message: 'This Plex account is linked to more than one MEDIARR user. Sign in with username/password or ask an administrator to resolve the duplicate.' });
       if (matches.length === 1) {
         const data = readUsers(), account = data.users.find(x => x === matches[0] || String(x.username).toLowerCase() === String(matches[0].username).toLowerCase());
-        account.plex = { token, rootToken: token, username: info.username || info.title || '', id: info.id, at: Date.now() };
+        account.plex = { token, rootToken: token, username: info.username || info.title || '', id: info.id, accountId: info.id, at: Date.now() };
         writeUsers(data);
         if (!userApproved(account)) return sendJSON(res, 202, { authorized: true, pending: true, username: account.username, message: 'Your MEDIARR registration is still waiting for administrator approval.' });
         createSession(req, res, account.username);
@@ -4799,7 +4828,7 @@ const server = http.createServer(async (req, res) => {
       const account = {
         username, role: 'user', dailyLimit: 10, approved: false, registrationMethod: 'plex',
         requestedAt: now, createdAt: now,
-        plex: { token, rootToken: token, username: info.username || info.title || '', id: info.id, at: now }
+        plex: { token, rootToken: token, username: info.username || info.title || '', id: info.id, accountId: info.id, at: now }
       };
       data.users.push(account); writeUsers(data); registrationRecord(ip); announceRegistration(account);
       return sendJSON(res, 202, { authorized: true, pending: true, username, message: 'Plex registration submitted. An administrator must approve your account before you can sign in.' });
