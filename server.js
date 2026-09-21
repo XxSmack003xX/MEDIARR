@@ -785,6 +785,32 @@ function loginFailed (ip, username) {
   return lock;
 }
 function loginSucceeded (ip, username) { for (const k of loginKeys(ip, username)) loginFails.delete(k); }
+
+/* Public registration is intentionally conservative: at most five new accounts per IP per hour.
+   Plex PIN creation has a separate short-window throttle and each PIN is bound to a random nonce. */
+const registrationHits = new Map();
+const plexAuthStarts = new Map();
+const publicPlexPins = new Map();
+function rateWindow (map, key, windowMs, max) {
+  const now = Date.now(), cur = (map.get(key) || []).filter(t => now - t < windowMs);
+  map.set(key, cur);
+  if (cur.length < max) return 0;
+  return Math.max(1, Math.ceil((windowMs - (now - cur[0])) / 1000));
+}
+function rateRecord (map, key, windowMs) {
+  const now = Date.now(), cur = (map.get(key) || []).filter(t => now - t < windowMs);
+  cur.push(now); map.set(key, cur);
+  if (map.size > 5000) for (const [k,v] of map) if (!v.length || now - v[v.length - 1] > windowMs) map.delete(k);
+}
+function registrationWait (ip) { return rateWindow(registrationHits, 'ip:' + ip, 60 * 60000, 5); }
+function registrationRecord (ip) { rateRecord(registrationHits, 'ip:' + ip, 60 * 60000); }
+function plexAuthWait (ip) { return rateWindow(plexAuthStarts, 'ip:' + ip, 15 * 60000, 12); }
+function plexAuthRecord (ip) { rateRecord(plexAuthStarts, 'ip:' + ip, 15 * 60000); }
+function prunePublicPlexPins () {
+  const cut = Date.now() - 10 * 60000;
+  for (const [id,v] of publicPlexPins) if (!v || v.createdAt < cut) publicPlexPins.delete(id);
+}
+
 function loginLockouts () {
   const now = Date.now(), out = [];
   for (const [k, r] of loginFails) {
@@ -1024,6 +1050,38 @@ function notify (event, title, message, level) {
 }
 
 function findUser (username) { return readUsers().users.find(u => u.username.toLowerCase() === String(username || '').toLowerCase()); }
+function userApproved (u) { return !!u && u.approved !== false; }
+function findUsersByPlexAccountId (id) {
+  const key = String(id == null ? '' : id);
+  if (!key) return [];
+  return readUsers().users.filter(u => u.plex && u.plex.id != null && String(u.plex.id) === key);
+}
+function pendingRegistrations () {
+  return readUsers().users.filter(u => !userApproved(u)).sort((a,b)=>(a.requestedAt||a.createdAt||0)-(b.requestedAt||b.createdAt||0));
+}
+function registrationUsername (raw) {
+  const u = String(raw || '').trim();
+  if (!/^[A-Za-z0-9._-]{3,40}$/.test(u)) return '';
+  return u;
+}
+function uniquePlexUsername (info) {
+  const data = readUsers(), taken = new Set(data.users.map(u => String(u.username || '').toLowerCase()));
+  let base = String((info && (info.username || info.title)) || '').trim()
+    .replace(/\s+/g, '_').replace(/[^A-Za-z0-9._-]/g, '').replace(/^[-_.]+|[-_.]+$/g, '');
+  if (base.length < 3) base = 'plex_user';
+  base = base.slice(0, 32);
+  if (!taken.has(base.toLowerCase())) return base;
+  const suffix = String((info && info.id) || crypto.randomBytes(3).toString('hex')).replace(/[^A-Za-z0-9]/g, '').slice(-8) || 'user';
+  let candidate = (base.slice(0, Math.max(3, 39 - suffix.length)) + '_' + suffix).slice(0, 40);
+  let n = 2;
+  while (taken.has(candidate.toLowerCase())) candidate = (base.slice(0, 34) + '_' + suffix.slice(-3) + n++).slice(0, 40);
+  return candidate;
+}
+function announceRegistration (u) {
+  const method = u.registrationMethod === 'plex' ? 'Plex' : 'username/password';
+  try { notify('registration', '👤 New MEDIARR access request', u.username + ' registered with ' + method + ' and is waiting for approval.', 'info'); } catch (_) {}
+  try { realtimePush('registration.pending', { username: u.username, method, requestedAt: u.requestedAt || u.createdAt || Date.now() }); } catch (_) {}
+}
 
 /* ---------- per-user theme + personal API key ---------- */
 const THEME_VARS = ['bg', 'bg2', 'panel', 'panel2', 'line', 'txt', 'muted', 'gold', 'gold-dim', 'radarr', 'sonarr', 'green', 'red'];
@@ -1060,7 +1118,7 @@ function newApiKey () { return 'mk_' + crypto.randomBytes(24).toString('hex'); }
 function findUserByApiKey (key) {
   key = String(key || '').trim();
   if (!key || key.length < 8) return null;
-  return readUsers().users.find(u => u.apiKey && crypto.timingSafeEqual(
+  return readUsers().users.find(u => userApproved(u) && u.apiKey && crypto.timingSafeEqual(
     Buffer.from(String(u.apiKey).padEnd(80, '\0').slice(0, 80)),
     Buffer.from(key.padEnd(80, '\0').slice(0, 80)))) || null;
 }
@@ -1073,8 +1131,9 @@ function hashPassword (password, salt) {
   return { salt, hash };
 }
 function verifyPassword (password, salt, hash) {
+  if (!salt || !hash) return false;
   const h = crypto.scryptSync(String(password), salt, 64).toString('hex');
-  const a = Buffer.from(h), b = Buffer.from(hash);
+  const a = Buffer.from(h), b = Buffer.from(String(hash));
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
@@ -1090,7 +1149,7 @@ function currentUser (req) {
   const s = sessions.get(tok);
   if (!s || s.expires < Date.now()) { if (s) sessions.delete(tok); return null; }
   const u = findUser(s.username);
-  if (!u) { sessions.delete(tok); return null; }
+  if (!u || !userApproved(u)) { sessions.delete(tok); return null; }
   return u;
 }
 /* Someone actively watching or downloading shouldn't be logged out mid-stream, so any
@@ -1150,7 +1209,12 @@ function clearSession (req, res) {
   res.setHeader('Set-Cookie', `mediarr_session=; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=0`);
 }
 function publicUser (u, withCounts) {
-  const o = { username: u.username, role: u.role, dailyLimit: u.dailyLimit, createdAt: u.createdAt };
+  const o = {
+    username: u.username, role: u.role, dailyLimit: u.dailyLimit, createdAt: u.createdAt,
+    approved: userApproved(u), registrationMethod: u.registrationMethod || 'local',
+    requestedAt: u.requestedAt || null, approvedAt: u.approvedAt || null,
+    hasPassword: !!u.hash, plexUsername: (u.plex && u.plex.username) || ''
+  };
   if (withCounts) o.addedToday = addsTodayCount(u.username);
   return o;
 }
@@ -4669,10 +4733,76 @@ const server = http.createServer(async (req, res) => {
       const { username, password } = JSON.parse(await readBody(req) || '{}');
       if (!username || !password) return sendJSON(res, 400, { message: 'Username and password required' });
       const { salt, hash } = hashPassword(password);
-      const u = { username: String(username).trim(), role: 'admin', dailyLimit: 0, salt, hash, createdAt: Date.now() };
+      const u = { username: String(username).trim(), role: 'admin', dailyLimit: 0, salt, hash, approved: true, registrationMethod: 'setup', createdAt: Date.now(), approvedAt: Date.now() };
       data.users.push(u); writeUsers(data);
       createSession(req, res, u.username);
       return sendJSON(res, 200, publicUser(u, true));
+    }
+    if (p === '/api/register' && req.method === 'POST') {
+      const data = readUsers();
+      if (!data.users.length) return sendJSON(res, 409, { message: 'The administrator must finish first-run setup before registrations can be accepted.' });
+      const ip = clientIp(req), wait = registrationWait(ip);
+      if (wait) { res.setHeader('Retry-After', String(wait)); return sendJSON(res, 429, { message: 'Too many registrations from this address. Try again later.' }); }
+      let body = {}; try { body = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
+      const username = registrationUsername(body.username), password = String(body.password || '');
+      if (!username) return sendJSON(res, 400, { message: 'Username must be 3–40 characters using only letters, numbers, dots, dashes, or underscores.' });
+      if (password.length < 4 || password.length > 256) return sendJSON(res, 400, { message: 'Password must be 4–256 characters.' });
+      if (data.users.some(x => String(x.username || '').toLowerCase() === username.toLowerCase())) return sendJSON(res, 409, { message: 'That username already exists.' });
+      const { salt, hash } = hashPassword(password), now = Date.now();
+      const account = { username, role: 'user', dailyLimit: 10, salt, hash, approved: false, registrationMethod: 'password', requestedAt: now, createdAt: now };
+      data.users.push(account); writeUsers(data); registrationRecord(ip); announceRegistration(account);
+      return sendJSON(res, 202, { pending: true, username, message: 'Registration submitted. An administrator must approve your account before you can sign in.' });
+    }
+    if (p === '/api/auth/plex/pin' && req.method === 'POST') {
+      if (!readUsers().users.length) return sendJSON(res, 409, { message: 'The administrator must finish first-run setup first.' });
+      const ip = clientIp(req), wait = plexAuthWait(ip);
+      if (wait) { res.setHeader('Retry-After', String(wait)); return sendJSON(res, 429, { message: 'Too many Plex sign-in attempts. Try again shortly.' }); }
+      const clientId = ensurePlexClientId();
+      try {
+        const up = await upstream('https://plex.tv/api/v2/pins?strong=true', { method: 'POST', headers: Object.assign({ 'Content-Length': '0' }, plexHeaders(clientId)) });
+        if (up.status < 200 || up.status >= 300) return sendJSON(res, 502, { message: 'Plex returned HTTP ' + up.status });
+        const j = JSON.parse(up.body.toString('utf8')), nonce = crypto.randomBytes(24).toString('hex');
+        prunePublicPlexPins(); plexAuthRecord(ip);
+        publicPlexPins.set(String(j.id), { nonce, createdAt: Date.now() });
+        const authUrl = 'https://app.plex.tv/auth#?clientID=' + encodeURIComponent(clientId) + '&code=' + encodeURIComponent(j.code) + '&context%5Bdevice%5D%5Bproduct%5D=MEDIARR';
+        return sendJSON(res, 200, { id: j.id, code: j.code, nonce, authUrl });
+      } catch (e) { return sendJSON(res, 502, { message: 'Could not reach Plex: ' + e.message }); }
+    }
+    if (p === '/api/auth/plex/check' && req.method === 'GET') {
+      const id = String(u.searchParams.get('id') || '').replace(/[^0-9]/g, ''), nonce = String(u.searchParams.get('nonce') || '');
+      prunePublicPlexPins();
+      const pendingPin = publicPlexPins.get(id);
+      if (!id || !nonce || !pendingPin || !crypto.timingSafeEqual(Buffer.from(nonce.padEnd(48,'0').slice(0,48)), Buffer.from(String(pendingPin.nonce).padEnd(48,'0').slice(0,48))))
+        return sendJSON(res, 400, { message: 'That Plex sign-in request is no longer valid. Start again.' });
+      const pin = await plexJson('https://plex.tv/api/v2/pins/' + id, '');
+      if (!pin.ok) return sendJSON(res, 502, { message: 'Plex returned HTTP ' + pin.status });
+      const token = pin.data && pin.data.authToken;
+      if (!token) return sendJSON(res, 200, { authorized: false });
+      const acct = await plexJson('https://plex.tv/api/v2/user', token);
+      if (!acct.ok) { publicPlexPins.delete(id); return sendJSON(res, 502, { message: 'Plex account lookup failed.' }); }
+      const info = acct.data || {}, plexId = info.id != null ? String(info.id) : '';
+      if (!plexId) { publicPlexPins.delete(id); return sendJSON(res, 502, { message: 'Plex did not return an account identifier.' }); }
+      publicPlexPins.delete(id);
+      const matches = findUsersByPlexAccountId(plexId);
+      if (matches.length > 1) return sendJSON(res, 409, { message: 'This Plex account is linked to more than one MEDIARR user. Sign in with username/password or ask an administrator to resolve the duplicate.' });
+      if (matches.length === 1) {
+        const data = readUsers(), account = data.users.find(x => x === matches[0] || String(x.username).toLowerCase() === String(matches[0].username).toLowerCase());
+        account.plex = { token, rootToken: token, username: info.username || info.title || '', id: info.id, at: Date.now() };
+        writeUsers(data);
+        if (!userApproved(account)) return sendJSON(res, 202, { authorized: true, pending: true, username: account.username, message: 'Your MEDIARR registration is still waiting for administrator approval.' });
+        createSession(req, res, account.username);
+        return sendJSON(res, 200, { authorized: true, pending: false, user: publicUser(account, true) });
+      }
+      const ip = clientIp(req), wait = registrationWait(ip);
+      if (wait) { res.setHeader('Retry-After', String(wait)); return sendJSON(res, 429, { message: 'Too many registrations from this address. Try again later.' }); }
+      const data = readUsers(), now = Date.now(), username = uniquePlexUsername(info);
+      const account = {
+        username, role: 'user', dailyLimit: 10, approved: false, registrationMethod: 'plex',
+        requestedAt: now, createdAt: now,
+        plex: { token, rootToken: token, username: info.username || info.title || '', id: info.id, at: now }
+      };
+      data.users.push(account); writeUsers(data); registrationRecord(ip); announceRegistration(account);
+      return sendJSON(res, 202, { authorized: true, pending: true, username, message: 'Plex registration submitted. An administrator must approve your account before you can sign in.' });
     }
     if (p === '/api/login' && req.method === 'POST') {
       const ip = clientIp(req);
@@ -4686,7 +4816,7 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 429, { message: 'Too many failed attempts. Try again in ' + (wait >= 60 ? Math.ceil(wait / 60) + ' minute' + (wait >= 120 ? 's' : '') : wait + ' seconds') + '.' });
       }
       const u = findUser(username);
-      if (!u || !verifyPassword(password, u.salt, u.hash)) {
+      if (!u || !u.hash || !verifyPassword(password, u.salt, u.hash)) {
         const locked = loginFailed(ip, username);
         logError('login', 'failed login', 'ip=' + ip + ' user=' + String(username || '?').slice(0, 40) + (locked ? ' — locked for ' + locked + 's' : ''));
         return sendJSON(res, 401, { message: locked
@@ -4694,6 +4824,7 @@ const server = http.createServer(async (req, res) => {
           : 'Invalid username or password' });
       }
       loginSucceeded(ip, username);
+      if (!userApproved(u)) return sendJSON(res, 403, { pending: true, message: 'Your registration is waiting for administrator approval.' });
       createSession(req, res, u.username);
       return sendJSON(res, 200, publicUser(u, true));
     }
@@ -5468,8 +5599,13 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/admin/transcodes' && req.method === 'GET') return sendJSON(res, 200, await transcodeDashboard());
 
       // ---- admin: user management ----
+      if (p === '/api/admin/registrations' && req.method === 'GET') {
+        const pending = pendingRegistrations().map(u => publicUser(u, true));
+        return sendJSON(res, 200, { pending, count: pending.length });
+      }
       if (p === '/api/admin/users' && req.method === 'GET') {
-        return sendJSON(res, 200, { users: readUsers().users.map(u => publicUser(u, true)) });
+        const users = readUsers().users.slice().sort((a,b) => Number(userApproved(a)) - Number(userApproved(b)) || String(a.username).localeCompare(String(b.username)));
+        return sendJSON(res, 200, { users: users.map(u => publicUser(u, true)), pending: users.filter(u => !userApproved(u)).length });
       }
       if (p === '/api/admin/users' && req.method === 'POST') {
         const { username, password, role, dailyLimit } = JSON.parse(await readBody(req) || '{}');
@@ -5477,12 +5613,13 @@ const server = http.createServer(async (req, res) => {
         const data = readUsers();
         if (data.users.find(u => u.username.toLowerCase() === String(username).toLowerCase())) return sendJSON(res, 400, { message: 'That username already exists' });
         const { salt, hash } = hashPassword(password);
-        const u = { username: String(username).trim(), role: role === 'admin' ? 'admin' : 'user', dailyLimit: Number(dailyLimit) >= 0 ? Number(dailyLimit) : 10, salt, hash, createdAt: Date.now() };
+        const now = Date.now();
+        const u = { username: String(username).trim(), role: role === 'admin' ? 'admin' : 'user', dailyLimit: Number(dailyLimit) >= 0 ? Number(dailyLimit) : 10, salt, hash, approved: true, registrationMethod: 'admin', createdAt: now, approvedAt: now, approvedBy: me.username };
         data.users.push(u); writeUsers(data);
         return sendJSON(res, 200, publicUser(u, true));
       }
       if (p === '/api/admin/users' && req.method === 'PATCH') {
-        const { username, dailyLimit, role, password } = JSON.parse(await readBody(req) || '{}');
+        const { username, dailyLimit, role, password, approved } = JSON.parse(await readBody(req) || '{}');
         const data = readUsers();
         const u = data.users.find(x => x.username.toLowerCase() === String(username).toLowerCase());
         if (!u) return sendJSON(res, 404, { message: 'User not found' });
@@ -5491,6 +5628,11 @@ const server = http.createServer(async (req, res) => {
           if (u.role === 'admin' && role === 'user' && data.users.filter(x => x.role === 'admin').length <= 1)
             return sendJSON(res, 400, { message: "Can't demote the last admin" });
           u.role = role;
+        }
+        if (typeof approved === 'boolean') {
+          if (u.role === 'admin' && !approved) return sendJSON(res, 400, { message: 'Admin accounts cannot be placed into pending state' });
+          u.approved = approved;
+          if (approved) { u.approvedAt = Date.now(); u.approvedBy = me.username; try { realtimePush('registration.approved', { username: u.username, approvedBy: me.username }); } catch (_) {} }
         }
         if (password) { const { salt, hash } = hashPassword(password); u.salt = salt; u.hash = hash; }
         writeUsers(data);
@@ -5519,6 +5661,7 @@ const server = http.createServer(async (req, res) => {
       // any logged-in user can change their own password
       if (p === '/api/change-password' && req.method === 'POST') {
         const { currentPassword, newPassword } = JSON.parse(await readBody(req) || '{}');
+        if (!me.hash) return sendJSON(res, 400, { message: 'This account uses Plex sign-in and does not have a MEDIARR password.' });
         if (!newPassword || String(newPassword).length < 4) return sendJSON(res, 400, { message: 'New password must be at least 4 characters' });
         if (!verifyPassword(currentPassword, me.salt, me.hash)) return sendJSON(res, 403, { message: 'Current password is incorrect' });
         const data = readUsers();
