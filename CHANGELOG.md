@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.7
+
+- Added a built-in **CAPTCHA** challenge for every new public access request on desktop and mobile.
+- Username/password registration now requires a fresh 5-digit CAPTCHA before the pending account can be created.
+- New Plex registrations also require CAPTCHA verification before the Plex PIN flow starts.
+- Existing approved users can still sign in normally without CAPTCHA, including existing Plex-linked accounts.
+- The normal Plex sign-in path can no longer be used to bypass CAPTCHA: if no MEDIARR account is linked to that Plex account, the user is directed to **Request access** and must complete a CAPTCHA.
+- CAPTCHA challenges are generated locally by MEDIARR with no third-party CAPTCHA provider, external API key, or tracking dependency.
+- CAPTCHA responses use an image challenge, expire after five minutes, are bound to the requesting IP, and are invalidated after a single verification attempt whether correct or incorrect.
+- CAPTCHA generation is rate-limited per IP and old challenges are pruned from memory automatically.
+- Registration screens include a refresh button and automatically load a new challenge after a failed registration attempt.
+
 ## 1.6.6
 
 - Added public **Request access** registration on desktop and mobile using MEDIARR username/password credentials.
