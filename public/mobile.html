@@ -81,6 +81,15 @@
         <div id="authErr" class="alert alert-danger py-2 small d-none" role="alert"></div>
         <div class="mb-3"><label class="form-label small">Username</label><input id="authUser" class="form-control" autocomplete="username" autocapitalize="none"></div>
         <div class="mb-3"><label class="form-label small">Password</label><input id="authPass" type="password" class="form-control" autocomplete="current-password"></div>
+        <div id="authCaptchaM" class="mb-3 d-none">
+          <label class="form-label small">Human verification</label>
+          <div class="d-flex gap-2">
+            <div class="flex-grow-1 overflow-hidden rounded border" style="height:74px;background:#111827"><img id="authCaptchaImgM" alt="CAPTCHA challenge" style="width:100%;height:74px;object-fit:cover;display:block"></div>
+            <button id="authCaptchaRefreshM" type="button" class="btn btn-outline-secondary" aria-label="Generate a new CAPTCHA" title="New CAPTCHA">↻</button>
+          </div>
+          <input id="authCaptchaAnswerM" class="form-control mt-2" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" autocomplete="off" placeholder="Enter the 5 digits shown above">
+          <div class="form-text">Required only for new account requests. Expires after 5 minutes.</div>
+        </div>
         <button id="authSubmit" class="btn btn-gold w-100">Sign in</button>
         <div id="authAccessActionsM" class="d-grid gap-2 mt-2">
           <button id="authRegisterToggleM" class="btn btn-outline-secondary" type="button">Request access</button>
@@ -283,17 +292,35 @@ function isConfigured(svc){ if(svc==='tmdb')return !!(config&&config.tmdb&&confi
   showAuth(needed);
 })();
 
+let authCaptchaIdM='';
+async function loadCaptchaM(){
+  if(($('authView').dataset.mode||'login')!=='register'){authCaptchaIdM='';$('authCaptchaAnswerM').value='';return;}
+  authCaptchaIdM='';$('authCaptchaAnswerM').value='';$('authCaptchaImgM').removeAttribute('src');$('authCaptchaImgM').alt='Loading CAPTCHA…';
+  try{
+    const j=await readJson(await fetch('/api/captcha',{cache:'no-store'})),d=j.data||{};
+    if(!d.id||!d.image)throw new Error(d.message||'Could not load CAPTCHA');
+    authCaptchaIdM=d.id;$('authCaptchaImgM').src=d.image;$('authCaptchaImgM').alt='CAPTCHA challenge';
+  }catch(e){$('authCaptchaImgM').removeAttribute('src');$('authCaptchaImgM').alt='CAPTCHA unavailable';$('authErr').textContent=e.message;$('authErr').classList.remove('d-none');}
+}
+function captchaPayloadM(){
+  const answer=$('authCaptchaAnswerM').value.trim();
+  if(!authCaptchaIdM||!/^[0-9]{5}$/.test(answer))throw new Error('Enter the 5-digit CAPTCHA shown above.');
+  return {captchaId:authCaptchaIdM,captchaAnswer:answer};
+}
 function paintAuthModeM(mode){
   const setup=mode==='setup', register=mode==='register';
   $('appView').classList.add('d-none'); $('authView').classList.remove('d-none');
   $('authTitle').textContent = setup ? 'Create admin account' : register ? 'Request access' : 'Sign in';
   $('authSubmit').textContent = setup ? 'Create account' : register ? 'Register' : 'Sign in';
   $('authRegisterToggleM').textContent=register?'Back to sign in':'Request access';
+  $('authPlexM').textContent=register?'Register with Plex':'Sign in with Plex';
   $('authAccessActionsM').classList.toggle('d-none',setup);
   $('authAccessHintM').classList.toggle('d-none',setup);
+  $('authCaptchaM').classList.toggle('d-none',!register);
   $('authPass').autocomplete=register?'new-password':'current-password';
   $('authView').dataset.mode = mode;
   $('authErr').classList.add('d-none'); $('authErr').classList.remove('alert-success'); $('authErr').classList.add('alert-danger'); $('authErr').textContent='';
+  if(register)setTimeout(loadCaptchaM,0);else{authCaptchaIdM='';$('authCaptchaAnswerM').value='';}
 }
 function showAuth(needed){ paintAuthModeM(needed?'setup':'login'); }
 $('authSubmit').onclick = async ()=>{
@@ -303,7 +330,8 @@ $('authSubmit').onclick = async ()=>{
   const mode=$('authView').dataset.mode||'login', endpoint=mode==='setup'?'setup':mode==='register'?'register':'login';
   $('authSubmit').disabled=true;
   try{
-    const r=await fetch('/api/'+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
+    const body={username:u,password:p};if(mode==='register')Object.assign(body,captchaPayloadM());
+    const r=await fetch('/api/'+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j=await readJson(r),d=j.data||{};
     if(mode==='register'&&r.ok&&d.pending){
       $('authPass').value=''; paintAuthModeM('login');
@@ -312,14 +340,16 @@ $('authSubmit').onclick = async ()=>{
     else if(d&&d.message) throw new Error(d.message);
     else if(j.empty) throw new Error('No response from the server. If you use a reverse proxy, make sure it forwards /api.');
     else throw new Error('Sign-in failed ('+r.status+').');
-  }catch(e){ err.textContent=e.message; err.classList.remove('d-none'); }
+  }catch(e){ err.textContent=e.message; err.classList.remove('d-none'); if(mode==='register')await loadCaptchaM(); }
   $('authSubmit').disabled=false;
 };
 async function beginPlexAuthM(){
   const btn=$('authPlexM'),err=$('authErr'); err.classList.add('d-none'); err.classList.remove('alert-success'); err.classList.add('alert-danger'); btn.disabled=true;
   let popup=null; try{popup=window.open('about:blank','mediarr_plex_auth','width=760,height=720');}catch(e){}
   try{
-    const sj=await readJson(await fetch('/api/auth/plex/pin',{method:'POST'})),s=sj.data||{};
+    const mode=$('authView').dataset.mode||'login',purpose=mode==='register'?'register':'login',body={purpose};
+    if(purpose==='register')Object.assign(body,captchaPayloadM());
+    const sj=await readJson(await fetch('/api/auth/plex/pin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})),s=sj.data||{};
     if(!s.authUrl)throw new Error(s.message||'Could not start Plex sign-in');
     if(popup)popup.location.href=s.authUrl; else {err.innerHTML='Popup blocked. <a href="'+esc(s.authUrl)+'" target="_blank" rel="noopener">Open Plex sign-in</a>, then return here.';err.classList.remove('d-none');}
     const until=Date.now()+180000;
@@ -328,6 +358,7 @@ async function beginPlexAuthM(){
       const r=await fetch('/api/auth/plex/check?id='+encodeURIComponent(s.id)+'&nonce='+encodeURIComponent(s.nonce),{cache:'no-store'}),j=await readJson(r),d=j.data||{};
       if(r.status===202&&d.pending){
         if(popup&&!popup.closed)popup.close();
+        paintAuthModeM('login');
         err.classList.remove('d-none','alert-danger');err.classList.add('alert-success');err.textContent=d.message||'Plex registration is waiting for administrator approval.';btn.disabled=false;return;
       }
       if(!r.ok)throw new Error(d.message||'Plex sign-in failed');
@@ -335,9 +366,10 @@ async function beginPlexAuthM(){
       if(d.user){if(popup&&!popup.closed)popup.close();me=d.user;onAuthed();return;}
     }
     throw new Error('Plex sign-in timed out. Try again.');
-  }catch(e){if(popup&&!popup.closed)popup.close();err.classList.remove('d-none');err.textContent=e.message;}
+  }catch(e){if(popup&&!popup.closed)popup.close();err.classList.remove('d-none');err.textContent=e.message;if(($('authView').dataset.mode||'login')==='register')await loadCaptchaM();}
   btn.disabled=false;
 }
+$('authCaptchaRefreshM').onclick=loadCaptchaM;
 $('authRegisterToggleM').onclick=()=>paintAuthModeM(($('authView').dataset.mode||'login')==='register'?'login':'register');
 $('authPlexM').onclick=beginPlexAuthM;
 

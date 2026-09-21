@@ -552,6 +552,17 @@
     <p class="sub" id="authSub">Enter your credentials to continue.</p>
     <div class="field"><label>Username</label><input type="text" id="authUser" autocomplete="username"></div>
     <div class="field"><label>Password</label><input type="password" id="authPass" autocomplete="current-password"></div>
+    <div id="authCaptcha" style="display:none;margin:2px 0 14px">
+      <label style="display:block;font-size:11px;font-weight:800;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.7px">Human verification</label>
+      <div style="display:flex;gap:8px;align-items:stretch">
+        <div style="flex:1;min-width:0;border:1px solid var(--line);background:#111827;border-radius:9px;overflow:hidden;height:74px;display:flex;align-items:center;justify-content:center">
+          <img id="authCaptchaImg" alt="CAPTCHA challenge" style="display:block;width:100%;height:74px;object-fit:cover">
+        </div>
+        <button class="btn btn-ghost" id="authCaptchaRefresh" type="button" title="New CAPTCHA" aria-label="Generate a new CAPTCHA" style="padding:0 12px">↻</button>
+      </div>
+      <input id="authCaptchaAnswer" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" autocomplete="off" placeholder="Enter the 5 digits shown above" style="width:100%;margin-top:8px">
+      <div class="small" style="color:var(--muted);margin-top:5px">Required only when requesting a new account. Challenges expire after 5 minutes.</div>
+    </div>
     <div class="auth-err" id="authErr"></div>
     <button class="btn btn-gold" id="authSubmit" style="width:100%">Sign in</button>
     <div id="authAccessActions" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
@@ -4385,7 +4396,27 @@ const pwOverlay = document.getElementById('pwOverlay');
 
 /* ---------- auth ---------- */
 let authMode = 'login';   // 'login' | 'register' | 'setup'
+let authCaptchaIdD='';
 const authScreen = document.getElementById('authScreen');
+async function loadCaptchaD(){
+  const box=document.getElementById('authCaptcha'),img=document.getElementById('authCaptchaImg'),ans=document.getElementById('authCaptchaAnswer');
+  if(authMode!=='register'){authCaptchaIdD='';if(ans)ans.value='';return;}
+  box.style.display='';
+  authCaptchaIdD=''; ans.value=''; img.removeAttribute('src'); img.alt='Loading CAPTCHA…';
+  try{
+    const r=await fetch('/api/captcha',{cache:'no-store'}),j=await readJson(r),d=j.data||{};
+    if(!r.ok||!d.id||!d.image)throw new Error(d.message||'Could not load CAPTCHA');
+    authCaptchaIdD=d.id; img.src=d.image; img.alt='CAPTCHA challenge';
+  }catch(e){
+    img.removeAttribute('src'); img.alt='CAPTCHA unavailable';
+    const err=document.getElementById('authErr');err.style.color='';err.textContent=e.message;
+  }
+}
+function captchaPayloadD(){
+  const answer=document.getElementById('authCaptchaAnswer').value.trim();
+  if(!authCaptchaIdD||!/^[0-9]{5}$/.test(answer))throw new Error('Enter the 5-digit CAPTCHA shown above.');
+  return {captchaId:authCaptchaIdD,captchaAnswer:answer};
+}
 function paintAuthModeD(mode){
   authMode = mode;
   const setup=mode==='setup', register=mode==='register';
@@ -4396,10 +4427,13 @@ function paintAuthModeD(mode){
     : 'Enter your credentials to continue.';
   document.getElementById('authSubmit').textContent = setup ? 'Create account' : register ? 'Register' : 'Sign in';
   document.getElementById('authRegisterToggle').textContent = register ? 'Back to sign in' : 'Request access';
+  document.getElementById('authPlex').textContent = register ? 'Register with Plex' : 'Sign in with Plex';
   document.getElementById('authAccessActions').style.display = setup ? 'none' : 'grid';
   document.getElementById('authAccessHint').style.display = setup ? 'none' : '';
+  document.getElementById('authCaptcha').style.display = register ? '' : 'none';
   document.getElementById('authPass').autocomplete = register ? 'new-password' : 'current-password';
   const err=document.getElementById('authErr'); err.textContent=''; err.style.color='';
+  if(register)setTimeout(loadCaptchaD,0);else{authCaptchaIdD='';document.getElementById('authCaptchaAnswer').value='';}
 }
 function showAuth(setupNeeded){
   paintAuthModeD(setupNeeded ? 'setup' : 'login');
@@ -4828,7 +4862,8 @@ async function submitAuth(){
   const btn = document.getElementById('authSubmit'); btn.disabled=true;
   try{
     const endpoint=authMode==='setup'?'setup':authMode==='register'?'register':'login';
-    const r = await fetch('/api/'+endpoint, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+    const body={username,password}; if(authMode==='register')Object.assign(body,captchaPayloadD());
+    const r = await fetch('/api/'+endpoint, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const j = await readJson(r), data=j.data||{};
     if(authMode==='register' && r.ok && data.pending){
       document.getElementById('authPass').value='';
@@ -4847,7 +4882,7 @@ async function submitAuth(){
     } else {
       throw new Error('Sign-in failed (status '+r.status+').');
     }
-  }catch(e){ err.style.color=''; err.textContent = e.message; }
+  }catch(e){ err.style.color=''; err.textContent = e.message; if(authMode==='register')await loadCaptchaD(); }
   btn.disabled=false;
 }
 async function beginPlexAuthD(){
@@ -4856,7 +4891,9 @@ async function beginPlexAuthD(){
   let popup=null;
   try{ popup=window.open('about:blank','mediarr_plex_auth','width=760,height=720'); }catch(e){}
   try{
-    const start=await fetch('/api/auth/plex/pin',{method:'POST'}), sj=await readJson(start), s=sj.data||{};
+    const purpose=authMode==='register'?'register':'login', body={purpose};
+    if(purpose==='register')Object.assign(body,captchaPayloadD());
+    const start=await fetch('/api/auth/plex/pin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}), sj=await readJson(start), s=sj.data||{};
     if(!start.ok) throw new Error(s.message||'Could not start Plex sign-in');
     if(popup) popup.location.href=s.authUrl; else err.innerHTML='Popup blocked. <a href="'+esc(s.authUrl)+'" target="_blank" rel="noopener">Open Plex sign-in</a>, then return here.';
     const until=Date.now()+180000;
@@ -4866,6 +4903,7 @@ async function beginPlexAuthD(){
       const j=await readJson(r), d=j.data||{};
       if(r.status===202 && d.pending){
         if(popup&&!popup.closed)popup.close();
+        paintAuthModeD('login');
         err.style.color='var(--green)'; err.textContent=d.message||'Plex registration submitted and is waiting for administrator approval.';
         btn.disabled=false; return;
       }
@@ -4880,9 +4918,11 @@ async function beginPlexAuthD(){
   }catch(e){
     if(popup&&!popup.closed)popup.close();
     err.style.color=''; err.textContent=e.message;
+    if(authMode==='register')await loadCaptchaD();
   }
   btn.disabled=false;
 }
+document.getElementById('authCaptchaRefresh').onclick=loadCaptchaD;
 document.getElementById('authSubmit').onclick = submitAuth;
 document.getElementById('authRegisterToggle').onclick=()=>paintAuthModeD(authMode==='register'?'login':'register');
 document.getElementById('authPlex').onclick=beginPlexAuthD;
