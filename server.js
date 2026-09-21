@@ -797,7 +797,26 @@ function loginSucceeded (ip, username) { for (const k of loginKeys(ip, username)
    Plex PIN creation has a separate short-window throttle and each PIN is bound to a random nonce. */
 const registrationHits = new Map();
 const plexAuthStarts = new Map();
+const captchaStarts = new Map();
+const captchaChallenges = new Map();
 const publicPlexPins = new Map();
+const CAPTCHA_TTL = 5 * 60000;
+const CAPTCHA_DIGITS = '23456789';
+const CAPTCHA_SEGMENTS = {
+  '2': ['a','b','g','e','d'], '3': ['a','b','g','c','d'],
+  '4': ['f','g','b','c'],     '5': ['a','f','g','c','d'],
+  '6': ['a','f','g','e','c','d'], '7': ['a','b','c'],
+  '8': ['a','b','c','d','e','f','g'], '9': ['a','b','c','d','f','g']
+};
+const CAPTCHA_SEG_PATHS = {
+  a:'M8 4 L32 4 L35 7 L32 10 L8 10 L5 7 Z',
+  b:'M34 9 L37 12 L37 29 L34 32 L31 29 L31 12 Z',
+  c:'M34 34 L37 37 L37 54 L34 57 L31 54 L31 37 Z',
+  d:'M8 56 L32 56 L35 59 L32 62 L8 62 L5 59 Z',
+  e:'M4 34 L7 37 L7 54 L4 57 L1 54 L1 37 Z',
+  f:'M4 9 L7 12 L7 29 L4 32 L1 29 L1 12 Z',
+  g:'M8 30 L32 30 L35 33 L32 36 L8 36 L5 33 Z'
+};
 function rateWindow (map, key, windowMs, max) {
   const now = Date.now(), cur = (map.get(key) || []).filter(t => now - t < windowMs);
   map.set(key, cur);
@@ -813,6 +832,59 @@ function registrationWait (ip) { return rateWindow(registrationHits, 'ip:' + ip,
 function registrationRecord (ip) { rateRecord(registrationHits, 'ip:' + ip, 60 * 60000); }
 function plexAuthWait (ip) { return rateWindow(plexAuthStarts, 'ip:' + ip, 15 * 60000, 12); }
 function plexAuthRecord (ip) { rateRecord(plexAuthStarts, 'ip:' + ip, 15 * 60000); }
+function captchaWait (ip) { return rateWindow(captchaStarts, 'ip:' + ip, 15 * 60000, 30); }
+function captchaRecord (ip) { rateRecord(captchaStarts, 'ip:' + ip, 15 * 60000); }
+function pruneCaptchas () {
+  const cut = Date.now() - CAPTCHA_TTL;
+  for (const [id,v] of captchaChallenges) if (!v || v.createdAt < cut) captchaChallenges.delete(id);
+  if (captchaChallenges.size > 2000) {
+    const old = Array.from(captchaChallenges.entries()).sort((a,b)=>(a[1].createdAt||0)-(b[1].createdAt||0));
+    for (let i=0;i<old.length-1500;i++) captchaChallenges.delete(old[i][0]);
+  }
+}
+function captchaHash (id, answer) {
+  return crypto.createHash('sha256').update(String(id) + ':' + String(answer || '').trim()).digest();
+}
+function captchaSvg (answer) {
+  const W=300,H=92, parts=[
+    '<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'">',
+    '<rect width="100%" height="100%" rx="12" fill="#111827"/>'
+  ];
+  for (let i=0;i<18;i++) {
+    const x1=crypto.randomInt(0,W),y1=crypto.randomInt(0,H),x2=crypto.randomInt(0,W),y2=crypto.randomInt(0,H);
+    const op=(0.08+crypto.randomInt(0,18)/100).toFixed(2);
+    parts.push('<path d="M'+x1+' '+y1+' L'+x2+' '+y2+'" stroke="#9ca3af" stroke-opacity="'+op+'" stroke-width="'+crypto.randomInt(1,3)+'"/>');
+  }
+  for (let i=0;i<answer.length;i++) {
+    const digit=answer[i], x=20+i*54+crypto.randomInt(-3,4), y=12+crypto.randomInt(-3,4), rot=crypto.randomInt(-9,10);
+    const segs=CAPTCHA_SEGMENTS[digit]||[];
+    parts.push('<g transform="translate('+x+' '+y+') rotate('+rot+' 19 33)" fill="#e5e7eb">');
+    for (const s of segs) parts.push('<path d="'+CAPTCHA_SEG_PATHS[s]+'"/>');
+    parts.push('</g>');
+  }
+  for (let i=0;i<16;i++) {
+    parts.push('<circle cx="'+crypto.randomInt(4,W-4)+'" cy="'+crypto.randomInt(4,H-4)+'" r="'+crypto.randomInt(1,4)+'" fill="#f59e0b" fill-opacity="'+(0.12+crypto.randomInt(0,20)/100).toFixed(2)+'"/>');
+  }
+  parts.push('</svg>');
+  return 'data:image/svg+xml;base64,' + Buffer.from(parts.join('')).toString('base64');
+}
+function createCaptcha (ip) {
+  pruneCaptchas();
+  let answer=''; for (let i=0;i<5;i++) answer += CAPTCHA_DIGITS[crypto.randomInt(0,CAPTCHA_DIGITS.length)];
+  const id=crypto.randomBytes(18).toString('hex');
+  captchaChallenges.set(id,{ hash: captchaHash(id,answer), ip:String(ip||''), createdAt:Date.now() });
+  captchaRecord(ip);
+  return { id, image: captchaSvg(answer), expiresIn: Math.floor(CAPTCHA_TTL/1000) };
+}
+function verifyCaptcha (ip, id, answer) {
+  pruneCaptchas();
+  id=String(id||''); const c=captchaChallenges.get(id);
+  if (!c) return false;
+  captchaChallenges.delete(id); // every attempt is one-time, successful or not
+  if (c.ip !== String(ip||'') || Date.now()-c.createdAt > CAPTCHA_TTL) return false;
+  const got=captchaHash(id,String(answer||'').replace(/\s+/g,''));
+  return got.length===c.hash.length && crypto.timingSafeEqual(got,c.hash);
+}
 function prunePublicPlexPins () {
   const cut = Date.now() - 10 * 60000;
   for (const [id,v] of publicPlexPins) if (!v || v.createdAt < cut) publicPlexPins.delete(id);
@@ -4767,12 +4839,20 @@ const server = http.createServer(async (req, res) => {
       createSession(req, res, u.username);
       return sendJSON(res, 200, publicUser(u, true));
     }
+    if (p === '/api/captcha' && req.method === 'GET') {
+      if (!readUsers().users.length) return sendJSON(res, 409, { message: 'The administrator must finish first-run setup first.' });
+      const ip=clientIp(req), wait=captchaWait(ip);
+      if (wait) { res.setHeader('Retry-After', String(wait)); return sendJSON(res, 429, { message: 'Too many CAPTCHA requests. Try again shortly.' }); }
+      res.setHeader('Cache-Control','no-store');
+      return sendJSON(res, 200, createCaptcha(ip));
+    }
     if (p === '/api/register' && req.method === 'POST') {
       const data = readUsers();
       if (!data.users.length) return sendJSON(res, 409, { message: 'The administrator must finish first-run setup before registrations can be accepted.' });
       const ip = clientIp(req), wait = registrationWait(ip);
       if (wait) { res.setHeader('Retry-After', String(wait)); return sendJSON(res, 429, { message: 'Too many registrations from this address. Try again later.' }); }
       let body = {}; try { body = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
+      if (!verifyCaptcha(ip, body.captchaId, body.captchaAnswer)) return sendJSON(res, 400, { captcha: true, message: 'CAPTCHA was incorrect or expired. Please complete a new challenge.' });
       const username = registrationUsername(body.username), password = String(body.password || '');
       if (!username) return sendJSON(res, 400, { message: 'Username must be 3–40 characters using only letters, numbers, dots, dashes, or underscores.' });
       if (password.length < 4 || password.length > 256) return sendJSON(res, 400, { message: 'Password must be 4–256 characters.' });
@@ -4786,13 +4866,20 @@ const server = http.createServer(async (req, res) => {
       if (!readUsers().users.length) return sendJSON(res, 409, { message: 'The administrator must finish first-run setup first.' });
       const ip = clientIp(req), wait = plexAuthWait(ip);
       if (wait) { res.setHeader('Retry-After', String(wait)); return sendJSON(res, 429, { message: 'Too many Plex sign-in attempts. Try again shortly.' }); }
+      let body={}; try { body=JSON.parse((await readBody(req))||'{}'); } catch (_) {}
+      const purpose=body.purpose==='register'?'register':'login';
+      let captchaVerified=false;
+      if (purpose==='register') {
+        captchaVerified=verifyCaptcha(ip,body.captchaId,body.captchaAnswer);
+        if (!captchaVerified) return sendJSON(res,400,{ captcha:true, message:'CAPTCHA was incorrect or expired. Please complete a new challenge.' });
+      }
       const clientId = ensurePlexClientId();
       try {
         const up = await upstream('https://plex.tv/api/v2/pins?strong=true', { method: 'POST', headers: Object.assign({ 'Content-Length': '0' }, plexHeaders(clientId)) });
         if (up.status < 200 || up.status >= 300) return sendJSON(res, 502, { message: 'Plex returned HTTP ' + up.status });
         const j = JSON.parse(up.body.toString('utf8')), nonce = crypto.randomBytes(24).toString('hex');
         prunePublicPlexPins(); plexAuthRecord(ip);
-        publicPlexPins.set(String(j.id), { nonce, createdAt: Date.now() });
+        publicPlexPins.set(String(j.id), { nonce, createdAt: Date.now(), purpose, captchaVerified });
         const authUrl = 'https://app.plex.tv/auth#?clientID=' + encodeURIComponent(clientId) + '&code=' + encodeURIComponent(j.code) + '&context%5Bdevice%5D%5Bproduct%5D=MEDIARR';
         return sendJSON(res, 200, { id: j.id, code: j.code, nonce, authUrl });
       } catch (e) { return sendJSON(res, 502, { message: 'Could not reach Plex: ' + e.message }); }
@@ -4822,6 +4909,7 @@ const server = http.createServer(async (req, res) => {
         createSession(req, res, account.username);
         return sendJSON(res, 200, { authorized: true, pending: false, user: publicUser(account, true) });
       }
+      if (!pendingPin.captchaVerified || pendingPin.purpose !== 'register') return sendJSON(res, 403, { message: 'No MEDIARR account is linked to this Plex account. Use Request access and complete the CAPTCHA to register.' });
       const ip = clientIp(req), wait = registrationWait(ip);
       if (wait) { res.setHeader('Retry-After', String(wait)); return sendJSON(res, 429, { message: 'Too many registrations from this address. Try again later.' }); }
       const data = readUsers(), now = Date.now(), username = uniquePlexUsername(info);
