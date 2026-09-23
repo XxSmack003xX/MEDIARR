@@ -4062,80 +4062,15 @@ function dockerImagePullSpec (image) {
   if (!fromImage || !tag) throw new Error('Could not determine the container image tag');
   return { fromImage, tag, ref: fromImage + ':' + tag };
 }
-function dockerRecreateHostConfig (inspect) {
-  const h = (inspect && inspect.HostConfig) || {}, out = {};
-  const keys = [
-    'Binds','PortBindings','RestartPolicy','NetworkMode','ExtraHosts','GroupAdd','Devices','DeviceRequests',
-    'CapAdd','CapDrop','SecurityOpt','Privileged','ReadonlyRootfs','Tmpfs','ShmSize','Init','Runtime','Dns',
-    'DnsOptions','DnsSearch','Sysctls','IpcMode','PidMode','UTSMode','UsernsMode','LogConfig','Links',
-    'VolumeDriver','VolumesFrom','PublishAllPorts','CgroupnsMode','Cgroup','OomScoreAdj','StorageOpt',
-    'CpuShares','Memory','NanoCpus','CgroupParent','BlkioWeight','BlkioWeightDevice','BlkioDeviceReadBps',
-    'BlkioDeviceWriteBps','BlkioDeviceReadIOps','BlkioDeviceWriteIOps','CpuPeriod','CpuQuota',
-    'CpuRealtimePeriod','CpuRealtimeRuntime','CpusetCpus','CpusetMems','DeviceCgroupRules',
-    'MemoryReservation','MemorySwap','MemorySwappiness','OomKillDisable','PidsLimit','Ulimits',
-    'CpuCount','CpuPercent','IOMaximumIOps','IOMaximumBandwidth','MaskedPaths','ReadonlyPaths'
-  ];
-  for (const k of keys) if (h[k] != null) out[k] = h[k];
-  const binds = Array.isArray(out.Binds) ? out.Binds.slice() : [];
-  const destinations = new Set();
-  for (const b of binds) {
-    const parts = String(b || '').split(':');
-    if (parts.length >= 2) destinations.add(parts[1]);
-  }
-  for (const m of ((inspect && inspect.Mounts) || [])) {
-    if (!m || !m.Destination || destinations.has(m.Destination)) continue;
-    if (m.Type === 'volume' && m.Name) binds.push(String(m.Name) + ':' + String(m.Destination) + (m.RW === false ? ':ro' : ''));
-    else if (m.Type === 'bind' && m.Source) binds.push(String(m.Source) + ':' + String(m.Destination) + (m.RW === false ? ':ro' : ''));
-    destinations.add(m.Destination);
-  }
-  if (binds.length) out.Binds = binds;
-  out.AutoRemove = false;
-  return out;
-}
-function dockerRecreateNetworking (inspect) {
-  const nets = inspect && inspect.NetworkSettings && inspect.NetworkSettings.Networks || {}, ep = {};
-  for (const [name,n] of Object.entries(nets)) {
-    if (!name || !n) continue;
-    const aliases = (n.Aliases || []).filter(a => a && a !== inspect.Id && !String(inspect.Id || '').startsWith(String(a)));
-    ep[name] = {};
-    if (aliases.length) ep[name].Aliases = aliases;
-    if (n.DriverOpts) ep[name].DriverOpts = n.DriverOpts;
-    if (n.IPAMConfig) ep[name].IPAMConfig = n.IPAMConfig;
-    if (Array.isArray(n.Links) && n.Links.length) ep[name].Links = n.Links;
-  }
-  return Object.keys(ep).length ? { EndpointsConfig: ep } : undefined;
-}
-function dockerRecreateBody (inspect, image) {
-  const c = (inspect && inspect.Config) || {};
-  const body = {
-    Image: image,
-    Hostname: c.Hostname || undefined,
-    Domainname: c.Domainname || undefined,
-    User: c.User || undefined,
-    AttachStdin: c.AttachStdin,
-    AttachStdout: c.AttachStdout,
-    AttachStderr: c.AttachStderr,
-    ExposedPorts: c.ExposedPorts || undefined,
-    Tty: c.Tty,
-    OpenStdin: c.OpenStdin,
-    StdinOnce: c.StdinOnce,
-    Env: c.Env || undefined,
-    Cmd: c.Cmd || undefined,
-    Healthcheck: c.Healthcheck || undefined,
-    Volumes: c.Volumes || undefined,
-    WorkingDir: c.WorkingDir || undefined,
-    Entrypoint: c.Entrypoint || undefined,
-    NetworkDisabled: c.NetworkDisabled,
-    MacAddress: c.MacAddress || undefined,
-    Labels: c.Labels || undefined,
-    StopSignal: c.StopSignal || undefined,
-    StopTimeout: c.StopTimeout,
-    Shell: c.Shell || undefined,
-    HostConfig: dockerRecreateHostConfig(inspect)
-  };
-  const net = dockerRecreateNetworking(inspect); if (net) body.NetworkingConfig = net;
-  for (const k of Object.keys(body)) if (body[k] === undefined) delete body[k];
-  return body;
+// Container recreation and replace-with-rollback are shared with update-helper.js.
+const dockerRecreate = require('./docker-recreate');
+let _dockerShared = null;
+function dockerShared () {
+  if (!_dockerShared) _dockerShared = dockerRecreate.makeDocker(async (method, apiPath, body, timeoutMs) => {
+    const version = await dockerApiVersion();
+    return dockerRawRequest(method, '/v' + version + apiPath, timeoutMs || 30000, body);
+  });
+  return _dockerShared;
 }
 async function dockerInspectContainer (id) {
   return (await dockerApi('GET', '/containers/' + encodeURIComponent(id) + '/json', 10000)).data || {};
@@ -4155,28 +4090,6 @@ async function dockerPullConfiguredImage (image) {
   if (!img.Id) throw new Error('Docker pulled the image but did not return an image ID');
   return { ref: spec.ref, id: String(img.Id) };
 }
-async function dockerCreateReplacement (name, body, start) {
-  const r = await dockerApi('POST', '/containers/create?name=' + encodeURIComponent(name), 30000, body);
-  const id = r.data && r.data.Id;
-  if (!id) throw new Error('Docker did not return a replacement container ID');
-  if (start) await dockerApi('POST', '/containers/' + encodeURIComponent(id) + '/start', 30000);
-  return String(id);
-}
-async function dockerRemoveReplacement (id) {
-  if (!id) return;
-  try { await dockerApi('POST', '/containers/' + encodeURIComponent(id) + '/stop?t=10', 30000); } catch (_) {}
-  try { await dockerApi('DELETE', '/containers/' + encodeURIComponent(id) + '?force=1', 30000); } catch (_) {}
-}
-async function dockerWaitRunning (id, seconds) {
-  const end = Date.now() + (seconds || 15) * 1000;
-  while (Date.now() < end) {
-    const c = await dockerInspectContainer(id), s = c.State || {};
-    if (s.Running) return c;
-    if (s.Dead || s.Status === 'exited') throw new Error(s.Error || 'Replacement container exited during startup');
-    await new Promise(r => setTimeout(r, 500));
-  }
-  throw new Error('Replacement container did not enter the running state');
-}
 const _dockerUpdating = new Set();
 async function dockerUpdateAllowedContainer (target) {
   const lock = String(target && (target.fullId || target.name) || '');
@@ -4192,31 +4105,18 @@ async function dockerUpdateAllowedContainer (target) {
     if (!name || !imageRef || !oldImageId) throw new Error('Could not capture the current container configuration for rollback');
     const pulled = await dockerPullConfiguredImage(imageRef);
     if (pulled.id === oldImageId) return { updated: false, message: 'Image is already current', image: pulled.ref, imageId: pulled.id, containerId: target.fullId };
-    const oldBody = dockerRecreateBody(old, oldImageId);
-    const newBody = dockerRecreateBody(old, pulled.ref);
-    let removed = false, replacement = '';
-    try {
-      if (wasRunning) await dockerApi('POST', '/containers/' + encodeURIComponent(target.fullId) + '/stop?t=10', 30000);
-      await dockerApi('DELETE', '/containers/' + encodeURIComponent(target.fullId), 30000);
-      removed = true;
-      replacement = await dockerCreateReplacement(name, newBody, wasRunning);
-      if (wasRunning) await dockerWaitRunning(replacement, 20);
-      return { updated: true, message: 'Container updated successfully', image: pulled.ref, previousImageId: oldImageId, imageId: pulled.id, containerId: replacement, wasRunning };
-    } catch (e) {
-      if (!removed) {
-        if (wasRunning) { try { await dockerApi('POST', '/containers/' + encodeURIComponent(target.fullId) + '/start', 30000); } catch (_) {} }
-        throw e;
-      }
-      if (replacement) await dockerRemoveReplacement(replacement);
-      try {
-        const rollback = await dockerCreateReplacement(name, oldBody, wasRunning);
-        if (wasRunning) await dockerWaitRunning(rollback, 20);
-        throw new Error('Update failed; previous container was restored: ' + e.message);
-      } catch (rollbackError) {
-        if (String(rollbackError.message || '').startsWith('Update failed; previous container was restored:')) throw rollbackError;
-        throw new Error('Update failed and rollback also failed: ' + e.message + ' · rollback: ' + rollbackError.message);
-      }
+    // The original is renamed and stopped (not deleted) until the replacement is proven
+    // healthy with every mount intact; on any failure it is restored untouched.
+    const r = await dockerShared().replaceContainer({
+      id: target.fullId, image: pulled.ref, readySeconds: 90, envFromImage: true,
+      log: m => console.log('[docker-update] ' + name + ': ' + m)
+    });
+    if (r.ok) {
+      return { updated: true, message: 'Container updated successfully' + (r.warning ? ' — ' + r.warning : ''),
+               image: pulled.ref, previousImageId: oldImageId, imageId: pulled.id, containerId: r.id, wasRunning };
     }
+    if (r.rolledBack) throw new Error('Update failed; previous container was restored: ' + r.reason);
+    throw new Error('Update failed and rollback also failed: ' + r.reason + (r.recovery ? ' · recover with: ' + r.recovery : ''));
   } finally {
     _dockerUpdating.delete(lock);
   }

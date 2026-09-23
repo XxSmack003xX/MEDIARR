@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.8
+
+Reliability fixes for container updates — both **System Update** (MEDIARR itself) and **Docker Controls → Update** (Radarr, Sonarr, Plex, …).
+
+- Fixed System Update detaching the `/data` volume on installs that use a **named volume** (or any mount Docker lists only under `Mounts`). The replacement container received a fresh empty volume, still passed its health check, and the update was reported as successful — so users landed on the first-run screen. Installs using the default `./data:/data` bind mount were not affected.
+- Updates no longer delete the original container before the replacement exists. The original is now **renamed and stopped**, the new version is created under the original name, and the original is deleted only after the replacement is proven good.
+- Rollback now **restores the original container itself** — same container, same image ID, same configuration — instead of rebuilding a copy. Previously the rollback container was built by the same code as the failed replacement, so one defect could break both and leave no container at all.
+- Fixed updates failing — and taking the container with them — for containers attached to **more than one network** on Docker Engine older than 25 (API < 1.44), which rejects multiple networks at create time. Extra networks are now attached after creation, which works on every engine version.
+- A replacement must now keep **every original mount** (same volume name / host path). MEDIARR's own update additionally confirms the new container can still read its data directory. Either check failing triggers an automatic rollback.
+- System Update now preserves log rotation, memory/CPU limits, hostname, a Compose healthcheck override, static IPs and network links, matching what Docker Controls already kept.
+- Environment variables baked into the *old* image (for example `PATH`, `NODE_VERSION`) no longer override the new image's own values; variables you set yourself are kept.
+- If an update is interrupted part-way, the log prints the exact `docker rename … && docker start …` command to restore the original.
+- The replace-and-rollback logic now lives in one shared module, `docker-recreate.js`, used by both updaters so they cannot drift apart again.
+
+**Upgrading from 1.6.7:** System Update runs the updater bundled with the version you are *currently* on, so the jump from 1.6.7 to 1.6.8 still uses the old updater. Default installs (`./data:/data`) can use System Update as normal. If you use a named volume for `/data`, or attach MEDIARR to more than one network, update this once with `docker compose pull && docker compose up -d` instead. Every update after that uses the fixed updater.
+
 ## 1.6.7
 
 - Added a built-in **CAPTCHA** challenge for every new public access request on desktop and mobile.

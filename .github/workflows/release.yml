@@ -2,6 +2,8 @@ name: Publish MEDIARR release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*'
 
@@ -11,6 +13,7 @@ permissions:
 
 jobs:
   release:
+    if: github.ref_type == 'tag' || startsWith(github.event.head_commit.message, 'Release MEDIARR v')
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -21,11 +24,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v$VERSION"
           REPO_LC="${GITHUB_REPOSITORY,,}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "$TAG" ]]; then
+            echo "package.json version $VERSION does not match tag ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "repo_lc=$REPO_LC" >> "$GITHUB_OUTPUT"
-          node -e "const p=require('./package.json'); if (p.version !== process.argv[1]) { console.error('package.json version '+p.version+' does not match tag v'+process.argv[1]); process.exit(1) }" "$VERSION"
 
       - name: Log in to GitHub Container Registry
         shell: bash
@@ -53,7 +61,7 @@ jobs:
           VERSION="${{ steps.meta.outputs.version }}"
           IMAGE="ghcr.io/${{ steps.meta.outputs.repo_lc }}:$VERSION"
           mkdir -p "dist/mediarr-$VERSION/public"
-          cp package.json server.js update-helper.js README.md CHANGELOG.md SECURITY.md Caddyfile.example Dockerfile docker-entrypoint.sh docker-compose.yml "dist/mediarr-$VERSION/"
+          cp package.json server.js update-helper.js docker-recreate.js README.md CHANGELOG.md SECURITY.md Caddyfile.example Dockerfile docker-entrypoint.sh docker-compose.yml "dist/mediarr-$VERSION/"
           cp public/index.html public/mobile.html public/v140.js public/v150.js public/v160.js "dist/mediarr-$VERSION/public/"
           cat > "dist/mediarr-$VERSION/docker-compose.release.yml" <<YAML
           services:
@@ -85,6 +93,8 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.meta.outputs.version }}"
-          gh release create "$GITHUB_REF_NAME" "dist/mediarr-$VERSION.zip" \
+          TAG="${{ steps.meta.outputs.tag }}"
+          gh release create "$TAG" "dist/mediarr-$VERSION.zip" \
+            --target "$GITHUB_SHA" \
             --title "MEDIARR v$VERSION" \
             --generate-notes
