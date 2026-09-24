@@ -1,6 +1,6 @@
 {
   "name": "mediarr",
-  "version": "1.6.8",
+  "version": "1.6.9",
   "description": "Self-hosted media dashboard with personalized user home pages, unified media details, Radarr/Sonarr webhooks, SSE realtime monitoring, Plex tools, playback, Docker controls, and GitHub-based updates.",
   "main": "server.js",
   "scripts": {

@@ -17,8 +17,9 @@ function style(){
     '.umd-progress{height:5px;background:rgba(127,138,158,.22);border-radius:99px;overflow:hidden;margin-top:8px}.umd-progress span{display:block;height:100%;background:var(--gold,#d9a441)}',
     '.umd-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.umd-chip{font-size:10px;font-weight:800;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:999px;padding:4px 7px;background:var(--bg,#0c111b)}',
     '.umd-tech{margin-top:9px;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:12px;overflow:hidden}.umd-tech-head{padding:9px 11px;font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:900;color:var(--muted,#8f9bb3);background:var(--panel2,var(--bg2,#171e2a))}.umd-tech-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.umd-tech-cell{padding:9px 11px;border-top:1px solid var(--line,var(--bs-border-color,#2a3447));border-right:1px solid var(--line,var(--bs-border-color,#2a3447));min-width:0}.umd-tech-cell:nth-child(4n){border-right:0}.umd-tech-cell b{display:block;font-size:11px;overflow:hidden;text-overflow:ellipsis}.umd-tech-cell span{display:block;font-size:9px;color:var(--muted,#8f9bb3);text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}',
-    '.umd-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.umd-btn{border:1px solid var(--line,var(--bs-border-color,#2a3447));background:var(--panel2,var(--bg2,#171e2a));color:var(--txt,var(--bs-body-color,#eef3ff));border-radius:8px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer;text-decoration:none}.umd-btn.primary{background:var(--gold,#d9a441);border-color:var(--gold,#d9a441);color:#17120a}.umd-btn.good{border-color:#35d07f;color:#35d07f}.umd-btn.favorite-on{border-color:#ff4d6d;color:#ff6b82;background:rgba(255,77,109,.08)}.umd-btn:disabled{opacity:.55;cursor:default}',
+    '.umd-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.umd-btn{border:1px solid var(--line,var(--bs-border-color,#2a3447));background:var(--panel2,var(--bg2,#171e2a));color:var(--txt,var(--bs-body-color,#eef3ff));border-radius:8px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer;text-decoration:none}.umd-btn.primary{background:var(--gold,#d9a441);border-color:var(--gold,#d9a441);color:#17120a}.umd-btn.good{border-color:#35d07f;color:#35d07f}.umd-btn.play{background:#35d07f;border-color:#35d07f;color:#07140d}.umd-btn.favorite-on{border-color:#ff4d6d;color:#ff6b82;background:rgba(255,77,109,.08)}.umd-btn:disabled{opacity:.55;cursor:default}',
     '.umd-seasons{margin-top:9px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px}.umd-season{border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:8px;padding:7px 8px;background:var(--bg,#0c111b)}.umd-season b{font-size:10px}.umd-season div{font-size:9px;color:var(--muted,#8f9bb3);margin-top:2px}',
+    '.umd-playlist{margin-top:8px;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:10px;background:var(--panel2,var(--bg2,#171e2a));overflow:hidden}.umd-play-head{padding:8px 10px;font-size:10px;color:var(--muted,#8f9bb3);font-weight:800;border-bottom:1px solid var(--line,var(--bs-border-color,#2a3447))}.umd-play-items{max-height:260px;overflow:auto}.umd-play-item{width:100%;display:flex;align-items:center;gap:9px;text-align:left;border:0;border-bottom:1px solid var(--line,var(--bs-border-color,#2a3447));background:transparent;color:inherit;padding:9px 10px;cursor:pointer}.umd-play-item:last-child{border-bottom:0}.umd-play-item:hover{background:rgba(53,208,127,.08)}.umd-play-icon{color:#35d07f;font-weight:900}.umd-play-main{min-width:0;flex:1}.umd-play-label{display:block;font-size:11px;font-weight:900}.umd-play-name{display:block;font-size:9px;color:var(--muted,#8f9bb3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
     '.umd-loading{padding:12px;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:10px;color:var(--muted,#8f9bb3);font-size:11px}.umd-error{padding:10px;border:1px solid rgba(255,98,108,.4);border-radius:10px;color:#ff747d;font-size:11px}',
     '@media(max-width:760px){.umd-grid{grid-template-columns:1fr 1fr}.umd-tech-grid{grid-template-columns:1fr 1fr}.umd-tech-cell:nth-child(4n){border-right:1px solid var(--line,var(--bs-border-color,#2a3447))}.umd-tech-cell:nth-child(2n){border-right:0}}'
   ].join('');
@@ -120,8 +121,14 @@ function tech(d){
   var seasons=(tv.seasons||[]).map(function(x){var pct=fmtPct(x.downloaded,x.episodes);return '<div class="umd-season"><b>Season '+x.seasonNumber+' · '+pct+'%</b><div>'+x.downloaded+'/'+x.episodes+' downloaded · '+x.missing+' missing</div><div class="umd-progress"><span style="width:'+pct+'%"></span></div></div>';}).join('');
   return '<div class="umd-tech"><div class="umd-tech-head">TV library status</div><div class="umd-tech-grid">'+rows2+'</div></div>'+(seasons?'<div class="umd-seasons">'+seasons+'</div>':'');
 }
+function playbackItems(d){
+  var p=d&&d.playback||{},items=Array.isArray(p.items)?p.items:[];
+  return p.available?items.filter(function(x){return x&&x.path;}):[];
+}
 function actionHtml(d,o,fav){
-  var a=d.arr||{},kind=mediaKind(d),h='<div class="umd-actions">';
+  var a=d.arr||{},kind=mediaKind(d),plays=playbackItems(d),src=(d.playback&&d.playback.sourceLabel)||'Local/WebDAV',h='<div class="umd-actions">';
+  if(plays.length===1)h+='<button class="umd-btn play" data-umd-play="0" title="Play from '+esc(src)+'">▶ Play</button>';
+  else if(plays.length>1)h+='<button class="umd-btn play" data-umd-play-toggle title="Choose an episode from '+esc(src)+'">▶ Play</button>';
   if(kind!=='movie')h+='<button class="umd-btn'+(fav&&fav.favorited?' favorite-on':'')+'" data-umd-favorite data-favorited="'+(fav&&fav.favorited?'1':'0')+'">'+(fav&&fav.favorited?'♥ Remove from Favorites':'♡ Add to Favorites')+'</button>';
   if(d.plex&&d.plex.available&&d.plex.webUrl)h+='<a class="umd-btn good" target="_blank" rel="noopener" href="'+esc(d.plex.webUrl)+'">▶ Open in Plex</a>';
   if(a.inLibrary&&o.admin){
@@ -129,9 +136,29 @@ function actionHtml(d,o,fav){
     h+='<button class="umd-btn" data-umd-search>🔍 Search now</button>';
   }
   h+='<button class="umd-btn" data-umd-refresh>↻ Refresh details</button></div>';
+  if(plays.length>1){
+    h+='<div class="umd-playlist" data-umd-playlist hidden><div class="umd-play-head">'+esc(src)+' · '+plays.length+' downloaded episode file'+(plays.length===1?'':'s')+'</div><div class="umd-play-items">';
+    plays.forEach(function(x,i){h+='<button class="umd-play-item" data-umd-play="'+i+'"><span class="umd-play-icon">▶</span><span class="umd-play-main"><span class="umd-play-label">'+esc(x.label||x.name||('Episode '+(i+1)))+'</span><span class="umd-play-name">'+esc(x.name||x.path)+'</span></span></button>';});
+    h+='</div></div>';
+  }
   return h;
 }
 function wireActions(mount,d,o){
+  var plays=playbackItems(d);
+  function startPlay(item){
+    if(!item||!item.path)return;
+    var name=item.name||item.label||item.path.split('/').pop()||'Media';
+    if(typeof window.playVideoD==='function'){ window.playVideoD(item.path,name); return; }
+    if(typeof window.playVideoMobile==='function'){
+      try{var detail=document.getElementById('detail');if(detail&&window.bootstrap)bootstrap.Modal.getInstance(detail)?.hide();}catch(_){}
+      setTimeout(function(){window.playVideoMobile(item.path,name);},100);
+      return;
+    }
+    window.open('/api/webdav/stream?path='+encodeURIComponent(item.path),'_blank','noopener');
+  }
+  mount.querySelectorAll('[data-umd-play]').forEach(function(btn){btn.onclick=function(){startPlay(plays[Number(btn.getAttribute('data-umd-play'))||0]);};});
+  var playToggle=mount.querySelector('[data-umd-play-toggle]'),playlist=mount.querySelector('[data-umd-playlist]');
+  if(playToggle&&playlist)playToggle.onclick=function(){var open=!playlist.hidden;playlist.hidden=open;playToggle.textContent=open?'▶ Play':'▲ Hide episodes';};
   var ref=mount.querySelector('[data-umd-refresh]');if(ref)ref.onclick=function(){load(o,true);};
   var fav=mount.querySelector('[data-umd-favorite]');
   if(fav)fav.onclick=async function(){

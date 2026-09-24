@@ -4,7 +4,7 @@
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.6.8-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-1.6.9-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.6.8 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.6.9 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -727,7 +727,15 @@ For shows already in Sonarr, the unified detail can show:
 
 ### Unified actions
 
-Signed-in users can manage TV favorites from the unified section, while administrators retain the existing library-management actions:
+When a downloaded Radarr/Sonarr file maps into the configured **Local folder** or **WebDAV** media source, the unified panel now exposes the existing MEDIARR player directly:
+
+- Movies get a **▶ Play** button that opens the same local/WebDAV player used by the Downloads browser.
+- TV shows get a **▶ Play** button that expands the downloaded episode files, with one play action per episode file.
+- Playback keeps the existing automatic direct-play/remux/transcode selection, audio/subtitle controls, HLS seeking, and local/WebDAV handling.
+- Local-folder matches are verified against the mounted filesystem before the button is shown.
+- WebDAV paths are mapped from the Radarr/Sonarr root-folder-relative media path, so the configured WebDAV folder should represent the same library root exposed to Radarr/Sonarr.
+
+Signed-in users can also manage TV favorites from the unified section, while administrators retain the existing library-management actions:
 
 - **Add to Favorites / Remove from Favorites** for TV shows, using the current MEDIARR user's personal favorites list.
 - **Open in Plex** when the matching Plex server item can be resolved.
@@ -936,11 +944,11 @@ Configure:
 - Folder.
 - Download mode.
 
-MEDIARR can test the connection and report discovered media.
+MEDIARR can test the connection and report discovered media. When the WebDAV folder mirrors the Radarr/Sonarr library root, Unified Media Detail can map downloaded files into this source and launch them with **▶ Play**.
 
 ### Local source
 
-Set the source to local and provide a path visible to the MEDIARR process/container.
+Set the source to local and provide a path visible to the MEDIARR process/container. Unified Media Detail verifies mapped movie/episode files beneath this configured source before exposing **▶ Play**.
 
 ### Playback modes
 

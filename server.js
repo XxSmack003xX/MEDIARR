@@ -3677,6 +3677,29 @@ async function sonarrFileSummary (seriesId) {
     String(mi.subtitles || '').split('/').map(x=>x.trim()).filter(Boolean).forEach(x=>subtitles.push(x));
     for (const l of (Array.isArray(f.languages) ? f.languages : [])) languages.push(l && (l.name || l));
   }
+  const epsByFile = new Map();
+  for (const e of real) {
+    const fid = Number(e.episodeFileId) || 0;
+    if (!fid) continue;
+    const list = epsByFile.get(fid) || [];
+    list.push({
+      seasonNumber: Number(e.seasonNumber) || 0,
+      episodeNumber: Number(e.episodeNumber) || 0,
+      title: e.title || ''
+    });
+    epsByFile.set(fid, list);
+  }
+  const playable = files.map(f => {
+    const fe = (epsByFile.get(Number(f.id) || 0) || []).sort((a,b)=>a.seasonNumber-b.seasonNumber || a.episodeNumber-b.episodeNumber);
+    return {
+      id: Number(f.id) || null,
+      relativePath: f.relativePath || '',
+      fullPath: f.path || '',
+      size: Number(f.size) || 0,
+      seasonNumber: Number(f.seasonNumber) || (fe[0] && fe[0].seasonNumber) || 0,
+      episodes: fe
+    };
+  }).sort((a,b)=>a.seasonNumber-b.seasonNumber || ((a.episodes[0]&&a.episodes[0].episodeNumber)||0)-((b.episodes[0]&&b.episodes[0].episodeNumber)||0));
   return {
     episodes: {
       total: real.length,
@@ -3693,10 +3716,114 @@ async function sonarrFileSummary (seriesId) {
     files: {
       count: files.length, size,
       qualities: uniq(quality), videoCodecs: uniq(video), audioCodecs: uniq(audio),
-      dynamicRanges: uniq(dynamicRange), subtitles: uniq(subtitles), languages: uniq(languages)
+      dynamicRanges: uniq(dynamicRange), subtitles: uniq(subtitles), languages: uniq(languages),
+      playable
     }
   };
 }
+function mediaSourceConfigured () {
+  const cfg = readConfig().webdav || {};
+  if (cfg.source === 'local') return !!cfg.localPath;
+  return !!(cfg.url && cfg.username);
+}
+function slashMediaPath (v) { return String(v || '').replace(/\\/g, '/').replace(/\/+$/g, ''); }
+function stripMediaRoot (full, root) {
+  const f = slashMediaPath(full), r = slashMediaPath(root);
+  if (!f || !r) return '';
+  const fl = f.toLowerCase(), rl = r.toLowerCase();
+  if (fl === rl) return '';
+  if (!fl.startsWith(rl + '/')) return '';
+  return f.slice(r.length + 1);
+}
+function playbackPathCandidates (fullPath, relativePath, itemPath, rootFolderPath) {
+  const out = [], seen = new Set();
+  const add = v => {
+    const clean = safeSegments(slashMediaPath(v)).join('/');
+    if (!clean || seen.has(clean)) return;
+    const ext = (clean.split('.').pop() || '').toLowerCase();
+    if (!VIDEO_EXT.includes(ext)) return;
+    seen.add(clean); out.push(clean);
+  };
+  add(stripMediaRoot(fullPath, rootFolderPath));
+  const itemRel = stripMediaRoot(itemPath, rootFolderPath);
+  if (itemRel && relativePath) add(itemRel + '/' + slashMediaPath(relativePath));
+  const folder = slashMediaPath(itemPath).split('/').filter(Boolean).pop() || '';
+  if (folder && relativePath) add(folder + '/' + slashMediaPath(relativePath));
+  add(relativePath);
+  return out;
+}
+function mediaFileName (v, fallback) {
+  const p = slashMediaPath(v), bits = p.split('/').filter(Boolean);
+  return bits.pop() || fallback || 'Media';
+}
+function localPlayablePath (candidates) {
+  for (const rel of candidates) {
+    const file = localTarget(rel);
+    if (!file) continue;
+    try {
+      const st = fs.statSync(file);
+      if (st.isFile()) return rel;
+    } catch (_) {}
+  }
+  return '';
+}
+function episodePlayLabel (x) {
+  const eps = Array.isArray(x.episodes) ? x.episodes : [];
+  if (!eps.length) return x.seasonNumber ? ('Season ' + x.seasonNumber) : 'Episode';
+  const first = eps[0], last = eps[eps.length - 1];
+  const pad = n => String(Number(n) || 0).padStart(2, '0');
+  const code = eps.length > 1
+    ? ('S' + pad(first.seasonNumber) + 'E' + pad(first.episodeNumber) + '-E' + pad(last.episodeNumber))
+    : ('S' + pad(first.seasonNumber) + 'E' + pad(first.episodeNumber));
+  const title = eps.length === 1 && first.title ? (' · ' + first.title) : '';
+  return code + title;
+}
+function unifiedPlaybackInfo (type, found, media, tv) {
+  const cfg = readConfig().webdav || {};
+  const source = cfg.source === 'local' ? 'local' : 'webdav';
+  const configured = mediaSourceConfigured();
+  const base = { configured, source, sourceLabel: source === 'local' ? 'Local folder' : 'WebDAV', available: false, items: [] };
+  if (!configured || !found || !found.inLibrary || !found.item) return base;
+
+  const itemPath = found.item.path || '';
+  const root = found.item.rootFolderPath || '';
+  const candidates = [];
+  if (type === 'movie' && media && media.hasFile && media.file) {
+    candidates.push({
+      relativePath: media.file.relativePath || '',
+      fullPath: media.file.fullPath || '',
+      name: mediaFileName(media.file.fullPath || media.file.relativePath, found.item.title || 'Movie'),
+      label: found.item.title || 'Movie'
+    });
+  } else if (type === 'series' && tv && tv.files && Array.isArray(tv.files.playable)) {
+    for (const f of tv.files.playable) {
+      candidates.push({
+        relativePath: f.relativePath || '',
+        fullPath: f.fullPath || '',
+        name: mediaFileName(f.fullPath || f.relativePath, 'Episode'),
+        label: episodePlayLabel(f),
+        seasonNumber: f.seasonNumber || 0,
+        episodes: f.episodes || []
+      });
+    }
+  }
+
+  for (const x of candidates) {
+    const paths = playbackPathCandidates(x.fullPath, x.relativePath, itemPath, root);
+    const rel = source === 'local' ? localPlayablePath(paths) : (paths[0] || '');
+    if (!rel) continue;
+    base.items.push({
+      path: rel,
+      name: x.name || rel.split('/').pop(),
+      label: x.label || x.name || rel.split('/').pop(),
+      seasonNumber: x.seasonNumber || 0,
+      episodes: x.episodes || []
+    });
+  }
+  base.available = base.items.length > 0;
+  return base;
+}
+
 async function plexMediaAvailability (q) {
   const cfg = readConfig().plex;
   if (!cfg.url || !cfg.token) return { configured: false, available: false };
@@ -3809,7 +3936,8 @@ async function unifiedMediaDetail (q) {
     } catch (_) {}
   }
   const plex = await plexMediaAvailability(Object.assign({}, base, { type }));
-  return { ok: true, type, service: svc, identity: base, arr, media, tv, tmdb, plex, generatedAt: Date.now() };
+  const playback = unifiedPlaybackInfo(type, found, media, tv);
+  return { ok: true, type, service: svc, identity: base, arr, media, tv, tmdb, plex, playback, generatedAt: Date.now() };
 }
 
 async function updateArrItem (b, me) {

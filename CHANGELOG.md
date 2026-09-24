@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.9
+
+- Added **▶ Play** directly to Unified Media Detail when a downloaded movie or TV episode maps into the configured Local folder or WebDAV media source.
+- Movie details now launch the existing MEDIARR player directly from the unified panel.
+- TV details now expose an expandable downloaded-episode picker, with a play action for each Sonarr episode file instead of arbitrarily choosing one episode.
+- Reused the existing desktop/mobile playback pipeline, so automatic direct play, HLS remux/transcode, quality overrides, audio tracks, subtitles, seeking, and session keepalive continue to work exactly as they do from the Downloads browser.
+- Added Radarr/Sonarr root-folder-relative path mapping so the Arr file path shown in Unified Media Detail can be translated to the configured local/WebDAV playback path.
+- Local-folder candidates are checked against the mounted filesystem before a Play button is shown.
+- Added sanitized Sonarr episode-file metadata to the authenticated unified-detail response so TV playback can identify and label downloaded SxxExx files without exposing any new unauthenticated endpoint.
+
 ## 1.6.8
 
 Reliability fixes for container updates — both **System Update** (MEDIARR itself) and **Docker Controls → Update** (Radarr, Sonarr, Plex, …).
