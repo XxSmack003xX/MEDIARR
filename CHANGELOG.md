@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.10
+
+- Fixed Unified Media Detail failing to show **▶ Play** when MEDIARR's local/WebDAV source is mounted one level above the Radarr/Sonarr root.
+- The playback mapper now tries both root-relative layouts. For example, Radarr path `/movies/Resident Evil (2026)/file.mkv` can resolve as either `Resident Evil (2026)/file.mkv` or `movies/Resident Evil (2026)/file.mkv` beneath MEDIARR's configured source.
+- Added the original Arr full media path as a safe source-relative fallback candidate, allowing common Docker layouts where Radarr sees `/movies` but MEDIARR sees a parent mount such as `/media`.
+- App HTML and JavaScript are now served with `Cache-Control: no-store` so an in-app update cannot leave an older `v150.js` cached and hide newly added Unified Detail controls until a hard refresh.
+- Retains the v1.6.9 movie and TV playback integration, including local-file verification, episode selection, automatic direct-play/remux/transcode selection, audio/subtitle controls, and HLS playback.
+
 ## 1.6.9
 
 - Added **▶ Play** directly to Unified Media Detail when a downloaded movie or TV episode maps into the configured Local folder or WebDAV media source.

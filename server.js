@@ -682,7 +682,13 @@ function serveStatic (res, file) {
   if (!full.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end('Forbidden'); }
   fs.readFile(full, (err, data) => {
     if (err) { res.writeHead(404); return res.end('Not found'); }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(full)] || 'application/octet-stream' });
+    const ext = path.extname(full);
+    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
+    // App HTML/JS changes between MEDIARR releases. Do not let a browser keep an
+    // old v150.js in memory/disk after an in-app update, otherwise new controls
+    // (such as Unified Detail playback) can appear to be missing until a hard refresh.
+    if (ext === '.html' || ext === '.js') headers['Cache-Control'] = 'no-store';
+    res.writeHead(200, headers);
     res.end(data);
   });
 }
@@ -3744,11 +3750,26 @@ function playbackPathCandidates (fullPath, relativePath, itemPath, rootFolderPat
     if (!VIDEO_EXT.includes(ext)) return;
     seen.add(clean); out.push(clean);
   };
+
+  // Layout A: MEDIARR's configured source is the same library root as Radarr/Sonarr.
+  //   Arr: /movies/Resident Evil (2026)/file.mkv
+  //   MEDIARR localPath: /media/movies  -> Resident Evil (2026)/file.mkv
   add(stripMediaRoot(fullPath, rootFolderPath));
   const itemRel = stripMediaRoot(itemPath, rootFolderPath);
   if (itemRel && relativePath) add(itemRel + '/' + slashMediaPath(relativePath));
-  const folder = slashMediaPath(itemPath).split('/').filter(Boolean).pop() || '';
-  if (folder && relativePath) add(folder + '/' + slashMediaPath(relativePath));
+
+  const itemFolder = slashMediaPath(itemPath).split('/').filter(Boolean).pop() || '';
+  if (itemFolder && relativePath) add(itemFolder + '/' + slashMediaPath(relativePath));
+
+  // Layout B: MEDIARR is mounted one level ABOVE the Arr root. This is common in
+  // Docker stacks where Radarr sees /movies while MEDIARR sees /media with a
+  // "movies" child. Treating Arr's absolute path as source-relative gives:
+  //   /movies/Resident Evil (2026)/file.mkv -> movies/Resident Evil (2026)/file.mkv
+  const rootName = slashMediaPath(rootFolderPath).split('/').filter(Boolean).pop() || '';
+  if (rootName && itemRel && relativePath) add(rootName + '/' + itemRel + '/' + slashMediaPath(relativePath));
+  add(fullPath);
+
+  // Last-resort layout for sources configured directly to the movie/show folder.
   add(relativePath);
   return out;
 }
