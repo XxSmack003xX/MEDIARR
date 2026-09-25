@@ -971,7 +971,9 @@ function sabSlim (q, h) {
       id: x.nzo_id, name: x.filename || x.nzbname || '',
       status: x.status || '', percent: Number(x.percentage) || 0,
       sizeMB: Number(x.mb) || 0, leftMB: Number(x.mbleft) || 0,
-      timeLeft: x.timeleft || '', category: x.cat || ''
+      timeLeft: x.timeleft || '', category: x.cat || '',
+      priority: x.priority || '', eta: x.eta || '', avgAge: x.avg_age || '',
+      index: Number.isFinite(Number(x.index)) ? Number(x.index) : null
     }));
   }
   if (h && h.history) {
@@ -984,6 +986,114 @@ function sabSlim (q, h) {
     out.historyTotal = Number(h.history.noofslots) || out.history.length;
   }
   return out;
+}
+
+function arrQueueActivitySlim (svc, raw) {
+  const records = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.records) ? raw.records : []);
+  return records.slice(0, 150).map(x => {
+    const total = Math.max(0, Number(x.size) || 0);
+    const left = Math.max(0, Number(x.sizeleft != null ? x.sizeleft : x.sizeLeft) || 0);
+    const pct = total > 0 ? Math.max(0, Math.min(100, Math.round(((total - left) / total) * 1000) / 10)) : 0;
+    const series = x.series && x.series.title ? String(x.series.title) : '';
+    const movie = x.movie && x.movie.title ? String(x.movie.title) : '';
+    const ep = x.episode || (Array.isArray(x.episodes) && x.episodes[0]) || null;
+    const se = ep && ep.seasonNumber != null && ep.episodeNumber != null
+      ? 'S' + String(ep.seasonNumber).padStart(2, '0') + 'E' + String(ep.episodeNumber).padStart(2, '0') : '';
+    const epTitle = ep && ep.title ? String(ep.title) : '';
+    const fallback = svc === 'sonarr'
+      ? [series, [se, epTitle].filter(Boolean).join(' ')].filter(Boolean).join(' — ')
+      : movie;
+    const statusMessages = [];
+    for (const group of (Array.isArray(x.statusMessages) ? x.statusMessages : [])) {
+      const head = group && group.title ? String(group.title) : '';
+      const msgs = group && Array.isArray(group.messages) ? group.messages.map(String) : [];
+      const joined = [head, msgs.join(' • ')].filter(Boolean).join(': ');
+      if (joined) statusMessages.push(joined);
+    }
+    return {
+      id: x.id != null ? x.id : '',
+      downloadId: x.downloadId || '',
+      source: svc,
+      title: String(x.title || fallback || 'Download').slice(0, 300),
+      status: String(x.status || '').slice(0, 80),
+      trackedState: String(x.trackedDownloadState || '').slice(0, 80),
+      trackedStatus: String(x.trackedDownloadStatus || '').slice(0, 80),
+      protocol: String(x.protocol || '').slice(0, 40),
+      downloadClient: String(x.downloadClient || '').slice(0, 100),
+      sizeBytes: total,
+      leftBytes: left,
+      percent: pct,
+      timeLeft: x.timeleft || x.timeLeft || '',
+      estimatedCompletionTime: x.estimatedCompletionTime || '',
+      messages: statusMessages.slice(0, 6)
+    };
+  });
+}
+async function arrQueueActivity (svc) {
+  const cfg = readConfig()[svc] || {};
+  if (!cfg.url || !cfg.apiKey) return { configured: false, items: [], total: 0, error: '' };
+  const sub = svc === 'sonarr'
+    ? '/api/v3/queue?page=1&pageSize=150&sortDirection=ascending&sortKey=timeleft&includeUnknownSeriesItems=true&includeSeries=true&includeEpisode=true'
+    : '/api/v3/queue?page=1&pageSize=150&sortDirection=ascending&sortKey=timeleft&includeUnknownMovieItems=true&includeMovie=true';
+  const raw = await arrJson(svc, sub);
+  if (!raw) return { configured: true, items: [], total: 0, error: 'Could not read the ' + (svc === 'sonarr' ? 'Sonarr' : 'Radarr') + ' activity queue' };
+  const items = arrQueueActivitySlim(svc, raw);
+  return { configured: true, items, total: Number(raw.totalRecords) || items.length, error: '' };
+}
+function recentArrDownloadEvents () {
+  return realtimeEvents
+    .filter(ev => ev && ev.kind === 'arr.webhook' && ev.data && /download|grab|import|rename|file/i.test(String(ev.data.eventType || '')))
+    .slice(0, 60)
+    .map(ev => ({
+      id: ev.id, ts: ev.ts, service: ev.data.service || '', eventType: ev.data.eventType || '',
+      title: ev.data.title || '', upgrade: !!ev.data.downloaded
+    }));
+}
+async function downloadActivitySnapshot (me, historyLimit) {
+  const cfg = readConfig();
+  const sabConfigured = !!(cfg.sab && cfg.sab.url && cfg.sab.apiKey);
+  const limit = Math.max(10, Math.min(100, Number(historyLimit) || 60));
+  const [q, h, radarr, sonarr] = await Promise.all([
+    sabConfigured ? sabCall('queue') : Promise.resolve({ ok: false, message: '' }),
+    sabConfigured ? sabCall('history', '&limit=' + limit) : Promise.resolve({ ok: false, message: '' }),
+    arrQueueActivity('radarr'),
+    arrQueueActivity('sonarr')
+  ]);
+  let sab = { configured: sabConfigured, paused: false, speed: '0 B/s', speedBps: 0, sizeLeft: '', timeLeft: '', diskFreeGB: null, queue: [], history: [], historyTotal: 0 };
+  if (sabConfigured) {
+    if (!q.ok && !h.ok) sab.error = q.message || h.message || 'Could not read SABnzbd activity';
+    else sab = Object.assign(sab, sabSlim(q.ok ? q.data : null, h.ok ? h.data : null));
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  const completed24h = sab.history.filter(x => x.completed && x.completed >= nowSec - 86400 && !/fail/i.test(x.status)).length;
+  const sabFailures = sab.history.filter(x => /fail/i.test(x.status) && (!x.completed || x.completed >= nowSec - 86400)).length;
+  const arrItems = radarr.items.concat(sonarr.items);
+  const arrProblems = arrItems.filter(x => /warning|error|failed/i.test(x.trackedStatus + ' ' + x.trackedState + ' ' + x.status) || x.messages.length).length;
+  const sabIds = new Set(sab.queue.map(x => String(x.id || '')).filter(Boolean));
+  const arrOutsideSab = arrItems.filter(x => !x.downloadId || !sabIds.has(String(x.downloadId))).length;
+  const activeCount = sab.queue.length + arrOutsideSab;
+  const myTransfers = activeMediaList(120000)
+    .filter(x => x.username === me.username && x.what === 'downloading')
+    .map(x => ({ name: path.basename(String(x.path || '')) || 'Browser download', secondsAgo: x.secondsAgo }));
+  return {
+    serverTime: Date.now(),
+    sab, radarr, sonarr,
+    recent: recentArrDownloadEvents(),
+    mediarrTransfers: myTransfers,
+    summary: {
+      active: activeCount,
+      sabActive: sab.queue.length,
+      arrTracked: arrItems.length,
+      completed24h,
+      failures: sabFailures + arrProblems,
+      speedBps: sab.speedBps || 0,
+      speed: sab.speed || '0 B/s',
+      remaining: sab.sizeLeft || '',
+      timeLeft: sab.timeLeft || '',
+      paused: !!sab.paused,
+      diskFreeGB: sab.diskFreeGB
+    }
+  };
 }
 
 /* ---------- configuration backups ----------
@@ -5510,6 +5620,12 @@ const server = http.createServer(async (req, res) => {
         const [q, h] = await Promise.all([ sabCall('queue'), sabCall('history', '&limit=' + limit) ]);
         if (!q.ok && !h.ok) { logError('sabnzbd', q.message || h.message, cfg.url); return sendJSON(res, 200, { configured: true, error: q.message || h.message }); }
         return sendJSON(res, 200, sabSlim(q.ok ? q.data : null, h.ok ? h.data : null));
+      }
+
+      // ---- Download Activity Center: SABnzbd + Radarr/Sonarr activity in one read-only view ----
+      if (p === '/api/download-activity' && req.method === 'GET') {
+        try { return sendJSON(res, 200, await downloadActivitySnapshot(me, u.searchParams.get('history'))); }
+        catch (e) { logError('download-activity', e.message, me.username); return sendJSON(res, 502, { message: 'Could not build download activity: ' + e.message }); }
       }
 
       // ---- Media Resolver / path mappings / per-user watch progress ----

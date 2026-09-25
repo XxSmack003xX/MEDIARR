@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.8.0
+
+### Download Activity Center
+
+- Added a new **⬇️ Download activity** center to both desktop and mobile navigation.
+- Replaces the small SAB-only Queue entry point with a unified activity dashboard while keeping the legacy SAB API route compatible.
+- Combines **SABnzbd**, **Radarr**, and **Sonarr** download activity in one read-only view.
+- Added live summary cards for active downloads, SAB speed, remaining queue size, Arr-tracked downloads, completed downloads in the last 24 hours, and current problem count.
+- SAB rows now show per-download progress, downloaded/total size, ETA, category, priority, queue status, free disk space and recent history/failures.
+- Radarr/Sonarr rows show queue progress, download client, protocol, tracked state/status, ETA and status/error messages.
+- Added recent Arr download/import event history sourced from the existing Radarr/Sonarr webhook event stream.
+- Added visibility for the signed-in user's recent direct browser downloads through MEDIARR.
+- Added source tabs, instant text filtering, failure highlighting, responsive mobile layout, active-count navigation badges and five-second auto-refresh while open.
+- Background navigation badges refresh every 30 seconds without requiring the Activity Center to remain open.
+- The Activity Center remains read-only so normal users cannot accidentally pause, delete, or alter SAB/Radarr/Sonarr download jobs.
+
 ## 1.7.3
 
 ### Casting reliability fix
