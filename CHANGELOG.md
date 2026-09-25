@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.7.2
+
+### Local-network TV casting
+
+- Added **📺 Cast to TV** to the desktop and mobile MEDIARR players.
+- Uses the browser-native Remote Playback API for compatible local-network TVs/streaming devices, including Cast-capable targets exposed by the browser.
+- Added Safari AirPlay support through the native WebKit playback-target picker.
+- The Cast button reports connecting/connected state and remains integrated with the existing top-most player from v1.7.1.
+- Remote playback is explicitly enabled on both MEDIARR video elements when a player opens.
+- Device selection remains permission-driven through the browser; MEDIARR does not scan, store, or expose local TV IP addresses.
+- Unsupported browsers show a disabled **Casting unavailable** control, while supported browsers can report **No TV found** or **Media not castable** without breaking local playback.
+
 ## 1.7.1
 
 ### Player layering
