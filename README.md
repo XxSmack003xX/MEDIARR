@@ -4,7 +4,7 @@
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.7.2-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-1.7.3-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.7.2 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.7.3 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1019,14 +1019,23 @@ Set the source to local and provide a path visible to the MEDIARR process/contai
 
 ### Cast to TV
 
-The desktop and mobile players include a **📺 Cast to TV** control. MEDIARR uses the browser's native remote-playback picker rather than storing or scanning TV addresses itself.
+The desktop and mobile players include a **📺 Cast to TV** control with two transport paths:
 
-- Chrome/Edge and other browsers that expose the Remote Playback API can offer compatible Cast/remote-playback targets detected on the local network.
-- Safari uses the native AirPlay playback-target picker when available.
-- The Cast button follows connection state and shows **Connecting**, **Casting to TV**, or **AirPlay connected** while the remote route is active.
-- The browser requires the user to choose/approve the target; MEDIARR never silently starts playback on another device.
-- The TV/streaming device must be able to reach the media route selected by the browser. Direct-play media is the most broadly compatible path; device/browser codec support still applies.
-- If the browser does not expose a supported remote-playback API, the player shows **Casting unavailable** instead of failing silently.
+- **Google Cast / Chromecast / Google TV:** MEDIARR loads Google's official Cast Web Sender SDK, initializes the Default Media Receiver, opens the real Cast device picker, and sends the selected movie/episode with `loadMedia()`. Google Cast Web Sender requires MEDIARR to be opened over **HTTPS**.
+- **DLNA / UPnP smart TVs:** MEDIARR can discover MediaRenderer devices with SSDP and start playback with AVTransport `SetAVTransportURI` + `Play`. This fallback is browser-independent, so it can be used from Firefox when the TV supports DLNA/UPnP.
+
+A TV does not receive the browser's MEDIARR login cookie. MEDIARR therefore creates a high-entropy, short-lived media URL for only the selected item. The TV can use Range requests for direct playback, while incompatible media is exposed through MEDIARR's HLS remux/transcode path. Cast/HLS responses include CORS support for Google Cast and DLNA streaming headers for compatible smart TVs.
+
+If MEDIARR is opened as `http://localhost:7575`, a TV cannot fetch that address because `localhost` means the TV itself. Open MEDIARR through a LAN/reverse-proxy address that the TV can reach, or set:
+
+```text
+MEDIARR_CAST_URL=http://192.168.1.50:7575
+```
+
+For Google Cast, use an HTTPS MEDIARR URL; the media URL itself may still be HTTP if the receiver can reach it.
+
+> [!NOTE]
+> SSDP multicast may not cross Docker bridge networking on every host. If Google Cast is not being used and DLNA discovery finds no TVs, run MEDIARR with networking that can reach LAN multicast (for example host networking on a compatible Linux Docker host), or configure the deployment/network accordingly.
 
 ### Playback modes
 

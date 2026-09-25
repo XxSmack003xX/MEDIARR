@@ -10,6 +10,7 @@ const https = require('https');
 const fs    = require('fs');
 const path  = require('path');
 const os    = require('os');
+const dgram = require('dgram');
 const zlib  = require('zlib');
 const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
@@ -45,6 +46,8 @@ const ENC_PRESET = { balanced: 'veryfast', faster: 'superfast', fastest: 'ultraf
 const HLS_ROOT = path.join(os.tmpdir(), 'mediarr-hls');
 const hlsSessions = new Map();   // sid -> seekable HLS/remux/transcode session
 const liveTranscodes = new Map(); // tid -> non-HLS ffmpeg fallback session
+const castTokens = new Map();     // short-lived bearer URLs that a TV can fetch without the browser session cookie
+const dlnaDevices = new Map();    // SSDP-discovered MediaRenderers, keyed by opaque id
 try { fs.rmSync(HLS_ROOT, { recursive: true, force: true }); } catch (e) {}
 try { fs.mkdirSync(HLS_ROOT, { recursive: true }); } catch (e) {}
 function hlsCleanup (sid) {
@@ -54,6 +57,11 @@ function hlsCleanup (sid) {
   hlsSessions.delete(sid);
 }
 setInterval(() => { const now = Date.now(); for (const [sid, s] of hlsSessions) { if (now - s.last > 120000) hlsCleanup(sid); } }, 30000).unref();
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, s] of castTokens) if (!s || s.expires <= now) castTokens.delete(token);
+  for (const [id, d] of dlnaDevices) if (!d || d.expires <= now) dlnaDevices.delete(id);
+}, 60000).unref();
 
 const PORT        = process.env.PORT || 7575;
 const HOST        = process.env.HOST || '0.0.0.0';
@@ -2510,7 +2518,8 @@ function webdavDownload (rel, res, user, isHead, req) {
 const VIDEO_MIME = { mp4:'video/mp4', m4v:'video/mp4', webm:'video/webm', ogv:'video/ogg', mov:'video/quicktime', mkv:'video/x-matroska', avi:'video/x-msvideo', ts:'video/mp2t', m2ts:'video/mp2t', mpg:'video/mpeg', mpeg:'video/mpeg', wmv:'video/x-ms-wmv', flv:'video/x-flv', '3gp':'video/3gpp' };
 // Stream a video for in-browser playback. Always proxies (so the <video> element is authenticated)
 // and forwards Range requests so seeking works. Does NOT count against the daily limit (it's a preview, not a kept download).
-function webdavStream (rel, req, res) {
+function webdavStream (rel, req, res, streamOpts) {
+  streamOpts = streamOpts || {};
   const cfg = readConfig().webdav;
   const local = isLocalSource();
   if (!local && (!cfg.url || !cfg.username)) { res.writeHead(400); return res.end('WebDAV is not configured'); }
@@ -2520,14 +2529,14 @@ function webdavStream (rel, req, res) {
   if (!req.headers.range || /^bytes=0-/.test(req.headers.range)) logPlayOnce(currentUser(req), rel, req);   // log at playback start, not every seek
   let q = {}; try { q = new URL(req.url, 'http://x').searchParams; } catch (e) { q = new URLSearchParams(); }
   const aidx = q.get('aidx');
-  const wantTranscode = (q.get('transcode') === '1') || (q.get('vc') === '1') || (aidx != null && aidx !== '') || cfg.transcode;
+  const wantTranscode = !streamOpts.forceDirect && ((q.get('transcode') === '1') || (q.get('vc') === '1') || (aidx != null && aidx !== '') || cfg.transcode);
   if (wantTranscode && FFMPEG) return webdavTranscode(cfg, rel, name, { ac: q.get('ac'), vc: q.get('vc'), aidx }, req, res);
   if (local) return localSendFile(rel, req, res, false);   // direct play straight off disk (range-seekable)
   let u; try { u = new URL(webdavTarget(cfg, rel)); } catch (e) { res.writeHead(400); return res.end('Bad path'); }
   const lib = u.protocol === 'https:' ? https : http;
   const headers = { Authorization: webdavAuthHeader(cfg) };
   if (req.headers.range) headers.Range = req.headers.range;   // forward range for seeking
-  const rq = lib.request({ method: 'GET', hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search, headers, timeout: 30000 }, up => {
+  const rq = lib.request({ method: req.method === 'HEAD' ? 'HEAD' : 'GET', hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search, headers, timeout: 30000 }, up => {
     if (up.statusCode >= 400) { up.resume(); res.writeHead(up.statusCode === 404 ? 404 : 502, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: 'WebDAV returned HTTP ' + up.statusCode })); }
     const ext = (name.split('.').pop() || '').toLowerCase();
     const h = {
@@ -2538,6 +2547,7 @@ function webdavStream (rel, req, res) {
     if (up.headers['content-length']) h['Content-Length'] = up.headers['content-length'];
     if (up.headers['content-range'])  h['Content-Range']  = up.headers['content-range'];
     res.writeHead(up.statusCode, h);   // 200 (full) or 206 (partial)
+    if (req.method === 'HEAD') { up.resume(); return res.end(); }
     up.pipe(res);
   });
   rq.on('error', err => { if (!res.headersSent) { res.writeHead(502, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ message: 'WebDAV error: ' + err.message })); } else { res.end(); } });
@@ -2545,6 +2555,170 @@ function webdavStream (rel, req, res) {
   req.on('close', () => rq.destroy());   // stop pulling from WebDAV if the player disconnects
   rq.end();
 }
+/* ---------- TV casting: Google Cast media URLs + DLNA/UPnP fallback ---------- */
+const CAST_TTL_MS = 6 * 3600 * 1000;
+function castXml (v) {
+  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+function castXmlText (xml, tag) {
+  const m = String(xml || '').match(new RegExp('<(?:\\w+:)?' + tag + '[^>]*>([\\s\\S]*?)<\\/(?:\\w+:)?' + tag + '>', 'i'));
+  return m ? m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").trim() : '';
+}
+function castBaseUrl (req) {
+  const forced = String(process.env.MEDIARR_CAST_URL || '').trim().replace(/\/+$/, '');
+  return forced || requestBaseUrl(req);
+}
+function castMime (rel) {
+  const ext = (String(rel || '').split('.').pop() || '').toLowerCase();
+  return VIDEO_MIME[ext] || 'application/octet-stream';
+}
+function castIssueToken (data) {
+  const token = crypto.randomBytes(24).toString('hex');
+  castTokens.set(token, Object.assign({ createdAt: Date.now(), expires: Date.now() + CAST_TTL_MS }, data || {}));
+  return token;
+}
+function castTokenInfo (token) {
+  const s = castTokens.get(String(token || ''));
+  if (!s || s.expires <= Date.now()) { if (s) castTokens.delete(String(token || '')); return null; }
+  return s;
+}
+function castCors (req, res) {
+  const origin = String(req.headers.origin || '').trim();
+  if (origin) { res.setHeader('Access-Control-Allow-Origin', origin); res.setHeader('Vary', 'Origin'); }
+  else res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Range,Content-Type,Accept-Encoding');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Type,Content-Length,Content-Range,Accept-Ranges,transferMode.dlna.org,contentFeatures.dlna.org');
+}
+function castDlnaHeaders (res) {
+  res.setHeader('transferMode.dlna.org', 'Streaming');
+  res.setHeader('contentFeatures.dlna.org', 'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000');
+}
+function castOpenMedia (token, req, res) {
+  const s = castTokenInfo(token);
+  if (!s || s.kind !== 'direct' || !s.path) { res.writeHead(404); return res.end('Cast session expired'); }
+  castCors(req, res); castDlnaHeaders(res);
+  return webdavStream(s.path, req, res, { forceDirect: true });
+}
+function castOpenHls (token, file, req, res) {
+  const s = castTokenInfo(token);
+  if (!s || s.kind !== 'hls' || !s.sid || !hlsSessions.has(s.sid)) { res.writeHead(404); return res.end('Cast session expired'); }
+  castCors(req, res);
+  return webdavHlsFile(s.sid, file, res);
+}
+function castSessionResponse (req, me, body) {
+  body = body || {};
+  const kind = body.kind === 'hls' ? 'hls' : 'direct';
+  const rel = safeSegments(body.path).join('/');
+  if (!rel) throw new Error('No media path was supplied');
+  let sid = '';
+  if (kind === 'hls') {
+    sid = String(body.sid || '').replace(/[^A-Za-z0-9]/g, '');
+    const hs = hlsSessions.get(sid);
+    if (!hs) throw new Error('The HLS playback session expired');
+    if (hs.user && hs.user !== me.username) throw new Error('That HLS session belongs to another user');
+  }
+  const token = castIssueToken({ kind, path: rel, sid, user: me.username, title: String(body.title || path.basename(rel)).slice(0, 240) });
+  const base = castBaseUrl(req);
+  const url = kind === 'hls'
+    ? base + '/api/cast/hls/' + token + '/index.m3u8'
+    : base + '/api/cast/media/' + token;
+  return { token, url, kind, contentType: kind === 'hls' ? 'application/x-mpegurl' : castMime(rel), expiresAt: Date.now() + CAST_TTL_MS,
+    baseUrl: base, localOnlyWarning: /:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::|\/|$)/i.test(base) };
+}
+function ssdpHeaders (buf) {
+  const out = {};
+  String(buf || '').split(/\r?\n/).slice(1).forEach(line => { const i = line.indexOf(':'); if (i > 0) out[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim(); });
+  return out;
+}
+async function dlnaDescribe (location, sourceIp) {
+  let loc;
+  try { loc = new URL(location); } catch (_) { return null; }
+  if (!/^https?:$/.test(loc.protocol) || loc.hostname !== sourceIp) return null; // do not turn SSDP into an arbitrary server-side fetch primitive
+  let up;
+  try { up = await upstream(loc.toString(), { timeout: 3500, headers: { 'User-Agent': 'MEDIARR/' + APP_VERSION + ' UPnP/1.1' } }); } catch (_) { return null; }
+  if (up.status < 200 || up.status >= 300 || up.body.length > 2 * 1024 * 1024) return null;
+  const xml = up.body.toString('utf8');
+  const blocks = xml.match(/<(?:\w+:)?service\b[^>]*>[\s\S]*?<\/(?:\w+:)?service>/gi) || [];
+  let service = null;
+  for (const b of blocks) {
+    if (/urn:schemas-upnp-org:service:AVTransport:\d+/i.test(b)) { service = b; break; }
+  }
+  if (!service) return null;
+  const control = castXmlText(service, 'controlURL');
+  if (!control) return null;
+  let controlUrl;
+  try { controlUrl = new URL(control, loc).toString(); } catch (_) { return null; }
+  try { if (new URL(controlUrl).hostname !== sourceIp) return null; } catch (_) { return null; }
+  const friendlyName = castXmlText(xml, 'friendlyName') || castXmlText(xml, 'modelName') || ('TV ' + sourceIp);
+  const model = castXmlText(xml, 'modelName');
+  const manufacturer = castXmlText(xml, 'manufacturer');
+  const id = crypto.createHash('sha256').update(controlUrl).digest('hex').slice(0, 20);
+  const d = { id, name: friendlyName.slice(0, 120), model: model.slice(0, 120), manufacturer: manufacturer.slice(0, 120), address: sourceIp, controlUrl, expires: Date.now() + 10 * 60 * 1000 };
+  dlnaDevices.set(id, d);
+  return { id: d.id, name: d.name, model: d.model, manufacturer: d.manufacturer, address: d.address };
+}
+function discoverDlnaDevices () {
+  return new Promise(resolve => {
+    const found = new Map();
+    let done = false, sock;
+    const finish = () => {
+      if (done) return; done = true;
+      try { sock && sock.close(); } catch (_) {}
+      const jobs = [...found.values()].slice(0, 32).map(x => dlnaDescribe(x.location, x.address));
+      Promise.all(jobs).then(list => resolve(list.filter(Boolean).sort((a,b) => a.name.localeCompare(b.name)))).catch(() => resolve([]));
+    };
+    try { sock = dgram.createSocket({ type: 'udp4', reuseAddr: true }); } catch (_) { return resolve([]); }
+    sock.on('error', finish);
+    sock.on('message', (msg, rinfo) => {
+      const h = ssdpHeaders(msg), location = h.location || '';
+      if (!location || !rinfo || !rinfo.address) return;
+      try {
+        const lu = new URL(location);
+        if (!/^https?:$/.test(lu.protocol) || lu.hostname !== rinfo.address) return;
+        found.set(rinfo.address + '|' + location, { location, address: rinfo.address });
+      } catch (_) {}
+    });
+    sock.bind(0, () => {
+      try {
+        sock.setMulticastTTL(2);
+        const send = st => {
+          const q = Buffer.from('M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: "ssdp:discover"\r\nMX: 2\r\nST: ' + st + '\r\n\r\n');
+          sock.send(q, 1900, '239.255.255.250', () => {});
+        };
+        send('urn:schemas-upnp-org:device:MediaRenderer:1');
+        send('urn:schemas-upnp-org:service:AVTransport:1');
+        setTimeout(() => { try { send('ssdp:all'); } catch (_) {} }, 250);
+      } catch (_) { return finish(); }
+      setTimeout(finish, 2200);
+    });
+  });
+}
+async function dlnaSoap (device, action, inner) {
+  const service = 'urn:schemas-upnp-org:service:AVTransport:1';
+  const body = '<?xml version="1.0" encoding="utf-8"?>' +
+    '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>' +
+    '<u:' + action + ' xmlns:u="' + service + '">' + inner + '</u:' + action + '></s:Body></s:Envelope>';
+  const up = await upstream(device.controlUrl, { method: 'POST', timeout: 6000, headers: {
+    'Content-Type': 'text/xml; charset="utf-8"', 'SOAPAction': '"' + service + '#' + action + '"',
+    'Content-Length': Buffer.byteLength(body), 'User-Agent': 'MEDIARR/' + APP_VERSION + ' UPnP/1.1 DLNADOC/1.50'
+  }, body });
+  if (up.status < 200 || up.status >= 300) throw new Error(action + ' returned HTTP ' + up.status);
+  return up;
+}
+async function dlnaPlay (deviceId, mediaUrl, title, mime) {
+  const d = dlnaDevices.get(String(deviceId || ''));
+  if (!d || d.expires <= Date.now()) throw new Error('TV discovery expired. Search for TVs again.');
+  const safeUrl = castXml(mediaUrl), safeTitle = castXml(title || 'MEDIARR');
+  const didl = '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns:dc="http://purl.org/dc/elements/1.1/"><item id="mediarr" parentID="0" restricted="0"><dc:title>' +
+    safeTitle + '</dc:title><upnp:class>object.item.videoItem</upnp:class><res protocolInfo="http-get:*:' + castXml(mime || 'video/mp4') +
+    ':DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000">' + safeUrl + '</res></item></DIDL-Lite>';
+  try { await dlnaSoap(d, 'Stop', '<InstanceID>0</InstanceID>'); } catch (_) {}
+  await dlnaSoap(d, 'SetAVTransportURI', '<InstanceID>0</InstanceID><CurrentURI>' + safeUrl + '</CurrentURI><CurrentURIMetaData>' + castXml(didl) + '</CurrentURIMetaData>');
+  await dlnaSoap(d, 'Play', '<InstanceID>0</InstanceID><Speed>1</Speed>');
+  return { ok: true, device: { id: d.id, name: d.name, model: d.model, address: d.address } };
+}
+
 // Transcode on the fly so incompatible files play in the browser. Probes the source first and re-encodes
 // only what the browser can't handle: video → H.264 (HEVC/H.265, MPEG-2, VC-1, 10-bit Hi10P, …) and/or
 // audio → AAC (AC3/E-AC3/DTS/TrueHD, multichannel). Compatible streams are copied to save CPU.
@@ -5098,6 +5272,21 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/bootstrap.bundle.min.js') return serveVendor(res, 'bootstrap.bundle.min.js', 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js');
     if (req.method === 'GET' && p === '/hls.min.js') return serveVendor(res, 'hls.min.js', 'https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js');
 
+    // Cast receivers cannot use the browser's MEDIARR session cookie. These URLs carry a high-entropy,
+    // short-lived bearer token and expose only the one media item/HLS session selected by the signed-in user.
+    { const cm = p.match(/^\/api\/cast\/media\/([a-f0-9]{48})$/i);
+      if (cm && (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS')) {
+        if (req.method === 'OPTIONS') { castCors(req, res); res.writeHead(204); return res.end(); }
+        return castOpenMedia(cm[1], req, res);
+      }
+    }
+    { const ch = p.match(/^\/api\/cast\/hls\/([a-f0-9]{48})\/([A-Za-z0-9_.-]+)$/i);
+      if (ch && (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS')) {
+        if (req.method === 'OPTIONS') { castCors(req, res); res.writeHead(204); return res.end(); }
+        return castOpenHls(ch[1], ch[2], req, res);
+      }
+    }
+
     // ---- auth (open) ----
     if (p === '/api/setup-needed' && req.method === 'GET') {
       return sendJSON(res, 200, { needed: readUsers().users.length === 0, loginTheme: (readConfig().ui || {}).loginTheme || 'tron' });
@@ -6006,6 +6195,28 @@ const server = http.createServer(async (req, res) => {
             }));
           return sendJSON(res, 200, { servers });
         } catch (e) { return sendJSON(res, 502, { message: 'Could not reach Plex: ' + e.message }); }
+      }
+
+      // ---- TV casting ----
+      if (p === '/api/cast/session' && req.method === 'POST') {
+        let body = {}; try { body = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
+        try { return sendJSON(res, 200, castSessionResponse(req, me, body)); }
+        catch (e) { return sendJSON(res, 400, { message: e.message }); }
+      }
+      if (p === '/api/cast/devices' && req.method === 'GET') {
+        const devices = await discoverDlnaDevices();
+        return sendJSON(res, 200, { devices, googleCastRequiresHttps: true, castBaseUrl: castBaseUrl(req) });
+      }
+      if (p === '/api/cast/dlna/play' && req.method === 'POST') {
+        let body = {}; try { body = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
+        const token = String(body.token || ''), s = castTokenInfo(token);
+        if (!s || s.user !== me.username) return sendJSON(res, 400, { message: 'Cast media session expired' });
+        const mediaUrl = s.kind === 'hls'
+          ? castBaseUrl(req) + '/api/cast/hls/' + token + '/index.m3u8'
+          : castBaseUrl(req) + '/api/cast/media/' + token;
+        const mime = s.kind === 'hls' ? 'application/x-mpegurl' : castMime(s.path);
+        try { return sendJSON(res, 200, await dlnaPlay(body.deviceId, mediaUrl, body.title || s.title, mime)); }
+        catch (e) { return sendJSON(res, 502, { message: e.message }); }
       }
 
       // ---- WebDAV: browse a folder and download files (counts against the daily limit) ----
