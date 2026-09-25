@@ -7,6 +7,7 @@ function addStyles(){
   if(document.getElementById('mediarr170Style'))return;
   var s=document.createElement('style');s.id='mediarr170Style';s.textContent=[
     '.pm170{margin-top:12px;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:12px;background:var(--panel2,var(--bg2,#171e2a));padding:12px}.pm170 h3{margin:0 0 4px;font-size:14px}.pm170-note{font-size:10px;color:var(--muted,var(--bs-secondary-color,#8f9bb3));line-height:1.4;margin-bottom:10px}.pm170-row{display:grid;grid-template-columns:105px 1fr 1fr auto;gap:7px;align-items:end;margin:7px 0}.pm170 label{font-size:9px;color:var(--muted,var(--bs-secondary-color,#8f9bb3));font-weight:800}.pm170 input,.pm170 select{width:100%;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:7px;background:var(--bg,#0c111b);color:var(--txt,var(--bs-body-color,#eef3ff));padding:7px;font-size:10px}.pm170 button{border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:7px;background:var(--bg,#0c111b);color:inherit;padding:7px 9px;font-size:10px;font-weight:800;cursor:pointer}.pm170 button.primary{background:var(--gold,#d9a441);border-color:var(--gold,#d9a441);color:#17120a}.pm170-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.pm170-test{margin-top:12px;padding-top:10px;border-top:1px solid var(--line,var(--bs-border-color,#2a3447))}.pm170-result{margin-top:8px;font-family:monospace;font-size:9px;line-height:1.5;word-break:break-all}.pm170-ok{color:#35d07f}.pm170-bad{color:#ff626c}.pm170-warn{color:#f0b84b}',
+    '#playerOverlay{z-index:5000!important}#player{z-index:5000!important}body.mediarr-player-active .modal.show:not(#player){z-index:1040!important}body.mediarr-player-active #player.show{z-index:5000!important}',
     '@media(max-width:760px){.pm170-row{grid-template-columns:1fr 1fr}.pm170-row>div:nth-child(2),.pm170-row>div:nth-child(3){grid-column:span 1}.pm170-row>button{grid-column:2}.pm170{padding:10px}}'
   ].join('');
   document.head.appendChild(s);
@@ -42,12 +43,31 @@ async function prepareResume(path){
   active.resume=0;active.resumeApplied=false;
   try{var d=await json('/api/playback/progress?path='+encodeURIComponent(path));var x=d.item||{};if(!x.completed&&Number(x.position)>9&&Number(x.progressPct)<95)active.resume=Number(x.position)||0;applyResume();}catch(_){}
 }
+function setPlayerTopmost(on){
+  document.body.classList.toggle('mediarr-player-active',!!on);
+  var desktop=document.getElementById('playerOverlay'),mobile=document.getElementById('player');
+  if(desktop)desktop.style.zIndex=on?'5000':'';
+  if(mobile)mobile.style.zIndex=on?'5000':'';
+}
+function installPlayerLayering(){
+  var desktop=document.getElementById('playerOverlay');
+  if(desktop){
+    new MutationObserver(function(){setPlayerTopmost(desktop.classList.contains('show'));}).observe(desktop,{attributes:true,attributeFilter:['class']});
+  }
+  var mobile=document.getElementById('player');
+  if(mobile){
+    mobile.addEventListener('shown.bs.modal',function(){setPlayerTopmost(true);});
+    mobile.addEventListener('hidden.bs.modal',function(){setPlayerTopmost(false);});
+  }
+}
 function patchPlayer(name,videoId){
   var orig=window[name];if(typeof orig!=='function'||orig.__mediarr170)return;
   function wrapped(path,title,meta){
     try{if(active.path&&active.video)postProgress(false);}catch(_){}
     active.path='';active.video=null;
-    var r=orig.apply(this,arguments);
+    setPlayerTopmost(true);
+    var r;
+    try{r=orig.apply(this,arguments);}catch(e){setPlayerTopmost(false);throw e;}
     active.path=String(path||'');active.name=String(title||'');active.meta=meta||{};active.lastSent=0;active.video=document.getElementById(videoId);active.resume=0;active.resumeApplied=false;
     bindVideo(active.video);prepareResume(active.path);
     return r;
@@ -55,6 +75,7 @@ function patchPlayer(name,videoId){
   wrapped.__mediarr170=true;wrapped.__original=orig;window[name]=wrapped;
 }
 function installProgress(){
+  installPlayerLayering();
   patchPlayer('playVideoD','dlVideo');patchPlayer('playVideoMobile','mVideo');
   window.addEventListener('beforeunload',function(){try{postProgress(false);}catch(_){}});
 }
