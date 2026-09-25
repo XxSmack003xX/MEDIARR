@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.7.3
+
+### Casting reliability fix
+
+- Replaced the ineffective browser `RemotePlayback.prompt()` implementation with Google's official **Cast Web Sender SDK / Cast Application Framework**.
+- Chrome/Edge now initialize the **Default Media Receiver**, open the actual Google Cast device picker, and load the selected MEDIARR movie/episode with `CastSession.loadMedia()`.
+- Added short-lived, high-entropy cast media URLs because Chromecast/TV receivers cannot use the browser's MEDIARR login cookie.
+- Added Cast-safe HLS URLs for media that MEDIARR needs to remux or transcode, while direct-compatible files keep Range-seekable direct playback.
+- Added CORS response handling required by Google Cast media/HLS requests.
+- Added a **DLNA/UPnP fallback** for smart TVs. MEDIARR discovers MediaRenderer devices over SSDP and starts playback with AVTransport `SetAVTransportURI` and `Play`.
+- Firefox now uses the DLNA/UPnP fallback when a compatible TV is discoverable; Google Cast Web Sender itself is a Cast-supported-browser/HTTPS feature.
+- Added a TV picker for discovered DLNA devices and actionable errors instead of a Cast button that silently does nothing.
+- Added `MEDIARR_CAST_URL` override for deployments where the browser-facing hostname is not the address a TV should use to fetch media.
+- Cast bearer URLs expire automatically and expose only the media/HLS session selected by the authenticated MEDIARR user.
+
 ## 1.7.2
 
 ### Local-network TV casting
