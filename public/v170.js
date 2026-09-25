@@ -77,10 +77,9 @@ function loadGoogleCastSdk(){
     googleCastLoading=false;
     if(ok)initGoogleCast();else googleCastError='Google Cast is unavailable in this browser';
   };
-  var s=document.createElement('script');s.async=true;
-  s.src='https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1';
-  s.onerror=function(){googleCastLoading=false;googleCastError='Could not load the Google Cast SDK';};
-  document.head.appendChild(s);
+  // The official sender script is loaded immediately after v170.js in both app shells.
+  // Keep the callback installed first, as required by CAF.
+  if(window.cast&&cast.framework&&window.chrome&&chrome.cast){googleCastLoading=false;initGoogleCast();}
 }
 function googleCastCanPrompt(){
   return !!(googleCastReady&&window.cast&&cast.framework&&window.chrome&&chrome.cast&&window.isSecureContext&&location.protocol==='https:');
