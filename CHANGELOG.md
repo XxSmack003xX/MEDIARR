@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.7.1
+
+### Player layering
+
+- The built-in media player is now always promoted above Unified Media Detail, TV season/episode detail, Downloads, and other open overlays when playback starts.
+- Desktop playback raises `#playerOverlay` to a dedicated top-most application layer instead of sharing the generic overlay z-index.
+- Mobile playback raises the Bootstrap player modal above any still-open detail/panel modal while preserving the normal player backdrop and controls.
+- Player layering is applied through the shared playback wrapper, so the fix covers Unified Media Detail Play/Resume, Continue Watching, TV episode Play/Resume, and Downloads playback.
+- The temporary player-active layer is removed when playback closes, restoring normal modal/overlay stacking.
+
 ## 1.7.0
 
 ### Playback Intelligence
