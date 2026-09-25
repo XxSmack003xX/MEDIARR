@@ -2536,7 +2536,7 @@ function webdavStream (rel, req, res, streamOpts) {
   const lib = u.protocol === 'https:' ? https : http;
   const headers = { Authorization: webdavAuthHeader(cfg) };
   if (req.headers.range) headers.Range = req.headers.range;   // forward range for seeking
-  const rq = lib.request({ method: 'GET', hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search, headers, timeout: 30000 }, up => {
+  const rq = lib.request({ method: req.method === 'HEAD' ? 'HEAD' : 'GET', hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search, headers, timeout: 30000 }, up => {
     if (up.statusCode >= 400) { up.resume(); res.writeHead(up.statusCode === 404 ? 404 : 502, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: 'WebDAV returned HTTP ' + up.statusCode })); }
     const ext = (name.split('.').pop() || '').toLowerCase();
     const h = {
@@ -2547,6 +2547,7 @@ function webdavStream (rel, req, res, streamOpts) {
     if (up.headers['content-length']) h['Content-Length'] = up.headers['content-length'];
     if (up.headers['content-range'])  h['Content-Range']  = up.headers['content-range'];
     res.writeHead(up.statusCode, h);   // 200 (full) or 206 (partial)
+    if (req.method === 'HEAD') { up.resume(); return res.end(); }
     up.pipe(res);
   });
   rq.on('error', err => { if (!res.headersSent) { res.writeHead(502, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ message: 'WebDAV error: ' + err.message })); } else { res.end(); } });
