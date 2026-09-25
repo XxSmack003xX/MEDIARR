@@ -1066,9 +1066,12 @@ async function downloadActivitySnapshot (me, historyLimit) {
   }
   const nowSec = Math.floor(Date.now() / 1000);
   const completed24h = sab.history.filter(x => x.completed && x.completed >= nowSec - 86400 && !/fail/i.test(x.status)).length;
-  const sabFailures = sab.history.filter(x => /fail/i.test(x.status)).length;
+  const sabFailures = sab.history.filter(x => /fail/i.test(x.status) && (!x.completed || x.completed >= nowSec - 86400)).length;
   const arrItems = radarr.items.concat(sonarr.items);
   const arrProblems = arrItems.filter(x => /warning|error|failed/i.test(x.trackedStatus + ' ' + x.trackedState + ' ' + x.status) || x.messages.length).length;
+  const sabIds = new Set(sab.queue.map(x => String(x.id || '')).filter(Boolean));
+  const arrOutsideSab = arrItems.filter(x => !x.downloadId || !sabIds.has(String(x.downloadId))).length;
+  const activeCount = sab.queue.length + arrOutsideSab;
   const myTransfers = activeMediaList(120000)
     .filter(x => x.username === me.username && x.what === 'downloading')
     .map(x => ({ name: path.basename(String(x.path || '')) || 'Browser download', secondsAgo: x.secondsAgo }));
@@ -1078,7 +1081,7 @@ async function downloadActivitySnapshot (me, historyLimit) {
     recent: recentArrDownloadEvents(),
     mediarrTransfers: myTransfers,
     summary: {
-      active: sabConfigured ? sab.queue.length : arrItems.length,
+      active: activeCount,
       sabActive: sab.queue.length,
       arrTracked: arrItems.length,
       completed24h,
