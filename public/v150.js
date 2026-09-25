@@ -20,6 +20,8 @@ function style(){
     '.umd-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.umd-btn{border:1px solid var(--line,var(--bs-border-color,#2a3447));background:var(--panel2,var(--bg2,#171e2a));color:var(--txt,var(--bs-body-color,#eef3ff));border-radius:8px;padding:7px 10px;font-size:11px;font-weight:800;cursor:pointer;text-decoration:none}.umd-btn.primary{background:var(--gold,#d9a441);border-color:var(--gold,#d9a441);color:#17120a}.umd-btn.good{border-color:#35d07f;color:#35d07f}.umd-btn.play{background:#35d07f;border-color:#35d07f;color:#07140d}.umd-btn.favorite-on{border-color:#ff4d6d;color:#ff6b82;background:rgba(255,77,109,.08)}.umd-btn:disabled{opacity:.55;cursor:default}',
     '.umd-seasons{margin-top:9px;display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px}.umd-season{border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:8px;padding:7px 8px;background:var(--bg,#0c111b)}.umd-season b{font-size:10px}.umd-season div{font-size:9px;color:var(--muted,#8f9bb3);margin-top:2px}',
     '.umd-playlist{margin-top:8px;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:10px;background:var(--panel2,var(--bg2,#171e2a));overflow:hidden}.umd-play-head{padding:8px 10px;font-size:10px;color:var(--muted,#8f9bb3);font-weight:800;border-bottom:1px solid var(--line,var(--bs-border-color,#2a3447))}.umd-play-items{max-height:260px;overflow:auto}.umd-play-item{width:100%;display:flex;align-items:center;gap:9px;text-align:left;border:0;border-bottom:1px solid var(--line,var(--bs-border-color,#2a3447));background:transparent;color:inherit;padding:9px 10px;cursor:pointer}.umd-play-item:last-child{border-bottom:0}.umd-play-item:hover{background:rgba(53,208,127,.08)}.umd-play-icon{color:#35d07f;font-weight:900}.umd-play-main{min-width:0;flex:1}.umd-play-label{display:block;font-size:11px;font-weight:900}.umd-play-name{display:block;font-size:9px;color:var(--muted,#8f9bb3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.umd-tv{margin-top:12px;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:12px;overflow:hidden;background:var(--panel2,var(--bg2,#171e2a))}.umd-tv-head{padding:10px 12px;display:flex;justify-content:space-between;gap:8px;align-items:center}.umd-tv-head b{font-size:12px}.umd-season-tabs{display:flex;gap:6px;overflow-x:auto;padding:0 12px 10px}.umd-season-tab{border:1px solid var(--line,var(--bs-border-color,#2a3447));background:var(--bg,#0c111b);color:inherit;border-radius:999px;padding:5px 9px;font-size:9px;font-weight:900;cursor:pointer;white-space:nowrap}.umd-season-tab.on{background:var(--gold,#d9a441);border-color:var(--gold,#d9a441);color:#17120a}.umd-episode-list{border-top:1px solid var(--line,var(--bs-border-color,#2a3447));max-height:440px;overflow:auto}.umd-episode{display:grid;grid-template-columns:64px 1fr auto;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line,var(--bs-border-color,#2a3447))}.umd-episode:last-child{border-bottom:0}.umd-ep-code{font-size:10px;font-weight:900;color:var(--gold,#d9a441)}.umd-ep-title{font-size:11px;font-weight:900}.umd-ep-overview{font-size:9px;color:var(--muted,#8f9bb3);margin-top:3px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.umd-ep-meta{font-size:9px;color:var(--muted,#8f9bb3);margin-top:3px}.umd-ep-missing{font-size:9px;color:var(--muted,#8f9bb3);white-space:nowrap}.umd-ep-play{border:1px solid #35d07f;background:rgba(53,208,127,.12);color:#35d07f;border-radius:8px;padding:6px 9px;font-size:9px;font-weight:900;cursor:pointer}',
+    '.umd-diag{margin-top:9px;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:12px;background:var(--bg,#0c111b);overflow:hidden}.umd-diag-head{padding:9px 11px;font-size:10px;text-transform:uppercase;letter-spacing:1px;font-weight:900;color:var(--muted,#8f9bb3)}.umd-diag-body{padding:0 11px 11px}.umd-diag-row{display:grid;grid-template-columns:145px 1fr;gap:8px;padding:5px 0;border-top:1px solid var(--line,var(--bs-border-color,#2a3447));font-size:10px}.umd-diag-row span:first-child{color:var(--muted,#8f9bb3)}.umd-candidate{font-family:monospace;font-size:9px;word-break:break-all;padding:4px 0}.umd-ok{color:#35d07f}.umd-warn{color:#f0b84b}.umd-bad{color:#ff626c}',
     '.umd-loading{padding:12px;border:1px solid var(--line,var(--bs-border-color,#2a3447));border-radius:10px;color:var(--muted,#8f9bb3);font-size:11px}.umd-error{padding:10px;border:1px solid rgba(255,98,108,.4);border-radius:10px;color:#ff747d;font-size:11px}',
     '@media(max-width:760px){.umd-grid{grid-template-columns:1fr 1fr}.umd-tech-grid{grid-template-columns:1fr 1fr}.umd-tech-cell:nth-child(4n){border-right:1px solid var(--line,var(--bs-border-color,#2a3447))}.umd-tech-cell:nth-child(2n){border-right:0}}'
   ].join('');
@@ -121,16 +123,59 @@ function tech(d){
   var seasons=(tv.seasons||[]).map(function(x){var pct=fmtPct(x.downloaded,x.episodes);return '<div class="umd-season"><b>Season '+x.seasonNumber+' · '+pct+'%</b><div>'+x.downloaded+'/'+x.episodes+' downloaded · '+x.missing+' missing</div><div class="umd-progress"><span style="width:'+pct+'%"></span></div></div>';}).join('');
   return '<div class="umd-tech"><div class="umd-tech-head">TV library status</div><div class="umd-tech-grid">'+rows2+'</div></div>'+(seasons?'<div class="umd-seasons">'+seasons+'</div>':'');
 }
+function playbackCard(d){
+  var p=d.playback||{},items=Array.isArray(p.items)?p.items:[],src=p.sourceLabel||'Media source';
+  if(!p.configured)return '<div class="umd-card"><div class="umd-k">Playback</div><div class="umd-v"><span class="umd-dot"></span>Not configured</div><div class="umd-sub">Configure a Local folder or WebDAV source.</div></div>';
+  if(!items.length)return '<div class="umd-card"><div class="umd-k">Playback</div><div class="umd-v"><span class="umd-dot warn"></span>No file resolved</div><div class="umd-sub">'+esc(src)+' · use Playback diagnostics or Path Mapping Manager.</div></div>';
+  var first=items[0],r=first.resolver||{},sub=[src,r.mapping?('Mapped: '+r.mapping):r.selectedKind,(r.verified?'Verified':'')].filter(Boolean).join(' · ');
+  return '<div class="umd-card"><div class="umd-k">Playback</div><div class="umd-v"><span class="umd-dot good"></span>'+items.length+' playable file'+(items.length===1?'':'s')+'</div><div class="umd-sub">'+esc(sub)+'</div></div>';
+}
+function epCode(e){return 'S'+String(e.seasonNumber||0).padStart(2,'0')+'E'+String(e.episodeNumber||0).padStart(2,'0');}
+function tvBrowser(d){
+  if(mediaKind(d)!=='series')return '';
+  var tv=d.tv||{},eps=tv.episodes&&Array.isArray(tv.episodes.items)?tv.episodes.items:[],plays=playbackItems(d);
+  if(!eps.length)return '';
+  var byFile={};plays.forEach(function(p,i){if(p.fileId!=null)byFile[String(p.fileId)]=i;});
+  var seasons={};eps.forEach(function(e){var sn=Number(e.seasonNumber)||0;(seasons[sn]||(seasons[sn]=[])).push(e);});
+  var sns=Object.keys(seasons).map(Number).sort(function(a,b){return a-b;}), first=sns.find(function(sn){return seasons[sn].some(function(e){return e.hasFile;});});if(first==null)first=sns[0];
+  var h='<div class="umd-tv"><div class="umd-tv-head"><b>Seasons & episodes</b><span class="umd-time">'+eps.filter(function(e){return e.hasFile;}).length+' downloaded · '+eps.length+' total</span></div><div class="umd-season-tabs">';
+  sns.forEach(function(sn){h+='<button class="umd-season-tab'+(sn===first?' on':'')+'" data-umd-season="'+sn+'">Season '+sn+'</button>';});h+='</div>';
+  sns.forEach(function(sn){h+='<div class="umd-episode-list" data-umd-season-panel="'+sn+'"'+(sn===first?'':' hidden')+'>';seasons[sn].forEach(function(e){
+    var idx=e.episodeFileId!=null?byFile[String(e.episodeFileId)]:null, p=idx!=null?plays[idx]:null, prog=p&&p.progress&&Number(p.progress.progressPct)||0;
+    var meta=[e.airDateUtc?new Date(e.airDateUtc).toLocaleDateString():'',e.monitored?'Monitored':'Unmonitored',e.hasFile?'Downloaded':'Missing'].filter(Boolean).join(' · ');
+    h+='<div class="umd-episode"><div class="umd-ep-code">'+esc(epCode(e))+'</div><div><div class="umd-ep-title">'+esc(e.title||('Episode '+e.episodeNumber))+'</div>'+(e.overview?'<div class="umd-ep-overview">'+esc(e.overview)+'</div>':'')+'<div class="umd-ep-meta">'+esc(meta)+(prog>1&&prog<95?(' · '+Math.round(prog)+'% watched'):'')+'</div></div><div>'+(idx!=null?'<button class="umd-ep-play" data-umd-play="'+idx+'">▶ '+(prog>1&&prog<95?'Resume':'Play')+'</button>':'<span class="umd-ep-missing">'+(e.hasFile?'Unresolved':'Not downloaded')+'</span>')+'</div></div>';
+  });h+='</div>';});return h+'</div>';
+}
+function diagShell(d,o){
+  if(!o.admin)return '';
+  var p=d.playback||{},items=playbackItems(d),first=items[0],r=first&&first.resolver||{};
+  var summary=items.length?(p.sourceLabel+' · '+(r.verified?'file verified':p.source==='webdav'?'verification on demand':'resolved')):'No playable path resolved';
+  return '<div class="umd-diag" data-umd-diag hidden><div class="umd-diag-head">Playback diagnostics</div><div class="umd-diag-body"><div class="umd-diag-row"><span>Resolver</span><b>v'+esc(p.resolverVersion||2)+' · '+esc(summary)+'</b></div><div data-umd-diag-live>'+(first?'<div class="umd-diag-row"><span>Arr file</span><b>'+esc(r.arrPath||'—')+'</b></div><div class="umd-diag-row"><span>Selected path</span><b>'+esc(first.path||'—')+'</b></div>':'<div class="umd-diag-row"><span>Result</span><b class="umd-warn">No candidate matched the configured source.</b></div>')+'</div></div></div>';
+}
+function renderDiagLive(box,d,live){
+  var p=d.playback||{},first=playbackItems(d)[0],r=first&&first.resolver||{},plan=live&&live.plan||{};
+  var h='';
+  h+='<div class="umd-diag-row"><span>Source</span><b>'+esc((live&&live.sourceLabel)||p.sourceLabel||'—')+'</b></div>';
+  h+='<div class="umd-diag-row"><span>Resolved target</span><b>'+esc((live&&live.displayPath)||(first&&first.path)||'—')+'</b></div>';
+  h+='<div class="umd-diag-row"><span>File check</span><b class="'+(live&&live.exists?'umd-ok':'umd-bad')+'">'+(live&&live.exists?'✓ File exists':'✕ File not found')+'</b></div>';
+  if(live&&live.exists)h+='<div class="umd-diag-row"><span>Playback decision</span><b>'+esc(plan.decision||plan.mode||'Unknown')+' · '+esc([plan.video,plan.audio,plan.container].filter(Boolean).join(' / '))+'</b></div>';
+  if(r.mapping)h+='<div class="umd-diag-row"><span>Path mapping</span><b>'+esc(r.mapping)+'</b></div>';
+  h+='<div class="umd-diag-row"><span>Candidates</span><div>'+((r.candidates||[]).map(function(x){var mark=x.exists===true?'✓ ':x.exists===false?'✕ ':'• ';return '<div class="umd-candidate '+(x.exists===true?'umd-ok':x.exists===false?'umd-bad':'')+'">'+mark+esc(x.path)+' <span style="opacity:.65">('+esc(x.kind||'candidate')+')</span></div>';}).join('')||'—')+'</div></div>';
+  box.innerHTML=h;
+}
+
 function playbackItems(d){
   var p=d&&d.playback||{},items=Array.isArray(p.items)?p.items:[];
   return p.available?items.filter(function(x){return x&&x.path;}):[];
 }
 function actionHtml(d,o,fav){
   var a=d.arr||{},kind=mediaKind(d),plays=playbackItems(d),src=(d.playback&&d.playback.sourceLabel)||'Local/WebDAV',h='<div class="umd-actions">';
-  if(plays.length===1)h+='<button class="umd-btn play" data-umd-play="0" title="Play from '+esc(src)+'">▶ Play</button>';
+  var first=plays[0],prog=first&&first.progress&&Number(first.progress.progressPct)||0,playLabel=(prog>1&&prog<95)?'▶ Resume':'▶ Play';
+  if(plays.length===1)h+='<button class="umd-btn play" data-umd-play="0" title="Play from '+esc(src)+'">'+playLabel+'</button>';
   else if(plays.length>1)h+='<button class="umd-btn play" data-umd-play-toggle title="Choose an episode from '+esc(src)+'">▶ Play</button>';
   if(kind!=='movie')h+='<button class="umd-btn'+(fav&&fav.favorited?' favorite-on':'')+'" data-umd-favorite data-favorited="'+(fav&&fav.favorited?'1':'0')+'">'+(fav&&fav.favorited?'♥ Remove from Favorites':'♡ Add to Favorites')+'</button>';
   if(d.plex&&d.plex.available&&d.plex.webUrl)h+='<a class="umd-btn good" target="_blank" rel="noopener" href="'+esc(d.plex.webUrl)+'">▶ Open in Plex</a>';
+  if(o.admin)h+='<button class="umd-btn" data-umd-diag-toggle>🩺 Playback diagnostics</button>';
   if(a.inLibrary&&o.admin){
     h+='<button class="umd-btn primary" data-umd-release>⚡ Browse releases</button>';
     h+='<button class="umd-btn" data-umd-search>🔍 Search now</button>';
@@ -138,7 +183,7 @@ function actionHtml(d,o,fav){
   h+='<button class="umd-btn" data-umd-refresh>↻ Refresh details</button></div>';
   if(plays.length>1){
     h+='<div class="umd-playlist" data-umd-playlist hidden><div class="umd-play-head">'+esc(src)+' · '+plays.length+' downloaded episode file'+(plays.length===1?'':'s')+'</div><div class="umd-play-items">';
-    plays.forEach(function(x,i){h+='<button class="umd-play-item" data-umd-play="'+i+'"><span class="umd-play-icon">▶</span><span class="umd-play-main"><span class="umd-play-label">'+esc(x.label||x.name||('Episode '+(i+1)))+'</span><span class="umd-play-name">'+esc(x.name||x.path)+'</span></span></button>';});
+    plays.forEach(function(x,i){var pp=x.progress&&Number(x.progress.progressPct)||0;h+='<button class="umd-play-item" data-umd-play="'+i+'"><span class="umd-play-icon">▶</span><span class="umd-play-main"><span class="umd-play-label">'+esc(x.label||x.name||('Episode '+(i+1)))+(pp>1&&pp<95?' · Resume '+Math.round(pp)+'%':'')+'</span><span class="umd-play-name">'+esc(x.name||x.path)+'</span></span></button>';});
     h+='</div></div>';
   }
   return h;
@@ -148,15 +193,23 @@ function wireActions(mount,d,o){
   function startPlay(item){
     if(!item||!item.path)return;
     var name=item.name||item.label||item.path.split('/').pop()||'Media';
-    if(typeof window.playVideoD==='function'){ window.playVideoD(item.path,name); return; }
+    if(typeof window.playVideoD==='function'){ window.playVideoD(item.path,name,item.meta||{}); return; }
     if(typeof window.playVideoMobile==='function'){
       try{var detail=document.getElementById('detail');if(detail&&window.bootstrap)bootstrap.Modal.getInstance(detail)?.hide();}catch(_){}
-      setTimeout(function(){window.playVideoMobile(item.path,name);},100);
+      setTimeout(function(){window.playVideoMobile(item.path,name,item.meta||{});},100);
       return;
     }
     window.open('/api/webdav/stream?path='+encodeURIComponent(item.path),'_blank','noopener');
   }
   mount.querySelectorAll('[data-umd-play]').forEach(function(btn){btn.onclick=function(){startPlay(plays[Number(btn.getAttribute('data-umd-play'))||0]);};});
+  mount.querySelectorAll('[data-umd-season]').forEach(function(btn){btn.onclick=function(){var sn=btn.getAttribute('data-umd-season');mount.querySelectorAll('[data-umd-season]').forEach(function(x){x.classList.toggle('on',x===btn);});mount.querySelectorAll('[data-umd-season-panel]').forEach(function(x){x.hidden=x.getAttribute('data-umd-season-panel')!==sn;});};});
+  var diagBtn=mount.querySelector('[data-umd-diag-toggle]'),diag=mount.querySelector('[data-umd-diag]'),diagLive=mount.querySelector('[data-umd-diag-live]');
+  if(diagBtn&&diag)diagBtn.onclick=async function(){
+    diag.hidden=!diag.hidden;if(diag.hidden)return;
+    var first=plays[0];if(!first||!first.path){if(diagLive)diagLive.innerHTML='<div class="umd-diag-row"><span>Result</span><b class="umd-bad">No playable path was resolved. Add/test a Path Mapping rule in Settings.</b></div>';return;}
+    if(diagLive)diagLive.innerHTML='<div class="umd-diag-row"><span>Probe</span><b>Checking file and codecs…</b></div>';
+    try{var live=await get('/api/admin/media/diagnostics?path='+encodeURIComponent(first.path));renderDiagLive(diagLive,d,live);}catch(e){if(diagLive)diagLive.innerHTML='<div class="umd-diag-row"><span>Error</span><b class="umd-bad">'+esc(e.message)+'</b></div>';}
+  };
   var playToggle=mount.querySelector('[data-umd-play-toggle]'),playlist=mount.querySelector('[data-umd-playlist]');
   if(playToggle&&playlist)playToggle.onclick=function(){var open=!playlist.hidden;playlist.hidden=open;playToggle.textContent=open?'▶ Play':'▲ Hide episodes';};
   var ref=mount.querySelector('[data-umd-refresh]');if(ref)ref.onclick=function(){load(o,true);};
@@ -217,9 +270,9 @@ async function load(o,refresh){
     d.service=normalizedKind==='movie'?'radarr':'sonarr';
     var fav=await favoriteState(d);
     mount.innerHTML='<div class="umd-head"><div class="umd-title">Unified media status</div><div class="umd-time">Live from MEDIARR · '+new Date(d.generatedAt||Date.now()).toLocaleTimeString()+'</div></div>'+
-      '<div class="umd-grid">'+serviceCard(d)+downloadCard(d)+plexCard(d)+mediaCard(d)+'</div>'+
+      '<div class="umd-grid">'+serviceCard(d)+downloadCard(d)+plexCard(d)+mediaCard(d)+playbackCard(d)+'</div>'+
       ((d.tmdb&&d.tmdb.tagline)?'<div class="umd-row">'+chips([d.tmdb.tagline].concat(d.tmdb.networks||[]))+'</div>':'')+
-      tech(d)+actionHtml(d,o,fav);
+      tech(d)+tvBrowser(d)+actionHtml(d,o,fav)+diagShell(d,o);
     wireActions(mount,d,o);
   }catch(e){mount.innerHTML='<div class="umd-error">Could not load unified media status: '+esc(e.message)+'</div>';}
 }

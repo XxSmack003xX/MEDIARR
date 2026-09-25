@@ -4,7 +4,7 @@
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.6.10-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-1.7.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.6.10 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.7.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -44,6 +44,7 @@ This README is written against the **v1.6.10 source in this repository**. Featur
 - [Networking with Docker](#networking-with-docker)
 - [Accounts, roles, quotas, and API keys](#accounts-roles-quotas-and-api-keys)
 - [User home pages](#user-home-pages)
+- [Playback intelligence and path mapping](#playback-intelligence-and-path-mapping)
 - [Movie and TV discovery](#movie-and-tv-discovery)
 - [Radarr and Sonarr integration](#radarr-and-sonarr-integration)
 - [Unified media detail](#unified-media-detail)
@@ -595,7 +596,7 @@ MEDIARR v1.6.0 replaces the generic signed-in landing feed with a personalized *
 
 Depending on which services the user has linked and which integrations the administrator has configured, the home page can include:
 
-- **Continue Watching** from the user's linked Plex profile.
+- **Continue Watching** merged from the user's linked Plex profile **and MEDIARR local/WebDAV playback progress**.
 - **My Requests** from that MEDIARR username's Radarr/Sonarr add history, with Requested, In library, and Available states.
 - **Up Next** for upcoming episodes from that user's favorite TV shows.
 - The user's **Plex Watchlist**.
@@ -612,6 +613,68 @@ The page also shows small per-user summary cards for Plex linkage, request usage
 Plex home data is tied to the Plex account/profile linked to the current MEDIARR user. MEDIARR does not intentionally use another user's Plex history as a fallback. When a server-owner Plex token must be used to read scoped history, MEDIARR only does so after resolving the exact Plex account id for that linked user.
 
 Users who have not linked Plex still get MEDIARR request/favorite/library sections. Users without TMDB simply do not receive the recommendation/discovery rails.
+
+---
+
+## Playback intelligence and path mapping
+
+MEDIARR v1.7.0 introduces a shared **Media Resolver** between Radarr/Sonarr file metadata and the Local/WebDAV player. The resolver is now the single place that decides how an Arr file becomes a playable MEDIARR path.
+
+### Media Resolver
+
+For each downloaded movie or episode, MEDIARR evaluates path candidates in priority order:
+
+1. Administrator-defined path mappings.
+2. Arr-root-relative paths.
+3. Item/folder-relative paths.
+4. Parent-root Docker layouts.
+5. Safe compatibility fallbacks.
+
+Local-folder candidates are checked against the filesystem before being exposed as playable. WebDAV candidates are resolved without issuing a network request for every episode; administrators can verify an exact path on demand with diagnostics or the mapping tester.
+
+### Path Mapping Manager
+
+Administrators can open **Settings → Media → Path Mapping Manager** on desktop or mobile.
+
+Each rule contains:
+
+- Service: Radarr, Sonarr, or both.
+- **Arr root** — the path Radarr/Sonarr reports, such as `/movies`, `/tv`, or `D:\\Movies`.
+- **Media source prefix** — the path beneath MEDIARR's configured Local/WebDAV source, such as `movies`, `tv`, or blank when MEDIARR is already rooted at the same library.
+
+Rules are evaluated before automatic path guessing. The built-in tester accepts a real full Arr file path and shows every candidate, whether the target exists, and which path MEDIARR selected.
+
+Example:
+
+```text
+Radarr file:        /movies/Resident Evil (2026)/Resident Evil (2026) TELESYNC.mkv
+MEDIARR local root: /media
+Mapping:            /movies -> movies
+Resolved file:      /media/movies/Resident Evil (2026)/Resident Evil (2026) TELESYNC.mkv
+```
+
+### Playback Diagnostics
+
+Administrators get a **Playback diagnostics** action in Unified Media Detail. Diagnostics show:
+
+- Arr's original full file path.
+- The selected Local/WebDAV relative path.
+- Which mapping/resolver rule won.
+- Every candidate MEDIARR considered.
+- File-existence verification.
+- The resolved target path.
+- ffprobe container/video/audio information.
+- The automatic playback decision: Direct play, Remux, Audio transcode, or Video transcode.
+
+This is intended to make a missing Play button or unexpected transcode explainable without reading server logs.
+
+### MEDIARR Continue Watching
+
+Local and WebDAV playback now saves per-user position in `watch-progress.json`. The player periodically records position/duration, resumes unfinished media, and marks titles complete near the end.
+
+The User Home **Continue Watching** rail merges MEDIARR playback with linked Plex Continue Watching. Clicking a MEDIARR item resumes it directly in the built-in player.
+
+Watch progress is included in MEDIARR configuration backups.
 
 ---
 
@@ -711,6 +774,8 @@ For movies already in Radarr, the unified detail can show:
 
 ### TV shows
 
+For shows already in Sonarr, the unified detail now includes a full season/episode browser in addition to aggregate library status. Season tabs expose each episode's title, overview, air date, monitored/downloaded state, watch progress, and a direct **Play/Resume** action when the Sonarr episode file resolves through the Media Resolver.
+
 For shows already in Sonarr, the unified detail can show:
 
 - In-library and monitored state.
@@ -730,7 +795,7 @@ For shows already in Sonarr, the unified detail can show:
 When a downloaded Radarr/Sonarr file maps into the configured **Local folder** or **WebDAV** media source, the unified panel now exposes the existing MEDIARR player directly:
 
 - Movies get a **▶ Play** button that opens the same local/WebDAV player used by the Downloads browser.
-- TV shows get a **▶ Play** button that expands the downloaded episode files, with one play action per episode file.
+- TV shows get a **▶ Play** button plus a season/episode browser with per-episode **Play/Resume** actions for downloaded files.
 - Playback keeps the existing automatic direct-play/remux/transcode selection, audio/subtitle controls, HLS seeking, and local/WebDAV handling.
 - Local-folder matches are verified against the mounted filesystem before the button is shown.
 - Path mapping supports MEDIARR being mounted either **at** the Radarr/Sonarr library root or **one level above it**. For example, Radarr can see `/movies/Resident Evil (2026)/file.mkv` while MEDIARR sees either `/media/movies/Resident Evil (2026)/file.mkv` or a source rooted directly at `/media/movies`.

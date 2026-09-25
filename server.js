@@ -73,6 +73,7 @@ const USERS_PATH  = path.join(DATA_DIR, 'users.json');
 const ADDS_PATH   = path.join(DATA_DIR, 'adds.json');
 const FAVS_PATH   = path.join(DATA_DIR, 'favorites.json');
 const AUTOADD_PATH = path.join(DATA_DIR, 'autoadd.json');
+const WATCH_PROGRESS_PATH = path.join(DATA_DIR, 'watch-progress.json');
 const CINEMETA    = 'https://v3-cinemeta.strem.io';
 const TMDB        = 'https://api.themoviedb.org/3';
 const HEALTH_INTERVAL_MS = 60 * 1000;   // background check cadence
@@ -86,7 +87,7 @@ const DEFAULT_CONFIG = {
   tmdb:   { apiKey: '' },
   plex:   { url: '', token: '', clientId: '' },
   webdav: { source: 'webdav', localPath: '', url: '', username: '', password: '', folder: '', mode: 'redirect', transcode: false, encSpeed: 'balanced', hwAccel: 'auto' },   // source: 'webdav' | 'local'   // encSpeed: balanced|faster|fastest|quality; hwAccel: auto|off
-  playback: { autoSelect: true },   // probe browser playback compatibility and pick direct/remux/transcode automatically
+  playback: { autoSelect: true, pathMappings: [] },   // automatic playback + Arr-root -> media-source path mappings
   realtime: { webhookToken: '', setupComplete: false },
   ui:     { loginTheme: 'tron' },  // login background theme: 'tron' | 'earth' | 'rain' | 'random'
   donate: { url: '', label: '' },  // PayPal donate link; when set, a Donate button appears for everyone
@@ -183,7 +184,7 @@ function sanitize (c) {
   out.tmdb = { hasKey: !!c.tmdb.apiKey };
   out.plex = { url: c.plex.url, hasKey: !!c.plex.token };
   out.webdav = { source: (c.webdav.source === 'local' ? 'local' : 'webdav'), localPath: c.webdav.localPath || '', url: c.webdav.url, username: c.webdav.username, folder: c.webdav.folder, mode: wmode(c.webdav.mode), transcode: !!c.webdav.transcode, ffmpeg: !!FFMPEG, ffprobe: !!FFPROBE, hasAuth: !!(c.webdav.username && c.webdav.password), encSpeed: c.webdav.encSpeed || 'balanced', hwAccel: c.webdav.hwAccel || 'auto', hwEncoder: HWENC || '' };
-  out.playback = { autoSelect: !(c.playback && c.playback.autoSelect === false) };
+  out.playback = { autoSelect: !(c.playback && c.playback.autoSelect === false), pathMappings: normalizePathMappings(c.playback && c.playback.pathMappings) };
   out.realtime = { setupComplete: !!(c.realtime && c.realtime.setupComplete) };
   out.ui = { loginTheme: (c.ui && c.ui.loginTheme) || 'tron' };
   out.donate = { url: (c.donate && c.donate.url) || '', label: (c.donate && c.donate.label) || '' };
@@ -213,6 +214,26 @@ function sanitize (c) {
   return out;
 }
 function normUrl (u) { return (u || '').trim().replace(/\/+$/, ''); }
+function normalizePathMappings (raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const out = [];
+  for (const x of list.slice(0, 50)) {
+    if (!x) continue;
+    const service = ['radarr','sonarr','all'].includes(String(x.service || '').toLowerCase()) ? String(x.service).toLowerCase() : 'all';
+    const arrRoot = slashMediaPath(x.arrRoot || '').trim();
+    if (!arrRoot) continue;
+    const targetPrefix = safeSegments(slashMediaPath(x.targetPrefix || '')).join('/');
+    out.push({
+      id: String(x.id || crypto.randomBytes(5).toString('hex')).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || crypto.randomBytes(5).toString('hex'),
+      name: String(x.name || '').trim().slice(0, 80),
+      service,
+      arrRoot,
+      targetPrefix,
+      enabled: x.enabled !== false
+    });
+  }
+  return out;
+}
 
 /* ---------- Plex sign-in (OAuth PIN flow) ---------- */
 // A stable client identifier is required across pin creation, authorization and polling.
@@ -961,7 +982,7 @@ function sabSlim (q, h) {
    Everything that isn't regenerable gets snapshotted: settings, users, favorites,
    activity, RSS state, blocklist. Caches are deliberately excluded. */
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
-const BACKUP_FILES = ['config.json', 'users.json', 'favorites.json', 'adds.json', 'rss.json', 'blocked.json', 'autoadd.json'];
+const BACKUP_FILES = ['config.json', 'users.json', 'favorites.json', 'adds.json', 'rss.json', 'blocked.json', 'autoadd.json', 'watch-progress.json'];
 const BACKUP_VERSION = 1;
 let backupTimer = null, backupDebounce = null, lastBackupHash = '';
 function ensureBackupDir () { try { fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 }); } catch (e) {} }
@@ -1693,6 +1714,121 @@ async function homeDiscover () {
   const out=[]; for(let i=0;i<Math.max(movies.length,shows.length);i++){ if(movies[i])out.push(movies[i]); if(shows[i])out.push(shows[i]); }
   return out.slice(0,16);
 }
+let _watchCache = null, _watchMtime = 0;
+function readWatchProgress () {
+  try {
+    const st = fs.statSync(WATCH_PROGRESS_PATH);
+    if (_watchCache && st.mtimeMs === _watchMtime) return _watchCache;
+    const d = JSON.parse(fs.readFileSync(WATCH_PROGRESS_PATH, 'utf8'));
+    _watchMtime = st.mtimeMs;
+    return (_watchCache = d && d.users ? d : { version: 1, users: {} });
+  } catch (_) { return (_watchCache = { version: 1, users: {} }); }
+}
+function writeWatchProgress (d) {
+  try {
+    const tmp = WATCH_PROGRESS_PATH + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(d, null, 2));
+    fs.renameSync(tmp, WATCH_PROGRESS_PATH);
+    _watchCache = d;
+    try { _watchMtime = fs.statSync(WATCH_PROGRESS_PATH).mtimeMs; } catch (_) { _watchMtime = Date.now(); }
+  } catch (e) { logError('watch-progress', e.message, 'write'); }
+}
+function watchKey (rel) { return crypto.createHash('sha1').update(safeSegments(rel).join('/').toLowerCase()).digest('hex'); }
+function watchProgressForPath (username, rel) {
+  const u = readWatchProgress().users[String(username || '').toLowerCase()] || {};
+  return u[watchKey(rel)] || null;
+}
+function saveWatchProgress (username, body) {
+  const rel = safeSegments(body.path || '').join('/');
+  if (!rel) return null;
+  const d = readWatchProgress(), uk = String(username || '').toLowerCase();
+  const bucket = d.users[uk] || (d.users[uk] = {});
+  const key = watchKey(rel), prev = bucket[key] || {};
+  const duration = Math.max(0, Number(body.duration) || Number(prev.duration) || 0);
+  const position = Math.max(0, Math.min(duration || Number.MAX_SAFE_INTEGER, Number(body.position) || 0));
+  const pct = duration > 0 ? Math.max(0, Math.min(100, Math.round(position / duration * 1000) / 10)) : 0;
+  const completed = !!body.ended || (duration > 0 && pct >= 95);
+  const m = body.meta || {};
+  const rec = {
+    path: rel,
+    title: String(m.title || body.title || prev.title || rel.split('/').pop() || 'Media').slice(0, 300),
+    show: String(m.show || prev.show || '').slice(0, 300),
+    type: ['movie','episode'].includes(String(m.type)) ? String(m.type) : (prev.type || 'movie'),
+    season: m.season != null ? Number(m.season) : (prev.season != null ? prev.season : null),
+    episode: m.episode != null ? Number(m.episode) : (prev.episode != null ? prev.episode : null),
+    year: m.year || prev.year || '',
+    poster: String(m.poster || prev.poster || '').slice(0, 1000),
+    imdbId: String(m.imdbId || prev.imdbId || '').slice(0, 40),
+    tmdbId: m.tmdbId || prev.tmdbId || null,
+    tvdbId: m.tvdbId || prev.tvdbId || null,
+    position, duration, progressPct: pct, completed, updatedAt: Date.now()
+  };
+  // Starting a completed title from near the beginning makes it resumable again.
+  if (prev.completed && duration > 0 && pct < 80 && !body.ended) rec.completed = false;
+  bucket[key] = rec;
+  const keys = Object.keys(bucket).sort((a,b)=>(bucket[b].updatedAt||0)-(bucket[a].updatedAt||0));
+  for (const k of keys.slice(250)) delete bucket[k];
+  writeWatchProgress(d);
+  return rec;
+}
+function watchContinueForUser (username, limit) {
+  const bucket = readWatchProgress().users[String(username || '').toLowerCase()] || {};
+  return Object.values(bucket)
+    .filter(x => !x.completed && Number(x.duration) > 0 && Number(x.position) >= 10 && Number(x.progressPct) < 95)
+    .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))
+    .slice(0, Math.max(1, Math.min(50, limit || 18)))
+    .map(x => Object.assign({ source: 'mediarr' }, x));
+}
+function playbackPlanFromProbe (rel, info) {
+  if (!info) return { mode:'direct', decision:'Unknown', reason:'probe-failed' };
+  const ext = path.extname(String(rel || '')).slice(1).toLowerCase();
+  const v = String(info.video || '').toLowerCase(), a = String(info.audio || '').toLowerCase(), pix = String(info.pix || '').toLowerCase();
+  const tenBit = /10|12/.test(pix), mp4ish = ['mp4','m4v','mov'].includes(ext), webm = ext === 'webm';
+  const directVideo = !tenBit && ((mp4ish && ['h264','av1'].includes(v)) || (webm && ['vp8','vp9','av1'].includes(v)));
+  const directAudio = (mp4ish && ['aac','mp3'].includes(a)) || (webm && ['opus','vorbis'].includes(a));
+  const direct = directVideo && directAudio, hlsCopyVideo = !tenBit && v === 'h264', hlsCopyAudio = ['aac','mp3'].includes(a);
+  if (direct) return { mode:'direct', decision:'Direct play', reason:'browser-compatible', video:v, audio:a, pixelFormat:pix, container:ext||info.format||'', duration:info.duration||0 };
+  if (hlsCopyVideo && hlsCopyAudio) return { mode:'hls', decision:'Remux', reason:'container', forceVideo:false, transcodeAudio:false, video:v, audio:a, pixelFormat:pix, container:ext||info.format||'', duration:info.duration||0 };
+  if (hlsCopyVideo) return { mode:'hls', decision:'Audio transcode', reason:'audio', forceVideo:false, transcodeAudio:true, video:v, audio:a, pixelFormat:pix, container:ext||info.format||'', duration:info.duration||0 };
+  return { mode:'hls', decision:'Video transcode', reason:tenBit?'pixel-format':'video', forceVideo:true, transcodeAudio:!hlsCopyAudio, video:v, audio:a, pixelFormat:pix, container:ext||info.format||'', duration:info.duration||0 };
+}
+function ffprobeCodecsPromise (input) { return new Promise(resolve => ffprobeCodecs(input, resolve)); }
+async function playbackDiagnostics (rel) {
+  const cfg = readConfig().webdav || {}, clean = safeSegments(rel).join('/');
+  const exists = await mediaRelativeExists(clean);
+  const source = isLocalSource() ? 'local' : 'webdav';
+  const displayPath = source === 'local' ? (localTarget(clean) || clean) : [cfg.folder || '', clean].filter(Boolean).join('/');
+  let plan = { mode:'direct', decision:'Direct play', reason:'probe-unavailable', ffmpeg:!!FFMPEG, ffprobe:!!FFPROBE };
+  if (exists && FFPROBE) {
+    const input = mediaInput(cfg, clean);
+    if (input) {
+      const info = await ffprobeCodecsPromise(input);
+      plan = Object.assign(playbackPlanFromProbe(clean, info), { ffmpeg:!!FFMPEG, ffprobe:!!FFPROBE });
+    }
+  }
+  return { ok:true, source, sourceLabel:source==='local'?'Local folder':'WebDAV', path:clean, displayPath, exists, plan };
+}
+async function pathMappingTest (body) {
+  const service = body.service === 'sonarr' ? 'sonarr' : 'radarr';
+  const arrPath = slashMediaPath(body.arrPath || '');
+  if (!arrPath) throw new Error('Enter a full Radarr/Sonarr file path');
+  const bits = arrPath.split('/').filter(Boolean), fileName = bits.pop() || '', itemPath = bits.join('/');
+  const root = slashMediaPath((readConfig()[service] && readConfig()[service].rootFolderPath) || '');
+  const relative = root ? stripMediaRoot(arrPath, root).split('/').slice(1).join('/') || fileName : fileName;
+  const candidates = playbackCandidateDetails(arrPath, relative, itemPath, root, service).slice(0, 10);
+  let selected = null;
+  for (const x of candidates) {
+    x.exists = await mediaRelativeExists(x.path);
+    if (!selected && x.exists) selected = x;
+  }
+  return {
+    ok:true, service, arrPath, source:isLocalSource()?'local':'webdav',
+    sourceRoot:isLocalSource()?(readConfig().webdav.localPath||''):(readConfig().webdav.folder||'/'),
+    selected:selected ? selected.path : '',
+    candidates
+  };
+}
+
 async function userHomeData (me) {
   const favorites = userFavs(me.username).slice().sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,20).map(x => Object.assign({}, x, { type: 'series', service: 'sonarr' }));
   const [history, cont, watchlist, upcoming, discover] = await Promise.all([
@@ -1714,6 +1850,7 @@ async function userHomeData (me) {
       errors:[history.error,cont.error,watchlist.error].filter(Boolean)
     },
     favorites, upcoming,
+    continueWatching: watchContinueForUser(me.username,18),
     requests:homeRequests(me.username,18),
     recentlyAvailable:homeRecentlyAvailable(18),
     recommendations:recs,
@@ -3716,7 +3853,18 @@ async function sonarrFileSummary (seriesId) {
       next: future[0] ? {
         seasonNumber: future[0].seasonNumber, episodeNumber: future[0].episodeNumber,
         title: future[0].title || '', airDateUtc: future[0].airDateUtc
-      } : null
+      } : null,
+      items: real.map(e => ({
+        id: Number(e.id) || null,
+        seasonNumber: Number(e.seasonNumber) || 0,
+        episodeNumber: Number(e.episodeNumber) || 0,
+        title: e.title || '',
+        overview: String(e.overview || '').slice(0, 1000),
+        airDateUtc: e.airDateUtc || '',
+        monitored: !!e.monitored,
+        hasFile: !!e.hasFile,
+        episodeFileId: Number(e.episodeFileId) || null
+      })).sort((a,b)=>a.seasonNumber-b.seasonNumber || a.episodeNumber-b.episodeNumber)
     },
     seasons: [...seasons.values()].sort((a,b)=>a.seasonNumber-b.seasonNumber),
     files: {
@@ -3741,37 +3889,53 @@ function stripMediaRoot (full, root) {
   if (!fl.startsWith(rl + '/')) return '';
   return f.slice(r.length + 1);
 }
-function playbackPathCandidates (fullPath, relativePath, itemPath, rootFolderPath) {
+function pathStartsRoot (full, root) {
+  const f = slashMediaPath(full), r = slashMediaPath(root);
+  if (!f || !r) return '';
+  const fl = f.toLowerCase(), rl = r.toLowerCase();
+  if (fl === rl) return '';
+  if (!fl.startsWith(rl + '/')) return '';
+  return f.slice(r.length + 1);
+}
+function mappedPlaybackCandidates (fullPath, service) {
+  const rules = normalizePathMappings(readConfig().playback && readConfig().playback.pathMappings);
+  const out = [];
+  for (const m of rules) {
+    if (!m.enabled || (m.service !== 'all' && m.service !== service)) continue;
+    const rest = pathStartsRoot(fullPath, m.arrRoot);
+    if (!rest) continue;
+    const rel = [m.targetPrefix, rest].filter(Boolean).join('/');
+    out.push({ path: safeSegments(rel).join('/'), kind: 'mapping', mapping: m.name || (m.arrRoot + ' → ' + (m.targetPrefix || '/')), mappingId: m.id });
+  }
+  return out;
+}
+function playbackCandidateDetails (fullPath, relativePath, itemPath, rootFolderPath, service) {
   const out = [], seen = new Set();
-  const add = v => {
+  const add = (v, kind, mapping, mappingId) => {
     const clean = safeSegments(slashMediaPath(v)).join('/');
     if (!clean || seen.has(clean)) return;
     const ext = (clean.split('.').pop() || '').toLowerCase();
     if (!VIDEO_EXT.includes(ext)) return;
-    seen.add(clean); out.push(clean);
+    seen.add(clean); out.push({ path: clean, kind: kind || 'automatic', mapping: mapping || '', mappingId: mappingId || '' });
   };
+  for (const x of mappedPlaybackCandidates(fullPath, service)) add(x.path, x.kind, x.mapping, x.mappingId);
 
-  // Layout A: MEDIARR's configured source is the same library root as Radarr/Sonarr.
-  //   Arr: /movies/Resident Evil (2026)/file.mkv
-  //   MEDIARR localPath: /media/movies  -> Resident Evil (2026)/file.mkv
-  add(stripMediaRoot(fullPath, rootFolderPath));
+  add(stripMediaRoot(fullPath, rootFolderPath), 'arr-root-relative');
   const itemRel = stripMediaRoot(itemPath, rootFolderPath);
-  if (itemRel && relativePath) add(itemRel + '/' + slashMediaPath(relativePath));
+  if (itemRel && relativePath) add(itemRel + '/' + slashMediaPath(relativePath), 'item-relative');
 
   const itemFolder = slashMediaPath(itemPath).split('/').filter(Boolean).pop() || '';
-  if (itemFolder && relativePath) add(itemFolder + '/' + slashMediaPath(relativePath));
+  if (itemFolder && relativePath) add(itemFolder + '/' + slashMediaPath(relativePath), 'folder-relative');
 
-  // Layout B: MEDIARR is mounted one level ABOVE the Arr root. This is common in
-  // Docker stacks where Radarr sees /movies while MEDIARR sees /media with a
-  // "movies" child. Treating Arr's absolute path as source-relative gives:
-  //   /movies/Resident Evil (2026)/file.mkv -> movies/Resident Evil (2026)/file.mkv
   const rootName = slashMediaPath(rootFolderPath).split('/').filter(Boolean).pop() || '';
-  if (rootName && itemRel && relativePath) add(rootName + '/' + itemRel + '/' + slashMediaPath(relativePath));
-  add(fullPath);
+  if (rootName && itemRel && relativePath) add(rootName + '/' + itemRel + '/' + slashMediaPath(relativePath), 'parent-root');
 
-  // Last-resort layout for sources configured directly to the movie/show folder.
-  add(relativePath);
+  add(fullPath, 'absolute-as-relative');
+  add(relativePath, 'file-relative');
   return out;
+}
+function playbackPathCandidates (fullPath, relativePath, itemPath, rootFolderPath, service) {
+  return playbackCandidateDetails(fullPath, relativePath, itemPath, rootFolderPath, service).map(x=>x.path);
 }
 function mediaFileName (v, fallback) {
   const p = slashMediaPath(v), bits = p.split('/').filter(Boolean);
@@ -3799,52 +3963,112 @@ function episodePlayLabel (x) {
   const title = eps.length === 1 && first.title ? (' · ' + first.title) : '';
   return code + title;
 }
-function unifiedPlaybackInfo (type, found, media, tv) {
+function localCandidateExists (rel) {
+  const file = localTarget(rel);
+  if (!file) return false;
+  try { return fs.statSync(file).isFile(); } catch (_) { return false; }
+}
+async function mediaRelativeExists (rel) {
+  if (isLocalSource()) return localCandidateExists(rel);
+  const cfg = readConfig().webdav || {};
+  if (!cfg.url || !cfg.username) return false;
+  try {
+    const up = await upstream(webdavTarget(cfg, rel), {
+      method: 'PROPFIND',
+      headers: { Authorization: webdavAuthHeader(cfg), Depth: '0', 'Content-Type': 'application/xml', Accept: 'application/xml' },
+      timeout: 12000
+    });
+    return up.status >= 200 && up.status < 300;
+  } catch (_) { return false; }
+}
+function watchMetaForItem (type, base, arr, tmdb, plex, x) {
+  const ep = Array.isArray(x.episodes) && x.episodes.length ? x.episodes[0] : null;
+  const poster = (tmdb && tmdb.poster) || (plex && plex.art) || '';
+  return {
+    type: type === 'series' ? 'episode' : 'movie',
+    title: type === 'series' ? ((ep && ep.title) || x.label || arr.title || base.title || '') : (arr.title || base.title || x.label || ''),
+    show: type === 'series' ? (arr.title || base.title || '') : '',
+    season: ep ? ep.seasonNumber : null,
+    episode: ep ? ep.episodeNumber : null,
+    year: arr.year || base.year || '',
+    poster,
+    imdbId: base.imdbId || '',
+    tmdbId: base.tmdbId || null,
+    tvdbId: base.tvdbId || null
+  };
+}
+async function resolveUnifiedPlayback (type, service, found, media, tv, base, arr, tmdb, plex, me) {
   const cfg = readConfig().webdav || {};
   const source = cfg.source === 'local' ? 'local' : 'webdav';
   const configured = mediaSourceConfigured();
-  const base = { configured, source, sourceLabel: source === 'local' ? 'Local folder' : 'WebDAV', available: false, items: [] };
-  if (!configured || !found || !found.inLibrary || !found.item) return base;
+  const result = {
+    configured, source, sourceLabel: source === 'local' ? 'Local folder' : 'WebDAV',
+    sourceRoot: source === 'local' ? (cfg.localPath || '') : (cfg.folder || '/'),
+    available: false, items: [], mappings: normalizePathMappings(readConfig().playback && readConfig().playback.pathMappings),
+    resolverVersion: 2
+  };
+  if (!configured || !found || !found.inLibrary || !found.item) return result;
 
-  const itemPath = found.item.path || '';
-  const root = found.item.rootFolderPath || '';
-  const candidates = [];
+  const itemPath = found.item.path || '', root = found.item.rootFolderPath || '';
+  const inputs = [];
   if (type === 'movie' && media && media.hasFile && media.file) {
-    candidates.push({
+    inputs.push({
+      fileId: media.file.id || null,
       relativePath: media.file.relativePath || '',
       fullPath: media.file.fullPath || '',
       name: mediaFileName(media.file.fullPath || media.file.relativePath, found.item.title || 'Movie'),
-      label: found.item.title || 'Movie'
+      label: found.item.title || 'Movie',
+      episodes: []
     });
   } else if (type === 'series' && tv && tv.files && Array.isArray(tv.files.playable)) {
-    for (const f of tv.files.playable) {
-      candidates.push({
-        relativePath: f.relativePath || '',
-        fullPath: f.fullPath || '',
-        name: mediaFileName(f.fullPath || f.relativePath, 'Episode'),
-        label: episodePlayLabel(f),
-        seasonNumber: f.seasonNumber || 0,
-        episodes: f.episodes || []
-      });
-    }
-  }
-
-  for (const x of candidates) {
-    const paths = playbackPathCandidates(x.fullPath, x.relativePath, itemPath, root);
-    const rel = source === 'local' ? localPlayablePath(paths) : (paths[0] || '');
-    if (!rel) continue;
-    base.items.push({
-      path: rel,
-      name: x.name || rel.split('/').pop(),
-      label: x.label || x.name || rel.split('/').pop(),
-      seasonNumber: x.seasonNumber || 0,
-      episodes: x.episodes || []
+    for (const f of tv.files.playable) inputs.push({
+      fileId: f.id || null,
+      relativePath: f.relativePath || '', fullPath: f.fullPath || '',
+      name: mediaFileName(f.fullPath || f.relativePath, 'Episode'),
+      label: episodePlayLabel(f), seasonNumber: f.seasonNumber || 0, episodes: f.episodes || []
     });
   }
-  base.available = base.items.length > 0;
-  return base;
-}
 
+  for (const x of inputs) {
+    const candidates = playbackCandidateDetails(x.fullPath, x.relativePath, itemPath, root, service);
+    let chosen = null, verified = false;
+    if (source === 'local') {
+      for (const cand of candidates) {
+        cand.exists = localCandidateExists(cand.path);
+        if (!chosen && cand.exists) { chosen = cand; verified = true; }
+      }
+    } else {
+      // WebDAV verification is intentionally deferred so a TV detail page does not
+      // issue one network PROPFIND per episode. The diagnostics/test endpoints verify on demand.
+      chosen = candidates[0] || null;
+      for (const cand of candidates) cand.exists = null;
+    }
+    if (!chosen) continue;
+    const meta = watchMetaForItem(type, base, arr, tmdb, plex, x);
+    const progress = me ? watchProgressForPath(me.username, chosen.path) : null;
+    result.items.push({
+      fileId: x.fileId || null,
+      path: chosen.path,
+      name: x.name || chosen.path.split('/').pop(),
+      label: x.label || x.name || chosen.path.split('/').pop(),
+      seasonNumber: x.seasonNumber || 0,
+      episodes: x.episodes || [],
+      meta,
+      progress: progress ? { position: progress.position, duration: progress.duration, progressPct: progress.progressPct, updatedAt: progress.updatedAt } : null,
+      resolver: {
+        arrPath: x.fullPath || '',
+        arrRoot: root,
+        selected: chosen.path,
+        selectedKind: chosen.kind,
+        mapping: chosen.mapping || '',
+        verified,
+        candidates
+      }
+    });
+  }
+  result.available = result.items.length > 0;
+  return result;
+}
 async function plexMediaAvailability (q) {
   const cfg = readConfig().plex;
   if (!cfg.url || !cfg.token) return { configured: false, available: false };
@@ -3900,7 +4124,7 @@ async function plexMediaAvailability (q) {
     ids: mediaGuidIds(hit)
   };
 }
-async function unifiedMediaDetail (q) {
+async function unifiedMediaDetail (q, me) {
   const type = q.type === 'series' || q.type === 'tv' || q.type === 'show' ? 'series' : 'movie';
   const svc = type === 'movie' ? 'radarr' : 'sonarr';
   const base = {
@@ -3950,14 +4174,15 @@ async function unifiedMediaDetail (q) {
             runtime: type === 'movie' ? (Number(d.runtime) || null) : ((d.episode_run_time || [])[0] || null),
             genres: (d.genres || []).map(x=>x.name).filter(Boolean),
             networks: (d.networks || []).map(x=>x.name).filter(Boolean),
-            voteAverage: Number(d.vote_average) || null
+            voteAverage: Number(d.vote_average) || null,
+            poster: d.poster_path ? ('https://image.tmdb.org/t/p/w342' + d.poster_path) : ''
           };
         }
       }
     } catch (_) {}
   }
   const plex = await plexMediaAvailability(Object.assign({}, base, { type }));
-  const playback = unifiedPlaybackInfo(type, found, media, tv);
+  const playback = await resolveUnifiedPlayback(type, svc, found, media, tv, base, arr, tmdb, plex, me);
   return { ok: true, type, service: svc, identity: base, arr, media, tv, tmdb, plex, playback, generatedAt: Date.now() };
 }
 
@@ -5098,6 +5323,45 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, sabSlim(q.ok ? q.data : null, h.ok ? h.data : null));
       }
 
+      // ---- Media Resolver / path mappings / per-user watch progress ----
+      if (p === '/api/playback/progress' && req.method === 'GET') {
+        const rel = u.searchParams.get('path') || '';
+        return sendJSON(res, 200, rel ? { item: watchProgressForPath(me.username, rel) } : { items: watchContinueForUser(me.username, 50) });
+      }
+      if (p === '/api/playback/progress' && req.method === 'POST') {
+        let b = {}; try { b = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
+        const item = saveWatchProgress(me.username, b);
+        if (!item) return sendJSON(res, 400, { message:'Missing playback path' });
+        return sendJSON(res, 200, { ok:true, item });
+      }
+      if (p === '/api/admin/path-mappings' && req.method === 'GET') {
+        const cfg = readConfig();
+        return sendJSON(res, 200, {
+          rules: normalizePathMappings(cfg.playback && cfg.playback.pathMappings),
+          source: cfg.webdav.source === 'local' ? 'local' : 'webdav',
+          sourceRoot: cfg.webdav.source === 'local' ? (cfg.webdav.localPath || '') : (cfg.webdav.folder || '/'),
+          radarrRoot: cfg.radarr.rootFolderPath || '', sonarrRoot: cfg.sonarr.rootFolderPath || ''
+        });
+      }
+      if (p === '/api/admin/path-mappings' && req.method === 'POST') {
+        let b = {}; try { b = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
+        const cfg = readConfig();
+        cfg.playback = Object.assign({}, DEFAULT_CONFIG.playback, cfg.playback || {});
+        cfg.playback.pathMappings = normalizePathMappings(b.rules);
+        writeConfig(cfg);
+        return sendJSON(res, 200, { ok:true, rules:cfg.playback.pathMappings });
+      }
+      if (p === '/api/admin/path-mappings/test' && req.method === 'POST') {
+        let b = {}; try { b = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
+        try { return sendJSON(res, 200, await pathMappingTest(b)); }
+        catch (e) { return sendJSON(res, 400, { message:e.message }); }
+      }
+      if (p === '/api/admin/media/diagnostics' && req.method === 'GET') {
+        const rel = u.searchParams.get('path') || '';
+        if (!rel) return sendJSON(res, 400, { message:'Missing media path' });
+        return sendJSON(res, 200, await playbackDiagnostics(rel));
+      }
+
       // ---- configuration backups ----
       if (p === '/api/admin/backups' && req.method === 'GET') {
         const cfg = readConfig().backup;
@@ -5454,7 +5718,7 @@ const server = http.createServer(async (req, res) => {
           title: u.searchParams.get('title') || '',
           year: u.searchParams.get('year') || ''
         };
-        return sendJSON(res, 200, await unifiedMediaDetail(q));
+        return sendJSON(res, 200, await unifiedMediaDetail(q, me));
       }
       if (p === '/api/movie/fileinfo' && req.method === 'GET') {
         let id = Number(u.searchParams.get('id')) || 0;
@@ -5858,6 +6122,7 @@ const server = http.createServer(async (req, res) => {
       if (incoming.playback) {
         cur.playback = Object.assign({}, DEFAULT_CONFIG.playback, cur.playback || {});
         if (incoming.playback.autoSelect != null) cur.playback.autoSelect = !!incoming.playback.autoSelect;
+        if (incoming.playback.pathMappings != null) cur.playback.pathMappings = normalizePathMappings(incoming.playback.pathMappings);
       }
       if (incoming.realtime) {
         cur.realtime = Object.assign({}, DEFAULT_CONFIG.realtime, cur.realtime || {});

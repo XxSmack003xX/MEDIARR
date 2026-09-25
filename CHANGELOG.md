@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.7.0
+
+### Playback Intelligence
+
+- Added a shared **Media Resolver** for Radarr/Sonarr → Local/WebDAV playback paths.
+- Added explicit administrator path mappings that run before automatic path guessing.
+- Added **Path Mapping Manager** to Settings on desktop and mobile, with Radarr/Sonarr root mappings and a live file-path tester.
+- Added **Playback diagnostics** to Unified Media Detail for administrators. It shows the original Arr path, selected MEDIARR path, candidate paths, mapping used, file verification, codec/container probe, and automatic Direct Play / Remux / Audio Transcode / Video Transcode decision.
+- Local media candidates are filesystem-verified; WebDAV verification/probing is available on demand so opening a TV show does not generate one remote request per episode.
+
+### Continue Watching
+
+- Added persistent per-user Local/WebDAV playback progress in `watch-progress.json`.
+- Desktop and mobile players now periodically save playback position, resume unfinished media, and mark media complete near 95%.
+- User Home now merges MEDIARR Local/WebDAV Continue Watching with linked Plex Continue Watching.
+- Clicking a MEDIARR Continue Watching card launches the built-in player directly at the saved position.
+- Watch progress is included in MEDIARR backups.
+
+### TV seasons and episodes
+
+- Rebuilt the Unified Media Detail TV section with season tabs and a scrollable episode browser.
+- Episodes now show SxxExx, title, overview, air date, monitored/downloaded state, and saved watch progress.
+- Downloaded episodes expose direct **Play** or **Resume** actions.
+- Sonarr episode-file IDs are carried through the resolver so multi-episode files and episode-to-file matching remain deterministic.
+
+### Release/runtime
+
+- Added shared `public/v170.js` for playback-progress tracking and the Path Mapping Manager.
+- Release ZIP workflow now includes `v170.js`.
+- Bumped Docker/source version to **1.7.0**.
+
 ## 1.6.10
 
 - Fixed Unified Media Detail failing to show **▶ Play** when MEDIARR's local/WebDAV source is mounted one level above the Radarr/Sonarr root.

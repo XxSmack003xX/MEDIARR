@@ -62,7 +62,7 @@ jobs:
           IMAGE="ghcr.io/${{ steps.meta.outputs.repo_lc }}:$VERSION"
           mkdir -p "dist/mediarr-$VERSION/public"
           cp package.json server.js update-helper.js docker-recreate.js README.md CHANGELOG.md SECURITY.md Caddyfile.example Dockerfile docker-entrypoint.sh docker-compose.yml "dist/mediarr-$VERSION/"
-          cp public/index.html public/mobile.html public/v140.js public/v150.js public/v160.js "dist/mediarr-$VERSION/public/"
+          cp public/index.html public/mobile.html public/v140.js public/v150.js public/v160.js public/v170.js "dist/mediarr-$VERSION/public/"
           cat > "dist/mediarr-$VERSION/docker-compose.release.yml" <<YAML
           services:
             mediarr:

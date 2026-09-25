@@ -25,6 +25,12 @@ function mediaShape(x){
   };
 }
 function openMedia(x){
+  if(x&&x.source==='mediarr'&&x.path){
+    var name=x.type==='episode'?[x.show,('S'+String(x.season||0).padStart(2,'0')+'E'+String(x.episode||0).padStart(2,'0')),x.title].filter(Boolean).join(' · '):(x.title||x.path.split('/').pop());
+    var meta={type:x.type||'movie',title:x.title||'',show:x.show||'',season:x.season,episode:x.episode,year:x.year||'',poster:x.poster||'',imdbId:x.imdbId||'',tmdbId:x.tmdbId||null,tvdbId:x.tvdbId||null};
+    if(typeof window.playVideoD==='function'){window.playVideoD(x.path,name,meta);return;}
+    if(typeof window.playVideoMobile==='function'){window.playVideoMobile(x.path,name,meta);return;}
+  }
   if(x.webUrl && (x.source==='plex'||x.localRatingKey||x.ratingKey)){window.open(x.webUrl,'_blank','noopener');return;}
   var it=mediaShape(x), type=it.kind==='series'?'series':'movie';
   try{
@@ -90,10 +96,14 @@ function render(mount,d,user){
     '<div class="uh-stat"><div class="uh-stat-k">Favorites</div><div class="uh-stat-v">'+fav+'</div><div class="uh-stat-s">'+(d.upcoming||[]).length+' upcoming favorite'+((d.upcoming||[]).length===1?'':'s')+'</div></div>'+
     '<div class="uh-stat"><div class="uh-stat-k">My recent requests</div><div class="uh-stat-v">'+countReq+'</div><div class="uh-stat-s">'+(d.requests||[]).filter(function(x){return x.ready;}).length+' available now</div></div></div>';
 
-  if(p.linked){
-    html+=railSection('Continue Watching','Your Plex profile',p.continueWatching||[],function(x,o){o.badge=kindOf(x)==='series'?'TV':'Movie';o.sub=x.type==='episode'?[x.show,'S'+String(x.season||0).padStart(2,'0')+'E'+String(x.episode||0).padStart(2,'0')].filter(Boolean).join(' · '):(x.year||'');o.progress=x.progressPct;return card(x,o);},ctx);
-  }else{
-    html+='<div class="uh-plex-note">Link your Plex account/profile from MEDIARR Profile to enable Continue Watching, watch history and your Plex Watchlist here.</div>';
+  var localContinue=d.continueWatching||[], plexContinue=p.continueWatching||[], combinedContinue=localContinue.concat(plexContinue).slice(0,24);
+  html+=railSection('Continue Watching',localContinue.length&&plexContinue.length?'MEDIARR + Plex':localContinue.length?'Local / WebDAV playback':'Your Plex profile',combinedContinue,function(x,o){
+    o.badge=x.source==='mediarr'?'MEDIARR':(kindOf(x)==='series'?'TV':'Movie');
+    o.sub=x.type==='episode'?[x.show,'S'+String(x.season||0).padStart(2,'0')+'E'+String(x.episode||0).padStart(2,'0')].filter(Boolean).join(' · '):(x.year||'');
+    o.progress=x.progressPct;return card(x,o);
+  },ctx);
+  if(!p.linked){
+    html+='<div class="uh-plex-note">'+(localContinue.length?'Local/WebDAV progress is being tracked. ':'')+'Link your Plex account/profile from MEDIARR Profile to merge Plex Continue Watching, watch history and your Plex Watchlist here.</div>';
   }
 
   html+=requestSection(d.requests||[],ctx);
@@ -106,7 +116,7 @@ function render(mount,d,user){
   html+=railSection('Recently Watched','Your Plex history',p.recentlyWatched||[],function(x,o){o.badge=kindOf(x)==='series'?'TV':'Movie';o.sub=[x.type==='episode'?x.show:'',x.viewedAt?ago(x.viewedAt):''].filter(Boolean).join(' · ');return card(x,o);},ctx);
   html+=railSection('Discover Now','Recently released and airing',d.discover||[],function(x,o){o.badge=kindOf(x)==='series'?'TV':'Movie';o.sub=x.year||'';return card(x,o);},ctx);
 
-  if(!(p.continueWatching||[]).length && !(d.requests||[]).length && !(d.upcoming||[]).length && !(d.recommendations||[]).length && !(d.discover||[]).length){
+  if(!(d.continueWatching||[]).length && !(p.continueWatching||[]).length && !(d.requests||[]).length && !(d.upcoming||[]).length && !(d.recommendations||[]).length && !(d.discover||[]).length){
     html+='<div class="uh-empty"><b>Your home is ready.</b><br>Link Plex, favorite a TV show, or add a TMDB key to start filling it with personalized content.</div>';
   }
   html+='</div>';
