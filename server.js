@@ -1072,7 +1072,7 @@ function restoreBackup (data, opts) {
   }
   // drop every cache so nothing stale survives the restore
   _cfgCache = null; _cfgMtime = 0; _usrCache = null; _usrMtime = 0; _addsCache = null; _addsMtime = 0;
-  libCache = null; rssState = null; blockLog = null; errLog = null;
+  libCache = null; rssState = null; blockLog = null; errLog = null; _watchCache = null; _watchMtime = 0;
   try { sessions.clear(); } catch (e) {}      // old sessions won't match restored users
   return { ok: failed.length === 0, restored: done, failed, safetyCopy: before.name || null };
 }

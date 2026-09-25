@@ -45,9 +45,11 @@ async function prepareResume(path){
 function patchPlayer(name,videoId){
   var orig=window[name];if(typeof orig!=='function'||orig.__mediarr170)return;
   function wrapped(path,title,meta){
-    active.path=String(path||'');active.name=String(title||'');active.meta=meta||{};active.lastSent=0;active.video=document.getElementById(videoId);active.resume=0;active.resumeApplied=false;
+    try{if(active.path&&active.video)postProgress(false);}catch(_){}
+    active.path='';active.video=null;
     var r=orig.apply(this,arguments);
-    active.video=document.getElementById(videoId);bindVideo(active.video);prepareResume(active.path);
+    active.path=String(path||'');active.name=String(title||'');active.meta=meta||{};active.lastSent=0;active.video=document.getElementById(videoId);active.resume=0;active.resumeApplied=false;
+    bindVideo(active.video);prepareResume(active.path);
     return r;
   }
   wrapped.__mediarr170=true;wrapped.__original=orig;window[name]=wrapped;
