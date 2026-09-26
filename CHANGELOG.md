@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.2
+
+### Login page hotfix
+
+- Fixed a malformed JavaScript newline introduced in v1.8.1 that prevented the desktop application script from parsing and stopped the main login page from initializing.
+- Corrected the over-escaped year-matching regular expressions used by the Sonarr lookup improvements.
+- Validated the complete desktop and mobile inline application scripts before release.
+
 ## 1.8.1
 
 ### Sonarr lookup reliability
