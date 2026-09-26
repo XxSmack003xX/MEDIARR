@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.8.1
+
+### Sonarr lookup reliability
+
+- Fixed **No match found in Sonarr** for newly released/revived TV series that are present in TVDB but are not yet reliably searchable through Sonarr by IMDb id.
+- Sonarr adds now prefer the canonical **TVDB id** before IMDb whenever it is available.
+- TMDB-backed TV cards now always enrich the add request with TMDB external IDs and canonical title/year data before querying Sonarr.
+- Added multi-strategy Sonarr lookup fallback: TVDB id → canonical title + year → title → IMDb id.
+- Empty results from one Sonarr lookup strategy no longer end the add attempt; MEDIARR automatically tries the next safe strategy.
+- Added title/year scoring so same-name series and revivals select the correct result instead of blindly using Sonarr's first result.
+- Handles abbreviated searches such as **The Drop** by preferring the canonical TMDB/TVDB match when available.
+- Desktop and mobile add requests now send the displayed release year to the server for better Sonarr disambiguation.
+- The shared `/api/lookup` endpoint now uses the same resilient Sonarr resolver, fixing detail/season-selection flows as well as one-click Add.
+
 ## 1.8.0
 
 ### Download Activity Center

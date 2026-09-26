@@ -3186,7 +3186,7 @@ function tmdbCard(item, roleTag){
   if(tmdbAdded.get(card.dataset.tmdbkey)) setTimeout(()=>markTmdbCard(card,true),0);
   card.addEventListener('click', e=>{ if(e.target.closest('.card-add')) return; openDetailFromTmdb(item.media_type, item.id, item); });
   const ab = card.querySelector('.card-add');
-  if(ab && !inLib) ab.onclick = ()=> cardAdd(ab, { type:item.media_type==='tv'?'series':'movie', tmdbId:item.id, title }, item.media_type==='tv'?'sonarr':'radarr');
+  if(ab && !inLib) ab.onclick = ()=> cardAdd(ab, { type:item.media_type==='tv'?'series':'movie', tmdbId:item.id, title, year }, item.media_type==='tv'?'sonarr':'radarr');
   if(item.media_type==='tv') decorateTvCard(card, { title, tmdbId:item.id, poster:item.poster_path?TMDB_IMG+item.poster_path:'' });
   decorateWatchlist(card, { title, year, type:item.media_type==='tv'?'series':'movie' });
   return card;
@@ -3480,7 +3480,7 @@ async function openDetailFromTmdb(mediaType, tmdbId, credit){
 // Lookup through the server so it works on any Radarr/Sonarr version.
 async function arrLookupSrv(svc, m){
   const ids=idsOfCin(m);
-  const qs='svc='+svc+'&imdbId='+encodeURIComponent(ids.imdb||'')+'&tmdbId='+encodeURIComponent(ids.tmdb||'')+'&title='+encodeURIComponent(m.name||'');
+  const lookupYear=((String(m.releaseInfo||'').match(/(?:19|20)\\d{2}/)||[])[0]||'');\n  const qs='svc='+svc+'&imdbId='+encodeURIComponent(ids.imdb||'')+'&tmdbId='+encodeURIComponent(ids.tmdb||'')+'&title='+encodeURIComponent(m.name||'')+'&year='+encodeURIComponent(lookupYear);
   try{
     const r=await fetch('/api/lookup?'+qs);
     if(!r.ok) return [];
@@ -3681,7 +3681,7 @@ async function cardAdd(btn, payload, svcClass){
 function quickAddCin(btn, m){
   const isMovie=m.type!=='series';
   const id=String(m.id||'');
-  cardAdd(btn, { type:isMovie?'movie':'series', imdbId:id.startsWith('tt')?id:'', tmdbId:id.startsWith('tmdb:')?Number(id.slice(5)):null, title:m.name },
+  cardAdd(btn, { type:isMovie?'movie':'series', imdbId:id.startsWith('tt')?id:'', tmdbId:id.startsWith('tmdb:')?Number(id.slice(5)):null, title:m.name, year:((String(m.releaseInfo||'').match(/(?:19|20)\\d{2}/)||[])[0]||'') },
     isMovie?'radarr':'sonarr');
 }
 async function quickAdd(btn, mediaType, tmdbId, title){

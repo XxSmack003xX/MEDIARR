@@ -3794,13 +3794,138 @@ async function arrCreate (svc, body) {
   }
   return { ok: false, message: (last && last.message) || 'Add failed' };
 }
-// Build the *arr lookup term from whatever id we have.
+// Build the primary *arr lookup term from whatever id we have.
 function addTerm (svc, b) {
-  if (b.imdbId) return 'imdb:' + encodeURIComponent(b.imdbId);
-  if (svc === 'radarr' && b.tmdbId) return 'tmdb:' + encodeURIComponent(b.tmdbId);
+  // Sonarr's canonical metadata source is TVDB. Prefer TVDB over IMDb whenever
+  // both are available; newly-created series can exist in TVDB/SkyHook before
+  // Sonarr's IMDb cross-reference is searchable.
   if (svc === 'sonarr' && b.tvdbId) return 'tvdb:' + encodeURIComponent(b.tvdbId);
+  if (svc === 'radarr' && b.tmdbId) return 'tmdb:' + encodeURIComponent(b.tmdbId);
+  if (b.imdbId) return 'imdb:' + encodeURIComponent(b.imdbId);
   if (b.title) return encodeURIComponent(b.title);
   return '';
+}
+function lookupYear (v) {
+  const m = String(v == null ? '' : v).match(/\b(?:19|20)\d{2}\b/);
+  return m ? Number(m[0]) : 0;
+}
+function cleanLookupTitle (v) {
+  return String(v || '')
+    .replace(/\s*[\(\[]?(?:19|20)\d{2}[\)\]]?\s*$/, '')
+    .replace(/\s+/g, ' ').trim();
+}
+async function enrichSonarrLookup (input) {
+  let b = Object.assign({}, input || {});
+  b.year = lookupYear(b.year) || lookupYear(b.title) || 0;
+  b.title = cleanLookupTitle(b.title) || String(b.title || '').trim();
+  if (!b.tmdbId) return b;
+
+  // TMDB cards are common in MEDIARR. Always use the TMDB id to enrich Sonarr
+  // requests, even when an IMDb id was already supplied by Cinemeta.
+  const [ext, tv] = await Promise.all([
+    tmdbJson('/tv/' + encodeURIComponent(b.tmdbId) + '/external_ids'),
+    tmdbJson('/tv/' + encodeURIComponent(b.tmdbId))
+  ]);
+  if (ext) {
+    if (!b.tvdbId && ext.tvdb_id) b.tvdbId = Number(ext.tvdb_id) || ext.tvdb_id;
+    if (!b.imdbId && ext.imdb_id) b.imdbId = ext.imdb_id;
+  }
+  if (tv) {
+    b.canonicalTitle = cleanLookupTitle(tv.name || tv.original_name || '');
+    if (!b.title) b.title = b.canonicalTitle;
+    if (!b.year) b.year = lookupYear(tv.first_air_date);
+  }
+  return b;
+}
+function sonarrLookupTerms (b) {
+  const out = [], seen = new Set();
+  const add = (raw, kind) => {
+    raw = String(raw || '').trim();
+    if (!raw) return;
+    const key = raw.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    const colon = raw.indexOf(':');
+    const term = colon > 0 && /^(tvdb|imdb)$/i.test(raw.slice(0, colon))
+      ? raw.slice(0, colon).toLowerCase() + ':' + encodeURIComponent(raw.slice(colon + 1))
+      : encodeURIComponent(raw);
+    out.push({ term, raw, kind: kind || 'title' });
+  };
+
+  if (b.tvdbId) add('tvdb:' + b.tvdbId, 'tvdb');
+  const year = lookupYear(b.year) || lookupYear(b.title);
+  const canonical = cleanLookupTitle(b.canonicalTitle);
+  const title = cleanLookupTitle(b.title);
+  // Title+year disambiguates remakes/revivals such as A Different World (2026).
+  if (canonical && year) add(canonical + ' ' + year, 'title-year');
+  if (title && year) add(title + ' ' + year, 'title-year');
+  if (canonical) add(canonical, 'title');
+  if (title) add(title, 'title');
+  // IMDb remains a useful fallback, but it is intentionally after TVDB/title.
+  if (b.imdbId) add('imdb:' + b.imdbId, 'imdb');
+  return out;
+}
+function sonarrHitScore (x, b) {
+  let score = 0;
+  if (b.tvdbId && String(x.tvdbId || '') === String(b.tvdbId)) score += 1200;
+  if (b.imdbId && String(x.imdbId || '').toLowerCase() === String(b.imdbId).toLowerCase()) score += 900;
+  if (b.tmdbId && String(x.tmdbId || '') === String(b.tmdbId)) score += 800;
+
+  const wanted = [b.canonicalTitle, b.title].map(cleanLookupTitle).map(normTitle).filter(Boolean);
+  const got = [x.title, x.sortTitle]
+    .concat(Array.isArray(x.alternateTitles) ? x.alternateTitles.map(a => typeof a === 'string' ? a : (a && a.title) || '') : [])
+    .map(cleanLookupTitle).map(normTitle).filter(Boolean);
+  let titleScore = 0;
+  for (const w of wanted) for (const g of got) {
+    if (w === g) titleScore = Math.max(titleScore, 240);
+    else if (w && g && (w.startsWith(g + ' ') || g.startsWith(w + ' '))) titleScore = Math.max(titleScore, 110);
+    else if (w.length >= 5 && g.length >= 5 && (w.includes(g) || g.includes(w))) titleScore = Math.max(titleScore, 60);
+  }
+  score += titleScore;
+
+  const wantYear = lookupYear(b.year) || lookupYear(b.title);
+  const gotYear = Number(x.year) || lookupYear(x.firstAired) || lookupYear(x.premiered);
+  if (wantYear && gotYear) score += wantYear === gotYear ? 180 : -120;
+  return score;
+}
+function pickSonarrHit (items, b) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return null;
+  return list.map((x, i) => ({ x, i, score: sonarrHitScore(x, b) }))
+    .sort((a, z) => z.score - a.score || a.i - z.i)[0].x;
+}
+function mergeSonarrResults (into, items) {
+  for (const x of (Array.isArray(items) ? items : [])) {
+    const key = x.tvdbId ? ('tvdb:' + x.tvdbId)
+      : x.imdbId ? ('imdb:' + String(x.imdbId).toLowerCase())
+      : ('title:' + normTitle(x.title) + ':' + (Number(x.year) || 0));
+    if (!into.some(y => y._lookupKey === key)) into.push(Object.assign({ _lookupKey: key }, x));
+  }
+}
+async function sonarrLookupBest (input) {
+  const b = await enrichSonarrLookup(input);
+  const terms = sonarrLookupTerms(b);
+  let merged = [], anyOk = false, lastInfo = null;
+  for (const t of terms) {
+    const r = await arrLookup('sonarr', t.term);
+    if (!r.ok) { lastInfo = r.info || lastInfo; continue; }
+    anyOk = true;
+    mergeSonarrResults(merged, r.items);
+    if (!r.items.length) continue;
+    const hit = pickSonarrHit(merged, b);
+    const score = hit ? sonarrHitScore(hit, b) : 0;
+    // Exact external-id or exact title+year matches are authoritative; avoid
+    // extra SkyHook calls once one has been found.
+    if (score >= 400) return { ok: true, items: merged.map(stripLookupKey), hit: stripLookupKey(hit), query: b, tried: terms.slice(0, terms.indexOf(t) + 1) };
+  }
+  const hit = pickSonarrHit(merged, b);
+  return anyOk
+    ? { ok: true, items: merged.map(stripLookupKey), hit: hit ? stripLookupKey(hit) : null, query: b, tried: terms }
+    : { ok: false, items: [], hit: null, query: b, tried: terms, info: lastInfo };
+}
+function stripLookupKey (x) {
+  if (!x) return x;
+  const y = Object.assign({}, x); delete y._lookupKey; return y;
 }
 // One place that adds a movie/series. Returns a plain, honest result for the UI.
 async function addToArr (b, me, req, opts) {
@@ -3813,28 +3938,34 @@ async function addToArr (b, me, req, opts) {
   if (me && me.role !== 'admin' && me.dailyLimit > 0 && addsTodayCount(me.username) >= me.dailyLimit) {
     return { status: 429, body: { ok: false, message: 'Daily add limit reached (' + me.dailyLimit + ')' } };
   }
-  // Sonarr matches best on imdb/tvdb — resolve from TMDB when we only have a tmdb id.
-  if (!isMovie && !b.imdbId && !b.tvdbId && b.tmdbId) {
-    const ext = await tmdbJson('/tv/' + b.tmdbId + '/external_ids');
-    if (ext) { b = Object.assign({}, b, { imdbId: ext.imdb_id || '', tvdbId: ext.tvdb_id || null }); }
+  let look, list, hit;
+  if (!isMovie) {
+    look = await sonarrLookupBest(b);
+    b = look.query || b;
+    if (!look.ok) {
+      const i = look.info || {};
+      const why = i.error ? i.error : i.status ? ('HTTP ' + i.status + (i.snippet ? ' — ' + i.snippet : '')) : 'no response';
+      logError('sonarr:lookup', why, 'terms=' + (look.tried || []).map(x => x.raw).join(' | '));
+      return { status: 502, body: { ok: false, message: 'Sonarr lookup failed (' + why + ')' } };
+    }
+    list = look.items || [];
+    hit = look.hit || null;
+  } else {
+    const term = addTerm(svc, b);
+    if (!term) return { status: 400, body: { ok: false, message: 'Nothing to look up — no id or title supplied' } };
+    look = await arrLookup(svc, term);
+    if (!look.ok) {
+      const i = look.info || {};
+      const why = i.error ? i.error : i.status ? ('HTTP ' + i.status + (i.snippet ? ' — ' + i.snippet : '')) : 'no response';
+      logError(svc + ':lookup', why, 'term=' + term);
+      return { status: 502, body: { ok: false, message: 'Radarr lookup failed (' + why + ')' } };
+    }
+    list = look.items;
+    if (b.imdbId) hit = list.find(x => String(x.imdbId || '').toLowerCase() === String(b.imdbId).toLowerCase());
+    if (!hit && b.tmdbId) hit = list.find(x => String(x.tmdbId) === String(b.tmdbId));
+    if (!hit) hit = list[0];
   }
-  const term = addTerm(svc, b);
-  if (!term) return { status: 400, body: { ok: false, message: 'Nothing to look up — no id or title supplied' } };
-
-  const look = await arrLookup(svc, term);
-  if (!look.ok) {
-    const i = look.info || {};
-    const why = i.error ? i.error : i.status ? ('HTTP ' + i.status + (i.snippet ? ' — ' + i.snippet : '')) : 'no response';
-    logError(svc + ':lookup', why, 'term=' + term);
-    return { status: 502, body: { ok: false, message: (isMovie ? 'Radarr' : 'Sonarr') + ' lookup failed (' + why + ')' } };
-  }
-  const list = look.items;
-  if (!list.length) return { status: 404, body: { ok: false, message: 'No match found in ' + (isMovie ? 'Radarr' : 'Sonarr') } };
-  let hit = null;
-  if (b.imdbId) hit = list.find(x => String(x.imdbId || '').toLowerCase() === String(b.imdbId).toLowerCase());
-  if (!hit && b.tmdbId) hit = list.find(x => String(x.tmdbId) === String(b.tmdbId));
-  if (!hit && b.tvdbId) hit = list.find(x => String(x.tvdbId) === String(b.tvdbId));
-  if (!hit) hit = list[0];
+  if (!list.length || !hit) return { status: 404, body: { ok: false, message: 'No match found in ' + (isMovie ? 'Radarr' : 'Sonarr') + (!isMovie && b.year ? ' for ' + (b.title || 'that series') + ' (' + b.year + ')' : '') } };
   if (hit.id) {
     if (b.tmdbId) rememberExt(isMovie ? 'movie' : 'series', b.tmdbId, hit.imdbId || b.imdbId || '', hit.tvdbId || b.tvdbId || null);
     return { status: 200, body: { ok: true, added: false, alreadyInLibrary: true, id: hit.id, title: hit.title, message: 'Already in your library' } };
@@ -3853,6 +3984,11 @@ async function addToArr (b, me, req, opts) {
         monitored: b.monitored !== false, seasonFolder: true,
         addOptions: { monitor: b.monitor || 'all', searchForMissingEpisodes: b.search !== false }
       });
+  if (!isMovie) {
+    if (b.seriesType) body.seriesType = String(b.seriesType);
+    if (b.seasonFolder != null) body.seasonFolder = b.seasonFolder !== false;
+    if (b.languageProfileId != null && Number(b.languageProfileId)) body.languageProfileId = Number(b.languageProfileId);
+  }
   if (!body.rootFolderPath) return { status: 400, body: { ok: false, message: 'No root folder set for ' + svc + ' — pick one in Settings' } };
   const created = await arrCreate(svc, body);
   if (!created.ok) { logError(svc + ':add', created.message, 'title=' + (hit.title || b.title || '')); return { status: 502, body: { ok: false, message: created.message } }; }
@@ -5596,7 +5732,17 @@ const server = http.createServer(async (req, res) => {
 
       if (p === '/api/lookup' && req.method === 'GET') {
         const svc = u.searchParams.get('svc') === 'sonarr' ? 'sonarr' : 'radarr';
-        const b = { imdbId: u.searchParams.get('imdbId') || '', tmdbId: u.searchParams.get('tmdbId') || '', tvdbId: u.searchParams.get('tvdbId') || '', title: u.searchParams.get('title') || '' };
+        const b = {
+          imdbId: u.searchParams.get('imdbId') || '', tmdbId: u.searchParams.get('tmdbId') || '',
+          tvdbId: u.searchParams.get('tvdbId') || '', title: u.searchParams.get('title') || '',
+          year: u.searchParams.get('year') || ''
+        };
+        if (svc === 'sonarr') {
+          const r = await sonarrLookupBest(b);
+          if (!r.ok) return sendJSON(res, 502, { items: [], message: 'lookup failed' });
+          const items = r.hit ? [r.hit].concat((r.items || []).filter(x => String(x.tvdbId || '') !== String(r.hit.tvdbId || '') || String(x.title || '') !== String(r.hit.title || ''))) : (r.items || []);
+          return sendJSON(res, 200, { items: items.slice(0, 20), matchedBy: (r.tried || []).map(x => x.kind) });
+        }
         const term = addTerm(svc, b);
         if (!term) return sendJSON(res, 400, { items: [], message: 'nothing to look up' });
         const r = await arrLookup(svc, term);

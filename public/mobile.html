@@ -1249,7 +1249,7 @@ async function doAdd(btn, it, opt){
   if(!isConfigured(svc)){ await loadConfig(); if(!isConfigured(svc)){ openSettings(); return; } }
   btn.disabled=true; const orig=btn.textContent; btn.textContent='Adding…';
   try{
-    const payload={ type:isMovie?'movie':'series', imdbId:it.imdb||'', tmdbId:it.tmdb||null, title:it.title };
+    const payload={ type:isMovie?'movie':'series', imdbId:it.imdb||'', tmdbId:it.tmdb||null, title:it.title, year:it.year||'' };
     if(isMovie && opt) payload.minimumAvailability=opt;
     if(!isMovie && opt) payload.monitor=opt;
     const r=await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -2091,14 +2091,19 @@ async function mRunImport(){
         const body=Object.assign({},obj,{qualityProfileId:qp,rootFolderPath:rf,monitored:mon,minimumAvailability:$('mImMinAvail').value,addOptions:{searchForMovie:$('mImSearch').checked}});
         await arr('radarr','/api/v3/movie',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       } else {
-        const term=it.tvdbId?('tvdb:'+it.tvdbId):(it.imdbId?('imdb:'+it.imdbId):encodeURIComponent(it.title||''));
-        const found=await arr('sonarr','/api/v3/series/lookup?term='+term);
-        const obj=(found||[]).find(f=> it.tvdbId? f.tvdbId===it.tvdbId : (it.imdbId? f.imdbId===it.imdbId : true))||(found||[])[0];
-        if(!obj){ failed++; mLogImport(log,'⚠',it.title,'not found'); continue; }
-        if(obj.id){ skipped++; mLogImport(log,'•',it.title,'already in library'); continue; }
-        const body=Object.assign({},obj,{qualityProfileId:qp,rootFolderPath:rf,monitored:mon,seriesType:$('mImSeriesType').value,seasonFolder:$('mImSeasonFolder').checked,addOptions:{monitor:$('mImMonitorSel').value,searchForMissingEpisodes:$('mImSearch').checked}});
-        const le=$('mImLang'); if(le) body.languageProfileId=Number(le.value)||1;
-        await arr('sonarr','/api/v3/series',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const le=$('mImLang');
+        const payload={
+          type:'series', imdbId:it.imdbId||'', tmdbId:it.tmdbId||null, tvdbId:it.tvdbId||null,
+          title:it.title||'', year:it.year||'',
+          qualityProfileId:qp, rootFolderPath:rf, monitored:mon,
+          monitor:$('mImMonitorSel').value, search:$('mImSearch').checked,
+          seriesType:$('mImSeriesType').value, seasonFolder:$('mImSeasonFolder').checked
+        };
+        if(le) payload.languageProfileId=Number(le.value)||1;
+        const rr=await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const jj=await readJson(rr), dd=jj.data||{};
+        if(!rr.ok||dd.ok===false) throw new Error(dd.message||('HTTP '+rr.status));
+        if(dd.alreadyInLibrary){ skipped++; mLogImport(log,'•',it.title,'already in library'); continue; }
       }
       added++; mLogImport(log,'✓',it.title,'added');
     }catch(e){ failed++; mLogImport(log,'⚠',it.title,(e.message||'failed')); }
