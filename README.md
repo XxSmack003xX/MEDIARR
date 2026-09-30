@@ -4,7 +4,7 @@
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.8.2-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-1.9.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.8.2 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.9.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1186,10 +1186,14 @@ The automation can:
 - Enable/disable movie or TV additions independently.
 - Cap additions per run.
 - Remember previously processed feed items.
-- Keep a run/activity log.
-- Send notification events.
+- Reconcile previously seen feed titles against the actual Radarr/Sonarr file state on every feed cycle.
+- For a movie already in Radarr, verify that Radarr reports a movie file on disk; if the file is still missing, queue a Radarr movie search.
+- For a series already in Sonarr, inspect every regular episode that has aired through the most recent aired episode, verify `hasFile`, monitor missing aired episodes when necessary, and queue targeted Sonarr `EpisodeSearch` commands only for missing files.
+- Apply a six-hour search cooldown per library item so a frequently-polled RSS feed does not repeatedly hammer indexers while a download is already in progress.
+- Keep a run/activity log with disk-check and recovery-search results.
+- Send notifications for additions and completed downloads.
 
-RSS items are de-duplicated using persistent state, and old seen entries are periodically pruned.
+RSS items are de-duplicated using persistent state, while download reconciliation continues for items that were seen previously. Old seen/reconciliation entries are periodically pruned.
 
 Feed automation is administrator-controlled.
 
@@ -1210,7 +1214,7 @@ Supported target types in v1.3.0 include:
 - Pushbullet.
 - Generic webhook.
 
-Configurable event classes include additions, RSS events, blocked Plex streams, background jobs, errors, service-down events, and optionally logins.
+Configurable event classes include additions, completed downloads/imports, downloads of previously added items, RSS events, blocked Plex streams, background jobs, errors, service-down events, and optionally logins. Radarr/Sonarr Connect download webhooks include the movie or series/episode label; RSS reconciliation also detects when a previously missing file appears on disk.
 
 Notification URLs/tokens are stored server-side and masked before configuration is returned to the browser.
 

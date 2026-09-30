@@ -101,7 +101,7 @@ const DEFAULT_CONFIG = {
   donate: { url: '', label: '' },  // PayPal donate link; when set, a Donate button appears for everyone
   autoAdd: { intervalMinutes: 5, minRuntime: 0 },
   libraryCache: { enabled: true, intervalMinutes: 360 },
-  notify: { enabled: false, targets: [], events: { added: true, rss: true, blocked: true, jobs: true, errors: true, serviceDown: true, login: false } },
+  notify: { enabled: false, targets: [], events: { added: true, downloaded: true, pastDownloaded: true, rss: true, blocked: true, jobs: true, errors: true, serviceDown: true, login: false } },
   sab: { url: '', apiKey: '' },   // SABnzbd — queue + history, visible to every signed-in user
   backup: { onChange: true, everyDays: 7, keep: 20 },   // auto-snapshot of all settings
   shell: { enabled: false, commands: [] },   // admin-defined restart/maintenance commands
@@ -682,6 +682,52 @@ function setupWizardNeeded () {
   if (c.realtime && c.realtime.setupComplete) return false;
   return !(c.radarr.url || c.sonarr.url || c.tmdb.apiKey || c.plex.url || c.sab.url || c.webdav.url || c.webdav.localPath);
 }
+function priorAddForDownload (svc, title) {
+  const wanted = normTitle(title);
+  if (!wanted) return null;
+  try {
+    return (readAdds().adds || []).find(a =>
+      String(a.service || '') === svc && normTitle(a.title) === wanted
+    ) || null;
+  } catch (_) { return null; }
+}
+function arrDownloadLabel (svc, body, item) {
+  const base = String((item && item.title) || '').trim();
+  if (svc !== 'sonarr') return base || 'Movie';
+  const eps = [];
+  if (body.episode) eps.push(body.episode);
+  if (Array.isArray(body.episodes)) eps.push(...body.episodes);
+  const seen = new Set(), labels = [];
+  for (const e of eps) {
+    if (!e) continue;
+    const sn = Number(e.seasonNumber), en = Number(e.episodeNumber);
+    const code = Number.isFinite(sn) && Number.isFinite(en)
+      ? 'S' + String(sn).padStart(2, '0') + 'E' + String(en).padStart(2, '0') : '';
+    const label = [code, e.title || ''].filter(Boolean).join(' ');
+    if (label && !seen.has(label)) { seen.add(label); labels.push(label); }
+  }
+  return base + (labels.length ? ' — ' + labels.slice(0, 4).join(', ') + (labels.length > 4 ? ' +' + (labels.length - 4) : '') : '');
+}
+function notifyArrDownload (svc, eventType, body, item) {
+  // Radarr/Sonarr Connect send Download after a completed import. Ignore Grab,
+  // Rename and test events so "downloaded" means a file actually reached the library.
+  if (!/download|import/i.test(String(eventType || ''))) return;
+  const libraryTitle = String((item && item.title) || '').trim();
+  if (!libraryTitle) return;
+  const label = arrDownloadLabel(svc, body, item) || libraryTitle;
+  const prior = priorAddForDownload(svc, libraryTitle);
+  const upgraded = !!body.isUpgrade;
+  if (prior) {
+    const who = prior.username && prior.username !== 'RSS' ? (' by ' + prior.username) : (prior.username === 'RSS' ? ' from RSS automation' : '');
+    notify('pastDownloaded', '⬇ ' + label,
+      (upgraded ? 'Upgrade downloaded for a previously added ' : 'Downloaded a previously added ') +
+      (svc === 'radarr' ? 'movie' : 'TV item') + who + '.', 'good');
+  } else {
+    notify('downloaded', '⬇ ' + label,
+      (upgraded ? 'Upgrade downloaded and imported into ' : 'Downloaded and imported into ') +
+      (svc === 'radarr' ? 'Radarr' : 'Sonarr') + '.', 'good');
+  }
+}
 async function handleArrWebhook (svc, req, res, urlObj) {
   const supplied = urlObj.searchParams.get('token') || req.headers['x-mediarr-webhook-token'] || '';
   const expected = ensureWebhookToken();
@@ -696,10 +742,12 @@ async function handleArrWebhook (svc, req, res, urlObj) {
   }
   liveIdx[svc] = { ts: 0, ids: null };
   if (!/^test$/i.test(eventType)) scheduleLibraryReconcile(svc, 250);
+  try { notifyArrDownload(svc, eventType, body, item); } catch (_) {}
   realtimePush('arr.webhook', {
     service: svc, eventType, title,
     itemId: item && item.id ? item.id : null,
-    downloaded: !!body.isUpgrade,
+    downloaded: /download|import/i.test(eventType),
+    upgrade: !!body.isUpgrade,
     source: 'webhook'
   });
   return sendJSON(res, 200, { ok: true, service: svc, eventType, receivedAt: Date.now() });
@@ -5170,6 +5218,7 @@ function readRss () {
   catch (e) { rssState = { seen: {}, log: [], lastRun: 0 }; }
   if (!rssState.seen) rssState.seen = {};
   if (!rssState.log) rssState.log = [];
+  if (!rssState.reconcile) rssState.reconcile = {};
   return rssState;
 }
 function writeRss () { try { fs.writeFileSync(RSS_PATH, JSON.stringify(rssState)); } catch (e) {} }
@@ -5293,6 +5342,87 @@ async function fetchFeed (url) {
     return { ok: false, message: m };
   }
 }
+const RSS_SEARCH_COOLDOWN_MS = 6 * 3600 * 1000;
+function rssSearchDue (st, key) {
+  const r = st.reconcile[key] || {};
+  return Date.now() - (Number(r.lastSearch) || 0) >= RSS_SEARCH_COOLDOWN_MS;
+}
+function rssRememberCheck (st, key, patch) {
+  st.reconcile[key] = Object.assign({}, st.reconcile[key] || {}, patch || {}, { lastCheck: Date.now() });
+}
+function airedRegularEpisodes (episodes) {
+  const now = Date.now();
+  return (episodes || []).filter(e => {
+    if (!e || Number(e.seasonNumber) <= 0) return false;
+    const when = e.airDateUtc || e.airDate;
+    return when && new Date(when).getTime() <= now;
+  });
+}
+async function rssEnsureDownloaded (kind, id, title, st, stateKey) {
+  if (!id) return { ok: false, message: 'missing Arr id' };
+  const key = stateKey || (kind + ':' + id);
+  if (kind === 'movie') {
+    const got = await arrItem('radarr', id);
+    if (!got.ok) return { ok: false, message: 'could not re-read movie from Radarr' };
+    const mv = got.item || {};
+    if (mv.hasFile || Number(mv.sizeOnDisk) > 0 || mv.movieFile) {
+      const prev = st.reconcile[key] || {};
+      if (Number(prev.missing) > 0) {
+        notify('pastDownloaded', '⬇ ' + (mv.title || title),
+          'A movie that MEDIARR previously found missing is now downloaded and present on disk.', 'good');
+      }
+      rssRememberCheck(st, key, { complete: true, missing: 0, title: mv.title || title, service: 'radarr' });
+      return { ok: true, complete: true, missing: 0, searched: 0, title: mv.title || title };
+    }
+    let searched = 0;
+    if (rssSearchDue(st, key)) {
+      const r = await arrCommand('radarr', { name: 'MoviesSearch', movieIds: [Number(id)] });
+      if (r.ok) { searched = 1; rssRememberCheck(st, key, { lastSearch: Date.now(), complete: false, missing: 1, title: mv.title || title, service: 'radarr' }); }
+      else return { ok: false, complete: false, missing: 1, searched: 0, title: mv.title || title, message: r.message || 'movie search failed' };
+    } else rssRememberCheck(st, key, { complete: false, missing: 1, title: mv.title || title, service: 'radarr' });
+    return { ok: true, complete: false, missing: 1, searched, title: mv.title || title, cooldown: !searched };
+  }
+
+  const got = await arrItem('sonarr', id);
+  if (!got.ok) return { ok: false, message: 'could not re-read series from Sonarr' };
+  const eps = await seriesEpisodes(id);
+  if (!eps.ok) return { ok: false, message: 'could not read episodes from Sonarr' };
+  const aired = airedRegularEpisodes(eps.items);
+  const missing = aired.filter(e => !e.hasFile);
+  const latest = aired.slice().sort((a, b) => new Date(b.airDateUtc || b.airDate || 0) - new Date(a.airDateUtc || a.airDate || 0))[0] || null;
+  const prev = st.reconcile[key] || {};
+  const prevMissing = Number(prev.missing) || 0;
+  if (prevMissing > missing.length) {
+    const arrived = prevMissing - missing.length;
+    notify('pastDownloaded', '⬇ ' + (got.item.title || title),
+      arrived + ' previously missing episode' + (arrived === 1 ? '' : 's') + ' now ' +
+      (arrived === 1 ? 'is' : 'are') + ' downloaded and present on disk' +
+      (missing.length ? '; ' + missing.length + ' aired episode' + (missing.length === 1 ? '' : 's') + ' still missing.' : '.'), 'good');
+  }
+  if (!missing.length) {
+    rssRememberCheck(st, key, { complete: true, missing: 0, title: got.item.title || title, service: 'sonarr', latestEpisodeId: latest && latest.id || null });
+    return { ok: true, complete: true, missing: 0, searched: 0, aired: aired.length, title: got.item.title || title };
+  }
+
+  let searched = 0;
+  if (rssSearchDue(st, key)) {
+    const unmonitored = missing.filter(e => !e.monitored).map(e => e.id).filter(Boolean);
+    if (unmonitored.length) {
+      const mon = await episodeMonitor(unmonitored, true);
+      if (!mon.ok) return { ok: false, complete: false, missing: missing.length, searched: 0, title: got.item.title || title, message: mon.message || 'could not monitor missing episodes' };
+    }
+    const ids = missing.map(e => Number(e.id)).filter(Boolean);
+    for (let i = 0; i < ids.length; i += 100) {
+      const r = await arrCommand('sonarr', { name: 'EpisodeSearch', episodeIds: ids.slice(i, i + 100) });
+      if (!r.ok) return { ok: false, complete: false, missing: missing.length, searched, title: got.item.title || title, message: r.message || 'episode search failed' };
+      searched += Math.min(100, ids.length - i);
+    }
+    rssRememberCheck(st, key, { lastSearch: Date.now(), complete: false, missing: missing.length, title: got.item.title || title, service: 'sonarr', latestEpisodeId: latest && latest.id || null });
+  } else rssRememberCheck(st, key, { complete: false, missing: missing.length, title: got.item.title || title, service: 'sonarr', latestEpisodeId: latest && latest.id || null });
+
+  return { ok: true, complete: false, missing: missing.length, searched, aired: aired.length, title: got.item.title || title, cooldown: !searched };
+}
+
 function rssStatus () {
   const st = readRss(), cfg = readConfig().rss;
   return {
@@ -5320,29 +5450,74 @@ async function runRssCheck (manual) {
       let handled = 0;
       for (const item of f.items) {
         const key = String(item.guid || item.title).slice(0, 300);
-        if (st.seen[key]) continue;                       // already processed this release
-        st.seen[key] = Date.now();
-        newItems++;
-        if (added + have >= cfg.maxPerRun) continue;      // still mark as seen, just don't act this run
+        const wasSeen = !!st.seen[key];
+        if (!wasSeen) newItems++;
         const rel = parseRelease(item.title);
-        if (!rel || !rel.title) { rssLog('•', item.title, 'could not read a title from this release'); continue; }
-        if (rel.kind === 'movie' && !cfg.addMovies) continue;
-        if (rel.kind === 'series' && !cfg.addSeries) continue;
-        if (rel.kind === 'movie' && cfg.minYear && rel.year && Number(rel.year) < cfg.minYear) { rssLog('•', rel.title, 'older than ' + cfg.minYear); continue; }
+        if (!rel || !rel.title) {
+          if (!wasSeen) rssLog('•', item.title, 'could not read a title from this release');
+          st.seen[key] = st.seen[key] || Date.now();
+          continue;
+        }
+        if (rel.kind === 'movie' && !cfg.addMovies) { st.seen[key] = st.seen[key] || Date.now(); continue; }
+        if (rel.kind === 'series' && !cfg.addSeries) { st.seen[key] = st.seen[key] || Date.now(); continue; }
+        if (rel.kind === 'movie' && cfg.minYear && rel.year && Number(rel.year) < cfg.minYear) {
+          if (!wasSeen) rssLog('•', rel.title, 'older than ' + cfg.minYear);
+          st.seen[key] = st.seen[key] || Date.now();
+          continue;
+        }
+        // New feed entries are capped for add work, but already-seen entries remain
+        // eligible for file reconciliation so missing media can recover later.
+        if (!wasSeen && added + have >= cfg.maxPerRun) continue;
         try {
           const r = await addToArr({ type: rel.kind, title: rel.title, year: rel.year || undefined, search: true }, null, null, { quiet: true });
           const b = r.body || {};
-          if (b.ok && b.added) { added++; handled++; notify('rss', (rel.kind === 'series' ? '📺 ' : '🎬 ') + (b.title || rel.title), 'Added automatically from an RSS feed' + (rel.kind === 'series' ? ' (whole show)' : ''), 'good'); rssLog('✓', b.title || rel.title, 'added' + (rel.kind === 'series' ? ' (whole show)' : (rel.year ? ' (' + rel.year + ')' : '')), { kind: rel.kind, release: item.title }); }
-          else if (b.alreadyInLibrary) { have++; rssLog('•', b.title || rel.title, 'already in library', { kind: rel.kind }); }
-          else { failed++; rssLog('⚠', rel.title, b.message || 'could not add', { kind: rel.kind, release: item.title }); }
-        } catch (e) { failed++; rssLog('⚠', rel.title, e.message || 'error'); }
+          if (b.ok && b.added) {
+            added++; handled++;
+            st.seen[key] = Date.now();
+            // Record RSS additions so later Radarr/Sonarr Download webhooks can identify
+            // them as previously-added items.
+            logAdd({ ts: Date.now(), username: 'RSS', role: 'automation', service: rel.kind === 'series' ? 'sonarr' : 'radarr', type: rel.kind, title: b.title || rel.title, year: b.year || rel.year || '', ip: 'rss' });
+            notify('added', (rel.kind === 'series' ? '📺 ' : '🎬 ') + (b.title || rel.title),
+              'Added automatically from an RSS feed' + (rel.kind === 'series' ? ' — Sonarr will be checked through the latest aired episode.' : ''), 'good');
+            rssLog('✓', b.title || rel.title, 'added and search requested' + (rel.kind === 'series' ? ' (whole show)' : (rel.year ? ' (' + rel.year + ')' : '')), { kind: rel.kind, release: item.title });
+          } else if (b.alreadyInLibrary) {
+            have++;
+            st.seen[key] = st.seen[key] || Date.now();
+            const stateKey = (rel.kind === 'series' ? 'sonarr:' : 'radarr:') + b.id;
+            const chk = await rssEnsureDownloaded(rel.kind, b.id, b.title || rel.title, st, stateKey);
+            if (!chk.ok) {
+              failed++;
+              rssLog('⚠', b.title || rel.title, 'library item found, but disk check failed: ' + (chk.message || 'unknown error'), { kind: rel.kind });
+            } else if (chk.complete) {
+              if (!wasSeen) rssLog('✓', chk.title || rel.title, rel.kind === 'series' ? ('all ' + (chk.aired || 0) + ' aired episode(s) are on disk') : 'movie file found on disk', { kind: rel.kind });
+            } else if (chk.searched) {
+              handled++;
+              rssLog('🔍', chk.title || rel.title,
+                rel.kind === 'series'
+                  ? (chk.missing + ' aired episode(s) missing from disk — queued ' + chk.searched + ' episode search(es) through the latest aired episode')
+                  : 'movie is in Radarr but no file is on disk — queued a Radarr movie search',
+                { kind: rel.kind });
+            } else if (!wasSeen) {
+              rssLog('•', chk.title || rel.title,
+                rel.kind === 'series' ? (chk.missing + ' aired episode(s) still missing; search is in cooldown') : 'movie file still missing; search is in cooldown',
+                { kind: rel.kind });
+            }
+          } else {
+            failed++;
+            if (!wasSeen) rssLog('⚠', rel.title, b.message || 'could not add', { kind: rel.kind, release: item.title });
+          }
+        } catch (e) {
+          failed++;
+          if (!wasSeen) rssLog('⚠', rel.title, e.message || 'error');
+        }
       }
     }
     // keep the seen-list from growing forever (30 days)
     const cut = Date.now() - 30 * 864e5;
     for (const k of Object.keys(st.seen)) if (st.seen[k] < cut) delete st.seen[k];
+    for (const k of Object.keys(st.reconcile || {})) if (Number(st.reconcile[k].lastCheck || 0) < cut) delete st.reconcile[k];
     st.lastRun = Date.now();
-    rssLog('▶', '', 'checked ' + cfg.feeds.length + ' feed(s) · ' + newItems + ' new item(s) · ' + added + ' added, ' + have + ' already there' + (failed ? ', ' + failed + ' failed' : ''));
+    rssLog('▶', '', 'checked ' + cfg.feeds.length + ' feed(s) · ' + newItems + ' new item(s) · ' + added + ' added, ' + have + ' existing item(s) checked on disk' + (handled ? ', ' + handled + ' search/add action(s)' : '') + (failed ? ', ' + failed + ' failed' : ''));
     writeRss();
   } finally { rssRunning = false; }
   return { added, have, failed, newItems, feedErrors };

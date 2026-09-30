@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.9.0
+
+### Download-aware RSS reconciliation
+
+- Upgraded RSS automation from one-time add detection to persistent **library + disk reconciliation**.
+- Previously seen RSS titles are now rechecked instead of being ignored forever after their first feed pass.
+- Movies already in Radarr are checked for an actual Radarr-managed movie file / on-disk size.
+- If an RSS movie exists in Radarr but still has no file, MEDIARR queues a targeted Radarr **MoviesSearch**.
+- TV series already in Sonarr are checked episode-by-episode through the **most recent aired regular episode**.
+- Missing aired TV episodes are monitored when needed and queued with targeted Sonarr **EpisodeSearch** commands in safe batches.
+- Specials and future/unaired episodes are excluded from RSS missing-episode recovery.
+- Added a six-hour per-title search cooldown to prevent repeated indexer searches while downloads are already pending.
+- RSS additions are now recorded in MEDIARR's add history so later file-arrival events can be attributed to prior RSS additions.
+- Fixed the old max-per-run behavior so entries deferred by the cap are not permanently marked handled before MEDIARR gets a chance to process them.
+
+### Download notifications
+
+- Added notification event classes for **downloaded** and **pastDownloaded** items; both are enabled by default when notifications are enabled.
+- Radarr/Sonarr Download/Import webhooks now generate file-arrival notifications after media is actually imported into the library.
+- Sonarr download notifications include season/episode labels when the webhook provides episode metadata.
+- Downloads are matched against MEDIARR's add history. When a movie/show was added earlier, the notification identifies it as a download for a **previously added item**.
+- RSS disk reconciliation independently detects missing → present transitions, so previously missing RSS movies/episodes can generate a completion notification even when the original add happened in an earlier feed cycle.
+- RSS automatic additions now use the normal **added** notification class with an RSS-specific message.
+
 ## 1.8.2
 
 ### Login page hotfix
