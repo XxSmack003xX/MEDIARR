@@ -5685,7 +5685,10 @@ const server = http.createServer(async (req, res) => {
       const ua = (req.headers['user-agent'] || '').toLowerCase();
       const isMobileUA = /android|iphone|ipod|iemobile|blackberry|opera mini|mobile/.test(ua);
       const forceDesktop = /[?&]d=1\b/.test(req.url || '');
-      if (isMobileUA && !forceDesktop) { res.writeHead(302, { Location: '/m' }); return res.end(); }
+      // Installed PWA launches use ?pwa=1 from the manifest start_url. Keep the
+      // full desktop UI even when the installed app is running on a phone.
+      const pwaDesktop = /[?&]pwa=1(?:&|$)/.test(req.url || '');
+      if (isMobileUA && !forceDesktop && !pwaDesktop) { res.writeHead(302, { Location: '/m' }); return res.end(); }
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/m' || p === '/m/' || p === '/mobile' || p === '/mobile.html')) return serveStatic(res, 'mobile.html');

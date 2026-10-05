@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.2
+
+### PWA desktop-mode launch fix
+
+- Installed MEDIARR PWAs now launch the full desktop interface even on phones and tablets.
+- Added a dedicated PWA launch marker to the manifest start URL so the server can distinguish an installed-app launch from an ordinary mobile-browser visit.
+- Normal mobile browser visits to `/` continue redirecting to the optimized mobile interface.
+- Removed the Mobile shortcut from the installed PWA so home-screen/app launches cannot accidentally enter the mobile surface.
+- Updated the service-worker cache version and offline navigation fallback for the PWA desktop launch URL.
+
 ## 1.9.1
 
 ### Progressive Web App

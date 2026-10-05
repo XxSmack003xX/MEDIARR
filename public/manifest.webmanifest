@@ -3,7 +3,7 @@
   "short_name": "MEDIARR",
   "description": "Self-hosted media dashboard for Radarr, Sonarr, Plex and local media.",
   "id": "/",
-  "start_url": "/",
+  "start_url": "/?pwa=1",
   "scope": "/",
   "display": "standalone",
   "display_override": [
@@ -38,18 +38,7 @@
     {
       "name": "MEDIARR Home",
       "short_name": "Home",
-      "url": "/",
-      "icons": [
-        {
-          "src": "/icons/mediarr-icon-192.png",
-          "sizes": "192x192"
-        }
-      ]
-    },
-    {
-      "name": "Mobile",
-      "short_name": "Mobile",
-      "url": "/m",
+      "url": "/?pwa=1",
       "icons": [
         {
           "src": "/icons/mediarr-icon-192.png",

@@ -1,5 +1,5 @@
-const CACHE='mediarr-pwa-v1.9.1';
-const SHELL=['/','/m','/manifest.webmanifest','/icons/mediarr-icon.svg','/icons/mediarr-icon-192.png','/icons/mediarr-icon-512.png'];
+const CACHE='mediarr-pwa-v1.9.2';
+const SHELL=['/?pwa=1','/','/m','/manifest.webmanifest','/icons/mediarr-icon.svg','/icons/mediarr-icon-192.png','/icons/mediarr-icon-512.png'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>Promise.all(SHELL.map(url=>cache.add(url).catch(()=>null)))));
 });
@@ -19,7 +19,7 @@ self.addEventListener('fetch',event=>{
     return;
   }
   if(req.mode==='navigate'){
-    event.respondWith(fetch(req).catch(()=>caches.match(url.pathname==='/m'||url.pathname.startsWith('/mobile')?'/m':'/')));
+    event.respondWith(fetch(req).catch(()=>caches.match(url.searchParams.get('pwa')==='1'?'/?pwa=1':(url.pathname==='/m'||url.pathname.startsWith('/mobile')?'/m':'/'))));
     return;
   }
   if(SHELL.includes(url.pathname)||url.pathname.startsWith('/icons/')){
