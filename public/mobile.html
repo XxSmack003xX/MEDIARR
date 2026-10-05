@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0c0c0f">
+<meta name="application-name" content="MEDIARR">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MEDIARR">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="/icons/mediarr-icon.svg">
+<link rel="apple-touch-icon" href="/icons/mediarr-icon-192.png">
 <title>MEDIARR</title>
 <script>try{document.documentElement.setAttribute('data-bs-theme', localStorage.getItem('mediarr-theme')||'dark');}catch(e){}</script>
 <!-- Bootstrap 5 — bundled locally for offline use. Drop these two files into /public:
@@ -2333,5 +2341,24 @@ $('mQueue').onclick=openQueueM;
 <script src="/v170.js"></script>
 <script src="/v180.js"></script>
 <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+<script>
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('/sw.js', {scope:'/'})
+      .then(function(reg){
+        // Ask a waiting worker to activate promptly; page navigation/reload then uses it.
+        if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+        reg.addEventListener('updatefound', function(){
+          var w=reg.installing;
+          if(!w) return;
+          w.addEventListener('statechange', function(){
+            if(w.state==='installed' && navigator.serviceWorker.controller) w.postMessage({type:'SKIP_WAITING'});
+          });
+        });
+      }).catch(function(e){ console.warn('[MEDIARR PWA] service worker registration failed', e); });
+  });
+})();
+</script>
 </body>
 </html>

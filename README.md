@@ -23,7 +23,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.9.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v1.9.1 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -214,6 +214,19 @@ MEDIARR uses a server-side proxy model so browser clients never need direct acce
 ```
 
 Runtime state is stored as JSON in the MEDIARR data directory. In Docker this is `/data`; source installs default to the application directory unless `DATA_DIR` is set.
+
+---
+
+## Progressive Web App (PWA)
+
+MEDIARR can be installed as a standalone Progressive Web App on supported desktop and mobile browsers.
+
+- Includes a web app manifest, standalone display mode, MEDIARR app icons, theme colors, and a service worker.
+- iPhone/iPad users can open MEDIARR in Safari and use **Share → Add to Home Screen**.
+- Android/Chrome and supported desktop Chromium browsers can use the browser's **Install app** action.
+- The service worker deliberately does **not** cache authenticated API responses, media streams, HLS sessions, or versioned application JavaScript. MEDIARR continues to read live server state and new releases are not hidden behind stale PWA caches.
+- A small shell/icon cache provides install metadata and a graceful app-shell fallback if navigation temporarily loses network access.
+- PWA installation requires a secure browser context. HTTPS is recommended for normal remote/LAN use; browsers also treat localhost specially for development.
 
 ---
 

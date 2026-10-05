@@ -753,7 +753,7 @@ async function handleArrWebhook (svc, req, res, urlObj) {
   return sendJSON(res, 200, { ok: true, service: svc, eventType, receivedAt: Date.now() });
 }
 
-const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.json':'application/json', '.svg':'image/svg+xml', '.png':'image/png', '.ico':'image/x-icon' };
+const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.json':'application/json', '.webmanifest':'application/manifest+json', '.svg':'image/svg+xml', '.png':'image/png', '.ico':'image/x-icon' };
 function serveStatic (res, file) {
   const full = path.join(PUBLIC_DIR, file);
   if (!full.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end('Forbidden'); }
@@ -764,7 +764,7 @@ function serveStatic (res, file) {
     // App HTML/JS changes between MEDIARR releases. Do not let a browser keep an
     // old v150.js in memory/disk after an in-app update, otherwise new controls
     // (such as Unified Detail playback) can appear to be missing until a hard refresh.
-    if (ext === '.html' || ext === '.js') headers['Cache-Control'] = 'no-store';
+    if (ext === '.html' || ext === '.js' || file === 'manifest.webmanifest' || file === 'sw.js') headers['Cache-Control'] = 'no-store';
     res.writeHead(200, headers);
     res.end(data);
   });
@@ -5689,6 +5689,7 @@ const server = http.createServer(async (req, res) => {
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/m' || p === '/m/' || p === '/mobile' || p === '/mobile.html')) return serveStatic(res, 'mobile.html');
+    if (req.method === 'GET' && (p === '/manifest.webmanifest' || p === '/sw.js' || p === '/icons/mediarr-icon.svg' || p === '/icons/mediarr-icon-192.png' || p === '/icons/mediarr-icon-512.png')) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/bootstrap.min.css') return serveVendor(res, 'bootstrap.min.css', 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css');
     if (req.method === 'GET' && p === '/bootstrap.bundle.min.js') return serveVendor(res, 'bootstrap.bundle.min.js', 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js');
     if (req.method === 'GET' && p === '/hls.min.js') return serveVendor(res, 'hls.min.js', 'https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js');

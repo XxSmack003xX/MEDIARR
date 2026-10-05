@@ -1,0 +1,61 @@
+{
+  "name": "MEDIARR",
+  "short_name": "MEDIARR",
+  "description": "Self-hosted media dashboard for Radarr, Sonarr, Plex and local media.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+  "background_color": "#0c0b0e",
+  "theme_color": "#0c0b0e",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/mediarr-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/mediarr-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/mediarr-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "MEDIARR Home",
+      "short_name": "Home",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/icons/mediarr-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Mobile",
+      "short_name": "Mobile",
+      "url": "/m",
+      "icons": [
+        {
+          "src": "/icons/mediarr-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

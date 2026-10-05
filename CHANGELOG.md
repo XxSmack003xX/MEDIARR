@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.9.1
+
+### Progressive Web App
+
+- Added full **PWA installability** to the desktop and mobile MEDIARR interfaces.
+- Added a web app manifest with standalone display mode, app identity, theme/background colors, icons, and Home/Mobile shortcuts.
+- Added MEDIARR 192px and 512px install icons plus an SVG favicon/app icon.
+- Added Apple mobile web-app metadata and an Apple touch icon for iPhone/iPad Home Screen installs.
+- Added a service worker with safe app-shell fallback behavior.
+- Authenticated APIs, media/HLS traffic, application JavaScript, and HTML remain network-first/no-store so PWA caching cannot expose stale user data or hide a MEDIARR update.
+- Service-worker upgrades remove previous MEDIARR PWA caches and activate promptly after an application release.
+- Added explicit manifest MIME handling and no-cache headers for the manifest/service worker.
+- Documented installation for iOS/iPadOS, Android/Chrome, and supported desktop browsers.
+
 ## 1.9.0
 
 ### Download-aware RSS reconciliation
