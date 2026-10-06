@@ -2,6 +2,26 @@
 
 # MEDIARR
 
+## MEDIARR 2.0
+
+MEDIARR 2.0 adds a shared responsive **Media Intelligence Hub** on desktop, mobile, and the installed PWA. The hub correlates Radarr, Sonarr, SABnzbd, Plex, watch progress, request/add history, health monitoring, and the on-disk state reported by the Arr applications into one operational view.
+
+### 2.0 highlights
+
+- **Media Intelligence** — monitored movies without files, series with missing aired episodes, unmonitored titles, service health, active downloads, Plex streams, and library totals in one snapshot.
+- **Unified lifecycle / pipeline** — request and add history sits beside active download state and recent Radarr/Sonarr import events.
+- **Persistent Notification Center** — MEDIARR events are retained locally for each user's read/unread inbox even when external notification providers are disabled.
+- **Universal Search** — search the existing Radarr/Sonarr library and TMDB together; TMDB-only results can be added without leaving the 2.0 hub.
+- **Request history** — users see their own request/add history; administrators see the server-wide request trail.
+- **Storage & Quality Intelligence** — aggregates Arr-reported movie/TV storage and highlights the largest library items and available quality labels.
+- **Automation & Self-Healing** — report-only mode audits missing media; optional repair mode queues safe Radarr movie searches and Sonarr searches for aired, monitored, missing episodes. Scheduled repair has a minimum 15-minute interval.
+- **Responsive shared UI** — all new 2.0 features live in one `v200.js` interface used by desktop, mobile, and PWA instead of duplicating the feature implementation.
+- **PWA-first launch** — installed MEDIARR launches the full desktop application shell on phones and opens directly into the 2.0 overview. App shortcuts open Intelligence, Search, Pipeline, and Notifications.
+- **Backups** — persistent 2.0 inbox/automation state is included in MEDIARR configuration backups.
+
+The legacy desktop/mobile pages remain available for compatibility, while the 2.0 Hub is the shared responsive surface for new features.
+
+
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
 [![Version](https://img.shields.io/badge/version-1.9.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
@@ -23,7 +43,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v1.9.2 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.0.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.

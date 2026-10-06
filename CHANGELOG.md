@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.0.0
+
+### Media Intelligence platform
+
+- Added the shared responsive **MEDIARR 2.0 Hub** for desktop, mobile, and installed PWA.
+- Added a Media Intelligence snapshot that correlates Radarr/Sonarr library state, missing media, active downloads, Plex streams, service health, request history, storage, and watch progress.
+- Added an admin repair action for monitored movies without files and aired monitored Sonarr episodes without files.
+- Added a unified pipeline view combining requests, current download summary, and recent Arr download/import events.
+- Added Universal Search across the existing Radarr/Sonarr library and TMDB, with direct Add for titles not yet in the library.
+- Added user-scoped request history and server-wide request visibility for administrators.
+
+### Notification Center
+
+- Added persistent in-app notifications with per-user read/unread state.
+- Existing MEDIARR notification events now enter the local inbox even when Discord/Pushover/other outbound providers are disabled.
+- Notification and automation state is stored in `v2-state.json` and included in backups.
+
+### Automation & self-healing
+
+- Added report-only and repair automation modes.
+- Report mode audits monitored missing movies and aired monitored missing episodes without changing the library.
+- Repair mode queues Radarr `MoviesSearch` and targeted Sonarr `EpisodeSearch` commands; it does not delete media or alter download jobs.
+- Added optional scheduled repair with a minimum 15-minute interval and explicit movie/episode search toggles.
+
+### Storage / quality / PWA
+
+- Added Arr-reported movie, TV, and total storage summaries plus largest-item and movie quality views.
+- PWA launches now open the desktop application shell and the MEDIARR 2.0 overview even on mobile user agents.
+- Added PWA shortcuts for Media Intelligence, Universal Search, Download Pipeline, and Notifications.
+- Bumped the service-worker cache to 2.0.0.
+- Release ZIP now includes `v200.js`, the web manifest, service worker, and PWA icons.
+
 ## 1.9.2
 
 ### PWA desktop-mode launch fix

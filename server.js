@@ -82,6 +82,7 @@ const ADDS_PATH   = path.join(DATA_DIR, 'adds.json');
 const FAVS_PATH   = path.join(DATA_DIR, 'favorites.json');
 const AUTOADD_PATH = path.join(DATA_DIR, 'autoadd.json');
 const WATCH_PROGRESS_PATH = path.join(DATA_DIR, 'watch-progress.json');
+const V2_STATE_PATH = path.join(DATA_DIR, 'v2-state.json');
 const CINEMETA    = 'https://v3-cinemeta.strem.io';
 const TMDB        = 'https://api.themoviedb.org/3';
 const HEALTH_INTERVAL_MS = 60 * 1000;   // background check cadence
@@ -1148,7 +1149,7 @@ async function downloadActivitySnapshot (me, historyLimit) {
    Everything that isn't regenerable gets snapshotted: settings, users, favorites,
    activity, RSS state, blocklist. Caches are deliberately excluded. */
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
-const BACKUP_FILES = ['config.json', 'users.json', 'favorites.json', 'adds.json', 'rss.json', 'blocked.json', 'autoadd.json', 'watch-progress.json'];
+const BACKUP_FILES = ['config.json', 'users.json', 'favorites.json', 'adds.json', 'rss.json', 'blocked.json', 'autoadd.json', 'watch-progress.json', 'v2-state.json'];
 const BACKUP_VERSION = 1;
 let backupTimer = null, backupDebounce = null, lastBackupHash = '';
 function ensureBackupDir () { try { fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 }); } catch (e) {} }
@@ -1304,6 +1305,7 @@ async function sendNotification (target, ev) {
 const notifyRecent = new Map();
 function notify (event, title, message, level) {
   try {
+    v2InboxPush({ event, title, message, level: level || 'info', ts: Date.now() });
     const cfg = readConfig().notify;
     if (!cfg.enabled) return;
     if (cfg.events && cfg.events[event] === false) return;
@@ -5003,6 +5005,136 @@ async function dockerControlStatus () {
 }
 
 
+/* ---------- MEDIARR 2.0 intelligence / requests / notification inbox ----------
+   This layer intentionally composes the existing Radarr, Sonarr, Plex, SAB and
+   watch-progress systems instead of introducing another database dependency. */
+let _v2State = null;
+function v2State () {
+  if (_v2State) return _v2State;
+  try { _v2State = JSON.parse(fs.readFileSync(V2_STATE_PATH, 'utf8')); } catch (_) { _v2State = {}; }
+  if (!_v2State.inbox) _v2State.inbox = [];
+  if (!_v2State.read) _v2State.read = {};
+  if (!_v2State.automation) _v2State.automation = { mode:'report', enabled:false, intervalMinutes:60, plexScanAfterImport:true, searchMissingMovies:true, searchMissingEpisodes:true, minFreeGB:50, lastRun:0, lastResult:null };
+  return _v2State;
+}
+function v2Save () {
+  try { fs.writeFileSync(V2_STATE_PATH, JSON.stringify(v2State(), null, 2), { mode:0o600 }); } catch (_) {}
+}
+function v2InboxPush (ev) {
+  try {
+    const st=v2State(), key=String(ev.event||'event')+'|'+String(ev.title||'')+'|'+String(ev.message||'');
+    if (st.inbox[0] && st.inbox[0].key===key && Date.now()-st.inbox[0].ts<60000) return;
+    st.inbox.unshift({ id:crypto.randomBytes(8).toString('hex'), key, ts:Number(ev.ts)||Date.now(), event:String(ev.event||'event'), title:String(ev.title||'MEDIARR').slice(0,220), message:String(ev.message||'').slice(0,800), level:String(ev.level||'info') });
+    if(st.inbox.length>500)st.inbox.length=500;
+    v2Save();
+  } catch (_) {}
+}
+function v2InboxFor (username) {
+  const st=v2State(), read=st.read[username]||{};
+  return st.inbox.map(x=>Object.assign({},x,{read:!!read[x.id]}));
+}
+function v2MarkInbox (username, ids, all) {
+  const st=v2State(); if(!st.read[username])st.read[username]={};
+  if(all) for(const x of st.inbox)st.read[username][x.id]=true;
+  else for(const id of (ids||[]).slice(0,500))st.read[username][String(id)]=true;
+  const valid=new Set(st.inbox.map(x=>x.id)); for(const id of Object.keys(st.read[username]))if(!valid.has(id))delete st.read[username][id];
+  v2Save();
+}
+function v2ArrList (svc, pathName) {
+  return arrJson(svc, '/api/v3/' + pathName).then(x=>Array.isArray(x)?x:[]);
+}
+function v2MovieState (m) {
+  const has=!!(m.hasFile || Number(m.sizeOnDisk)>0 || m.movieFile);
+  return { service:'radarr', type:'movie', id:m.id, title:m.title||'', year:m.year||'', monitored:m.monitored!==false, hasFile:has, size:Number(m.sizeOnDisk)||Number(m.movieFile&&m.movieFile.size)||0,
+    state:has?'verified':(m.monitored===false?'unmonitored':'missing'), path:m.path||'', quality:(m.movieFile&&m.movieFile.quality&&m.movieFile.quality.quality&&m.movieFile.quality.quality.name)||'' };
+}
+function v2SeriesState (s) {
+  const stats=s.statistics||{}, files=Number(stats.episodeFileCount)||0, total=Number(stats.episodeCount)||0;
+  const missing=Math.max(0,total-files);
+  return { service:'sonarr', type:'series', id:s.id, title:s.title||'', year:s.year||'', monitored:s.monitored!==false, hasFile:files>0, files,total,missing,size:Number(stats.sizeOnDisk)||0,
+    state:s.monitored===false?'unmonitored':(missing>0?'missing':'verified'), path:s.path||'', network:s.network||'' };
+}
+async function v2Intelligence (me) {
+  const [movies,series,missing,activity,streams]=await Promise.all([
+    v2ArrList('radarr','movie'), v2ArrList('sonarr','series'), fastMissingScan().catch(()=>({ok:false,series:[],episodes:0})),
+    downloadActivitySnapshot(me,40).catch(()=>({summary:{},radarr:{items:[]},sonarr:{items:[]},sab:{}})),
+    plexSessions(me.role==='admin').catch(()=>({configured:false,count:0,sessions:[]}))
+  ]);
+  const M=movies.map(v2MovieState), S=series.map(v2SeriesState);
+  const missingMovies=M.filter(x=>x.state==='missing');
+  const missingSeries=S.filter(x=>x.missing>0);
+  const unmonitored=M.concat(S).filter(x=>x.state==='unmonitored');
+  const storage={ moviesBytes:M.reduce((n,x)=>n+x.size,0), tvBytes:S.reduce((n,x)=>n+x.size,0) };
+  storage.totalBytes=storage.moviesBytes+storage.tvBytes;
+  const problems=[];
+  for(const x of missingMovies.slice(0,80))problems.push({kind:'missing-movie',severity:'warn',service:'radarr',id:x.id,title:x.title,detail:'Movie is monitored but no file is recorded on disk',action:'search'});
+  const missMap=new Map((missing.series||[]).map(x=>[Number(x.id),x]));
+  for(const x of missingSeries.slice(0,80)){const z=missMap.get(Number(x.id));problems.push({kind:'missing-episodes',severity:'warn',service:'sonarr',id:x.id,title:x.title,detail:(z?z.count:x.missing)+' aired monitored episode(s) missing',action:'search'});}
+  for(const x of unmonitored.slice(0,40))problems.push({kind:'unmonitored',severity:'info',service:x.service,id:x.id,title:x.title,detail:'Not monitored',action:''});
+  const adds=(readAdds().adds||[]).slice(0,120).map(a=>({ts:a.ts||0,title:a.title||'',service:a.service||'',type:a.type||'',username:a.username||'',year:a.year||''}));
+  const progress=watchContinueForUser(me.username,20);
+  return {
+    generatedAt:Date.now(), version:APP_VERSION,
+    summary:{movies:M.length,series:S.length,missingMovies:missingMovies.length,missingEpisodes:Number(missing.episodes)||missingSeries.reduce((n,x)=>n+x.missing,0),problems:problems.length,activeDownloads:Number(activity.summary&&activity.summary.active)||0,plexStreams:Number(streams.count)||0,storageBytes:storage.totalBytes},
+    storage, problems, movies:M, series:S, requests:adds, continueWatching:progress,
+    pipeline:{activity:activity.summary||{},recent:(activity.recent||[]).slice(0,30),requests:adds.slice(0,30)},
+    services:healthState.services||{}
+  };
+}
+async function v2UniversalSearch (q) {
+  q=String(q||'').trim(); if(q.length<2)return {items:[]};
+  const nq=normTitle(q);
+  const [movies,series,tm]=await Promise.all([
+    v2ArrList('radarr','movie'),v2ArrList('sonarr','series'),
+    tmdbJson('/search/multi?query='+encodeURIComponent(q)+'&include_adult=false').catch(()=>null)
+  ]);
+  const items=[];
+  for(const m of movies)if(normTitle(m.title).includes(nq))items.push(Object.assign(v2MovieState(m),{source:'library'}));
+  for(const s of series)if(normTitle(s.title).includes(nq))items.push(Object.assign(v2SeriesState(s),{source:'library'}));
+  for(const x of ((tm&&tm.results)||[]).slice(0,20)){
+    if(!['movie','tv'].includes(x.media_type))continue;
+    const title=x.title||x.name||'', year=String(x.release_date||x.first_air_date||'').slice(0,4);
+    const exists=items.some(y=>normTitle(y.title)===normTitle(title) && (!year||!y.year||String(y.year)===year));
+    if(!exists)items.push({source:'tmdb',type:x.media_type==='tv'?'series':'movie',title,year,tmdbId:x.id,poster:x.poster_path||'',state:'available-to-add'});
+  }
+  return {items:items.slice(0,50)};
+}
+function v2Requests (me) {
+  let list=(readAdds().adds||[]).filter(a=>['radarr','sonarr'].includes(a.service));
+  if(me.role!=='admin')list=list.filter(a=>String(a.username||'')===me.username);
+  return list.slice(0,300).map(a=>({ts:a.ts||0,title:a.title||'',year:a.year||'',service:a.service||'',type:a.type||'',username:a.username||'',role:a.role||''}));
+}
+async function v2Repair (body) {
+  const svc=body.service==='sonarr'?'sonarr':'radarr', id=Number(body.id);
+  if(!id)return {ok:false,message:'Missing library item id'};
+  if(svc==='radarr')return arrCommand('radarr',{name:'MoviesSearch',movieIds:[id]});
+  const eps=await seriesEpisodes(id); if(!eps.ok)return {ok:false,message:'Could not read Sonarr episodes'};
+  const ids=missingFrom(eps.items).map(e=>Number(e.id)).filter(Boolean);
+  if(!ids.length)return {ok:true,message:'No aired monitored episodes are missing'};
+  let searched=0;
+  for(let i=0;i<ids.length;i+=100){const r=await arrCommand('sonarr',{name:'EpisodeSearch',episodeIds:ids.slice(i,i+100)});if(!r.ok)return r;searched+=Math.min(100,ids.length-i);}
+  return {ok:true,message:'Queued '+searched+' missing episode search(es)'};
+}
+async function v2AutomationRun (modeOverride) {
+  const st=v2State(), cfg=st.automation||{}, mode=modeOverride||cfg.mode||'report';
+  const [movies,miss]=await Promise.all([v2ArrList('radarr','movie'),fastMissingScan().catch(()=>({ok:false,series:[],episodes:0}))]);
+  const missingMovies=movies.map(v2MovieState).filter(x=>x.state==='missing');
+  const result={at:Date.now(),mode,missingMovies:missingMovies.length,missingEpisodes:Number(miss.episodes)||0,actions:[]};
+  if(mode==='repair'){
+    if(cfg.searchMissingMovies!==false)for(const x of missingMovies.slice(0,25)){const r=await arrCommand('radarr',{name:'MoviesSearch',movieIds:[Number(x.id)]});result.actions.push({service:'radarr',title:x.title,ok:r.ok,action:'search'});}
+    if(cfg.searchMissingEpisodes!==false)for(const x of (miss.series||[]).slice(0,25)){const r=await v2Repair({service:'sonarr',id:x.id});result.actions.push({service:'sonarr',title:x.title,ok:r.ok,action:'search missing episodes'});}
+  }
+  st.automation.lastRun=result.at; st.automation.lastResult=result; v2Save();
+  return result;
+}
+let v2AutomationBusy=false;
+async function v2AutomationTick(){
+  const a=v2State().automation||{}; if(!a.enabled||a.mode!=='repair'||v2AutomationBusy)return;
+  const mins=Math.max(15,Number(a.intervalMinutes)||60); if(Date.now()-Number(a.lastRun||0)<mins*60000)return;
+  v2AutomationBusy=true; try{await v2AutomationRun('repair');}catch(e){logError('v2-automation',e.message,'scheduled');}finally{v2AutomationBusy=false;}
+}
+setInterval(()=>{v2AutomationTick().catch(()=>{});},60000).unref?.();
+
 /* ---------- GitHub release / self-update ----------
    GitHub Releases are the update source. Official release images bake the source
    repository into MEDIARR_UPDATE_REPO. Source/local builds can set it in Admin.
@@ -5990,6 +6122,49 @@ const server = http.createServer(async (req, res) => {
         const rel = u.searchParams.get('path') || '';
         if (!rel) return sendJSON(res, 400, { message:'Missing media path' });
         return sendJSON(res, 200, await playbackDiagnostics(rel));
+      }
+
+      // ---- MEDIARR 2.0 unified intelligence / requests / notifications / automation ----
+      if (p === '/api/v2/intelligence' && req.method === 'GET') {
+        try { return sendJSON(res, 200, await v2Intelligence(me)); }
+        catch(e){ logError('v2-intelligence',e.message,me.username); return sendJSON(res,502,{message:'Could not build Media Intelligence snapshot: '+e.message}); }
+      }
+      if (p === '/api/v2/search' && req.method === 'GET') {
+        try { return sendJSON(res,200,await v2UniversalSearch(u.searchParams.get('q')||'')); }
+        catch(e){ return sendJSON(res,502,{message:e.message}); }
+      }
+      if (p === '/api/v2/requests' && req.method === 'GET') return sendJSON(res,200,{items:v2Requests(me)});
+      if (p === '/api/v2/notifications' && req.method === 'GET') {
+        const items=v2InboxFor(me.username); return sendJSON(res,200,{items:items.slice(0,200),unread:items.filter(x=>!x.read).length});
+      }
+      if (p === '/api/v2/notifications/read' && req.method === 'POST') {
+        let b={};try{b=JSON.parse((await readBody(req))||'{}');}catch(_){}
+        v2MarkInbox(me.username,Array.isArray(b.ids)?b.ids:[],!!b.all); return sendJSON(res,200,{ok:true});
+      }
+      if (p === '/api/v2/admin/repair' && req.method === 'POST') {
+        if(me.role!=='admin')return sendJSON(res,403,{message:'Admin only'});
+        let b={};try{b=JSON.parse((await readBody(req))||'{}');}catch(_){}
+        const r=await v2Repair(b); return sendJSON(res,r.ok?200:502,r);
+      }
+      if (p === '/api/v2/admin/automation' && req.method === 'GET') {
+        if(me.role!=='admin')return sendJSON(res,403,{message:'Admin only'});
+        return sendJSON(res,200,v2State().automation);
+      }
+      if (p === '/api/v2/admin/automation' && req.method === 'POST') {
+        if(me.role!=='admin')return sendJSON(res,403,{message:'Admin only'});
+        let b={};try{b=JSON.parse((await readBody(req))||'{}');}catch(_){}
+        const a=v2State().automation;
+        if(b.enabled!=null)a.enabled=!!b.enabled;
+        if(['report','repair'].includes(b.mode))a.mode=b.mode;
+        if(b.intervalMinutes!=null)a.intervalMinutes=Math.max(15,Math.min(1440,Number(b.intervalMinutes)||60));
+        for(const k of ['plexScanAfterImport','searchMissingMovies','searchMissingEpisodes'])if(b[k]!=null)a[k]=!!b[k];
+        if(b.minFreeGB!=null)a.minFreeGB=Math.max(0,Number(b.minFreeGB)||0);
+        v2Save(); return sendJSON(res,200,a);
+      }
+      if (p === '/api/v2/admin/automation/run' && req.method === 'POST') {
+        if(me.role!=='admin')return sendJSON(res,403,{message:'Admin only'});
+        let b={};try{b=JSON.parse((await readBody(req))||'{}');}catch(_){}
+        try{return sendJSON(res,200,await v2AutomationRun(b.mode==='repair'?'repair':'report'));}catch(e){return sendJSON(res,502,{message:e.message});}
       }
 
       // ---- configuration backups ----

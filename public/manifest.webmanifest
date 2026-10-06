@@ -1,9 +1,9 @@
 {
-  "name": "MEDIARR",
+  "name": "MEDIARR 2.0",
   "short_name": "MEDIARR",
-  "description": "Self-hosted media dashboard for Radarr, Sonarr, Plex and local media.",
+  "description": "Unified self-hosted media intelligence, automation, requests, playback and download dashboard.",
   "id": "/",
-  "start_url": "/?pwa=1",
+  "start_url": "/?pwa=1&v2=overview",
   "scope": "/",
   "display": "standalone",
   "display_override": [
@@ -36,9 +36,42 @@
   ],
   "shortcuts": [
     {
-      "name": "MEDIARR Home",
-      "short_name": "Home",
-      "url": "/?pwa=1",
+      "name": "Media Intelligence",
+      "short_name": "Intelligence",
+      "url": "/?pwa=1&v2=library",
+      "icons": [
+        {
+          "src": "/icons/mediarr-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Universal Search",
+      "short_name": "Search",
+      "url": "/?pwa=1&v2=search",
+      "icons": [
+        {
+          "src": "/icons/mediarr-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Download Pipeline",
+      "short_name": "Downloads",
+      "url": "/?pwa=1&v2=pipeline",
+      "icons": [
+        {
+          "src": "/icons/mediarr-icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "short_name": "Notifications",
+      "url": "/?pwa=1&v2=notifications",
       "icons": [
         {
           "src": "/icons/mediarr-icon-192.png",
