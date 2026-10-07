@@ -1,4 +1,4 @@
-const CACHE='mediarr-pwa-v2.0.0';
+const CACHE='mediarr-pwa-v2.1.0';
 const SHELL=['/?pwa=1&v2=overview','/?pwa=1','/','/m','/manifest.webmanifest','/icons/mediarr-icon.svg','/icons/mediarr-icon-192.png','/icons/mediarr-icon-512.png'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>Promise.all(SHELL.map(url=>cache.add(url).catch(()=>null)))));

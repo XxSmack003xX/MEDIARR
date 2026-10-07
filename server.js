@@ -517,6 +517,8 @@ async function plexSwitchHomeUser (token, id, uuid, pin) {
   return { ok: false, err: lastErr };
 }
 
+// Plex artwork paths (thumb/art/poster…) and the photo transcoder. Nothing else.
+const PLEX_IMAGE_PATH = /^\/(?:library\/(?:metadata|collections)\/\d+\/(?:thumb|art|banner|poster|clearLogo|theme|composite)(?:\/\d+)?|photo\/:\/transcode|[A-Za-z0-9_\-]+\/[A-Za-z0-9_\-\/.]+\.(?:jpe?g|png|webp|gif))(?:\?.*)?$/;
 async function plexImage (username, host, p, res) {
   const px = getUserPlex(username);
   const cfg = readConfig().plex;
@@ -527,11 +529,14 @@ async function plexImage (username, host, p, res) {
     let U; try { U = new URL(p); } catch (e) { res.writeHead(400); return res.end(); }
     let pmsHost = ''; try { pmsHost = new URL(normUrl(cfg.url || '')).hostname; } catch (e) {}
     if (!imgHostAllowed(U.hostname) && U.hostname !== pmsHost) { res.writeHead(403); return res.end(); }
+    // On the Plex server itself only artwork paths are proxied (never API endpoints).
+    if (!imgHostAllowed(U.hostname) && !PLEX_IMAGE_PATH.test(U.pathname + U.search)) { res.writeHead(403); return res.end(); }
     target = U.toString();
     if (px && px.token) tokens.push(px.token);
     if (cfg.token) tokens.push(cfg.token);
   } else {
     if (!p.startsWith('/') || p.indexOf('//') === 0) { res.writeHead(404); return res.end(); }
+    if (!PLEX_IMAGE_PATH.test(p)) { res.writeHead(403); return res.end(); }
     const base = host === 'pms' ? normUrl(cfg.url || '') : PLEX_METADATA;
     if (!base) { res.writeHead(404); return res.end(); }
     target = base + p;
@@ -543,7 +548,9 @@ async function plexImage (username, host, p, res) {
     try {
       const up = await upstream(target, { headers: { 'X-Plex-Token': tok, Accept: 'image/*' } });
       if (up.status < 400) {
-        res.writeHead(200, { 'Content-Type': up.headers['content-type'] || 'image/jpeg', 'Cache-Control': 'private, max-age=86400' });
+        const ct = String(up.headers['content-type'] || 'image/jpeg');
+        if (!/^image\//i.test(ct)) continue;   // artwork only — never relay Plex API data
+        res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'private, max-age=86400' });
         return res.end(up.body);
       }
     } catch (e) { /* try the next token */ }
@@ -588,11 +595,57 @@ function upstream (targetUrl, { method = 'GET', headers = {}, body = null, timeo
   });
 }
 
-function sendJSON (res, status, obj) {
-  const s = JSON.stringify(obj);
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(s) });
-  res.end(s);
+/* ---------- compressed responses ----------
+   JSON, HTML, JS and CSS are sent Brotli- or gzip-compressed when the browser accepts it
+   (typically 5–10x smaller). Compression runs on the thread pool, not the request path.
+   Media, HLS segments and the live event stream are never compressed. */
+const COMPRESSIBLE = /^(text\/|application\/(json|javascript|manifest\+json|xml)|image\/svg\+xml)/i;
+function pickEncoding (req) {
+  const ae = String((req && req.headers && req.headers['accept-encoding']) || '');
+  if (/\bbr\b/i.test(ae)) return 'br';
+  if (/\bgzip\b/i.test(ae)) return 'gzip';
+  return '';
 }
+function compressBuf (buf, enc, cb) {
+  if (enc === 'br') zlib.brotliCompress(buf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: buf.length } }, cb);
+  else zlib.gzip(buf, { level: 6 }, cb);
+}
+function sendBody (res, status, headers, buf) {
+  if (!Buffer.isBuffer(buf)) buf = Buffer.from(String(buf == null ? '' : buf));
+  const req = res.req;
+  const enc = (buf.length >= 1024 && status !== 204 && status !== 304 && !(req && req.method === 'HEAD') && COMPRESSIBLE.test(String(headers['Content-Type'] || ''))) ? pickEncoding(req) : '';
+  if (COMPRESSIBLE.test(String(headers['Content-Type'] || ''))) headers['Vary'] = 'Accept-Encoding';
+  if (!enc) { headers['Content-Length'] = buf.length; res.writeHead(status, headers); return res.end(buf); }
+  compressBuf(buf, enc, (err, out) => {
+    if (res.headersSent || res.destroyed) return;
+    if (err) { headers['Content-Length'] = buf.length; res.writeHead(status, headers); return res.end(buf); }
+    headers['Content-Encoding'] = enc; headers['Content-Length'] = out.length;
+    res.writeHead(status, headers); res.end(out);
+  });
+}
+function sendJSON (res, status, obj) {
+  return sendBody(res, status, { 'Content-Type': 'application/json' }, Buffer.from(JSON.stringify(obj)));
+}
+
+/* ---------- short-lived shared cache ----------
+   memo(key, ttl, fn): every caller within `ttl` ms gets the same result, and concurrent
+   callers share one in-flight request, so N open dashboards cost one upstream call.
+   Failed results are not kept. */
+const _memo = new Map();   // key -> { at, value, pending }
+function memo (key, ttlMs, fn) {
+  const now = Date.now(), hit = _memo.get(key);
+  if (hit && hit.pending) return hit.pending;
+  if (hit && now - hit.at < ttlMs) return Promise.resolve(hit.value);
+  const pending = Promise.resolve().then(fn).then(value => {
+    if (value && value.ok === false) _memo.delete(key);
+    else _memo.set(key, { at: Date.now(), value, pending: null });
+    return value;
+  }, err => { _memo.delete(key); throw err; });
+  _memo.set(key, { at: hit ? hit.at : 0, value: hit ? hit.value : undefined, pending });
+  if (_memo.size > 500) for (const [k, v] of _memo) if (!v.pending && now - v.at > 600000) _memo.delete(k);
+  return pending;
+}
+function memoClear (prefix) { for (const k of _memo.keys()) if (k.startsWith(prefix)) _memo.delete(k); }
 
 /* ---------- realtime events / SSE / arr webhooks ---------- */
 const realtimeClients = new Set();
@@ -741,7 +794,7 @@ async function handleArrWebhook (svc, req, res, urlObj) {
   if (item && item.id) {
     try { upsertLibCacheItem(svc, item); } catch (_) {}
   }
-  liveIdx[svc] = { ts: 0, ids: null };
+  invalidateLive(svc);
   if (!/^test$/i.test(eventType)) scheduleLibraryReconcile(svc, 250);
   try { notifyArrDownload(svc, eventType, body, item); } catch (_) {}
   realtimePush('arr.webhook', {
@@ -755,20 +808,46 @@ async function handleArrWebhook (svc, req, res, urlObj) {
 }
 
 const MIME = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.json':'application/json', '.webmanifest':'application/manifest+json', '.svg':'image/svg+xml', '.png':'image/png', '.ico':'image/x-icon' };
+/* Static files are cached in memory with an ETag and their compressed forms, and
+   revalidated on every load ("no-cache") instead of re-downloaded ("no-store").
+   After an update the file — and so the ETag — changes, so browsers still pick up
+   new releases immediately; between releases a reload costs a 304 instead of ~600KB. */
+const _staticCache = new Map();   // full path -> { mtimeMs, size, raw, etag, gzip, br }
+function staticEntry (full) {
+  const st = fs.statSync(full);
+  let e = _staticCache.get(full);
+  if (!e || e.mtimeMs !== st.mtimeMs || e.size !== st.size) {
+    const raw = fs.readFileSync(full);
+    e = { mtimeMs: st.mtimeMs, size: st.size, raw, etag: '"' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20) + '"', gzip: null, br: null };
+    _staticCache.set(full, e);
+  }
+  return e;
+}
+function sendStaticEntry (res, e, ctype, cacheControl) {
+  const req = res.req;
+  const headers = { 'Content-Type': ctype, 'ETag': e.etag, 'Cache-Control': cacheControl };
+  if (COMPRESSIBLE.test(ctype)) headers['Vary'] = 'Accept-Encoding';
+  const inm = String((req && req.headers['if-none-match']) || '');
+  if (inm && inm.split(',').map(x => x.trim().replace(/^W\//, '')).includes(e.etag)) { res.writeHead(304, headers); return res.end(); }
+  const enc = (e.raw.length >= 1024 && COMPRESSIBLE.test(ctype) && !(req && req.method === 'HEAD')) ? pickEncoding(req) : '';
+  const finish = body => {
+    if (res.headersSent || res.destroyed) return;
+    if (body !== e.raw) headers['Content-Encoding'] = enc;
+    headers['Content-Length'] = body.length;
+    res.writeHead(200, headers); res.end(req && req.method === 'HEAD' ? undefined : body);
+  };
+  if (!enc) return finish(e.raw);
+  if (e[enc]) return finish(e[enc]);
+  compressBuf(e.raw, enc, (err, out) => { if (!err) e[enc] = out; finish(err ? e.raw : out); });
+}
 function serveStatic (res, file) {
   const full = path.join(PUBLIC_DIR, file);
-  if (!full.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end('Forbidden'); }
-  fs.readFile(full, (err, data) => {
-    if (err) { res.writeHead(404); return res.end('Not found'); }
-    const ext = path.extname(full);
-    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
-    // App HTML/JS changes between MEDIARR releases. Do not let a browser keep an
-    // old v150.js in memory/disk after an in-app update, otherwise new controls
-    // (such as Unified Detail playback) can appear to be missing until a hard refresh.
-    if (ext === '.html' || ext === '.js' || file === 'manifest.webmanifest' || file === 'sw.js') headers['Cache-Control'] = 'no-store';
-    res.writeHead(200, headers);
-    res.end(data);
-  });
+  if (full !== PUBLIC_DIR && !full.startsWith(PUBLIC_DIR + path.sep)) { res.writeHead(403); return res.end('Forbidden'); }
+  let e; try { e = staticEntry(full); } catch (err) { res.writeHead(404); return res.end('Not found'); }
+  const ext = path.extname(full);
+  // App HTML/JS change between releases, so they are always revalidated (cheap 304s).
+  const revalidate = ext === '.html' || ext === '.js' || file === 'manifest.webmanifest' || file === 'sw.js';
+  return sendStaticEntry(res, e, MIME[ext] || 'application/octet-stream', revalidate ? 'no-cache' : 'public, max-age=86400');
 }
 
 // Serve a vendored asset (Bootstrap). If it's already cached in /public, serve that (works fully
@@ -777,11 +856,7 @@ async function serveVendor (res, name, url) {
   const cachePath = path.join(PUBLIC_DIR, name);
   const ctype = name.endsWith('.css') ? 'text/css' : 'text/javascript';
   try {
-    if (fs.existsSync(cachePath)) {
-      const buf = fs.readFileSync(cachePath);
-      res.writeHead(200, { 'Content-Type': ctype, 'Content-Length': buf.length, 'Cache-Control': 'public, max-age=86400' });
-      return res.end(buf);
-    }
+    if (fs.existsSync(cachePath)) return sendStaticEntry(res, staticEntry(cachePath), ctype, 'public, max-age=86400');
   } catch (e) {}
   try {
     let up = await upstream(url, { headers: { 'Accept': '*/*', 'User-Agent': 'mediarr' } });
@@ -791,8 +866,7 @@ async function serveVendor (res, name, url) {
     }
     if (up.status !== 200) throw new Error('CDN returned HTTP ' + up.status);
     try { fs.writeFileSync(cachePath, up.body); } catch (e) {}   // cache for offline next time
-    res.writeHead(200, { 'Content-Type': ctype, 'Content-Length': up.body.length, 'Cache-Control': 'public, max-age=86400' });
-    return res.end(up.body);
+    return sendBody(res, 200, { 'Content-Type': ctype, 'Cache-Control': 'public, max-age=86400' }, up.body);
   } catch (e) {
     res.writeHead(502, { 'Content-Type': 'text/plain' });
     return res.end('Could not load ' + name + ': ' + e.message + '. The mobile UI needs internet on first load to cache Bootstrap, or you can drop the file into /public manually.');
@@ -1098,15 +1172,18 @@ function recentArrDownloadEvents () {
       title: ev.data.title || '', upgrade: !!ev.data.downloaded
     }));
 }
+const ACTIVITY_TTL_MS = 2500;
 async function downloadActivitySnapshot (me, historyLimit) {
   const cfg = readConfig();
   const sabConfigured = !!(cfg.sab && cfg.sab.url && cfg.sab.apiKey);
   const limit = Math.max(10, Math.min(100, Number(historyLimit) || 60));
+  // Every open Activity view polls every 5s; share upstream results for 2.5s so
+  // several viewers cost one set of SABnzbd/Radarr/Sonarr calls instead of one each.
   const [q, h, radarr, sonarr] = await Promise.all([
-    sabConfigured ? sabCall('queue') : Promise.resolve({ ok: false, message: '' }),
-    sabConfigured ? sabCall('history', '&limit=' + limit) : Promise.resolve({ ok: false, message: '' }),
-    arrQueueActivity('radarr'),
-    arrQueueActivity('sonarr')
+    sabConfigured ? memo('activity:sab:queue', ACTIVITY_TTL_MS, () => sabCall('queue')) : Promise.resolve({ ok: false, message: '' }),
+    sabConfigured ? memo('activity:sab:history:' + limit, ACTIVITY_TTL_MS, () => sabCall('history', '&limit=' + limit)) : Promise.resolve({ ok: false, message: '' }),
+    memo('activity:radarr', ACTIVITY_TTL_MS, () => arrQueueActivity('radarr')),
+    memo('activity:sonarr', ACTIVITY_TTL_MS, () => arrQueueActivity('sonarr'))
   ]);
   let sab = { configured: sabConfigured, paused: false, speed: '0 B/s', speedBps: 0, sizeLeft: '', timeLeft: '', diskFreeGB: null, queue: [], history: [], historyTotal: 0 };
   if (sabConfigured) {
@@ -1154,6 +1231,7 @@ const BACKUP_VERSION = 1;
 let backupTimer = null, backupDebounce = null, lastBackupHash = '';
 function ensureBackupDir () { try { fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 }); } catch (e) {} }
 function buildBackup (reason) {
+  flushAddsSync();   // include activity that is still waiting in memory
   const files = {};
   for (const name of BACKUP_FILES) {
     try {
@@ -1228,6 +1306,7 @@ function restoreBackup (data, opts) {
   if (!data || data.app !== 'mediarr-config-backup' || !data.files) return { ok: false, message: 'That is not a MEDIARR configuration backup' };
   const only = (opts && opts.only) || null;      // e.g. ['config.json']
   const before = createBackup('pre-restore');
+  discardPendingAdds();
   const done = [], failed = [];
   for (const name of BACKUP_FILES) {
     if (!data.files[name]) continue;
@@ -1240,6 +1319,7 @@ function restoreBackup (data, opts) {
   // drop every cache so nothing stale survives the restore
   _cfgCache = null; _cfgMtime = 0; _usrCache = null; _usrMtime = 0; _addsCache = null; _addsMtime = 0;
   libCache = null; rssState = null; blockLog = null; errLog = null; _watchCache = null; _watchMtime = 0;
+  _favsCache = null; _favsMtime = 0;
   try { sessions.clear(); } catch (e) {}      // old sessions won't match restored users
   return { ok: failed.length === 0, restored: done, failed, safetyCopy: before.name || null };
 }
@@ -1421,14 +1501,19 @@ function findUserByApiKey (key) {
 function apiKeyFromReq (req, u) {
   return String(req.headers['x-api-key'] || u.searchParams.get('api_key') || '').trim();
 }
-function hashPassword (password, salt) {
-  salt = salt || crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
-  return { salt, hash };
+// scrypt runs on libuv's thread pool, so a login no longer freezes every other request
+// (including active streams) for the ~50–100ms the hash takes.
+function scryptHex (password, salt) {
+  return new Promise((resolve, reject) => crypto.scrypt(String(password), salt, 64, (err, key) => err ? reject(err) : resolve(key.toString('hex'))));
 }
-function verifyPassword (password, salt, hash) {
-  if (!salt || !hash) return false;
-  const h = crypto.scryptSync(String(password), salt, 64).toString('hex');
+async function hashPassword (password, salt) {
+  salt = salt || crypto.randomBytes(16).toString('hex');
+  return { salt, hash: await scryptHex(password, salt) };
+}
+const DUMMY_SALT = crypto.randomBytes(16).toString('hex');
+async function verifyPassword (password, salt, hash) {
+  if (!salt || !hash) { await scryptHex(password, DUMMY_SALT).catch(() => {}); return false; }   // same timing for unknown users
+  const h = await scryptHex(password, salt);
   const a = Buffer.from(h), b = Buffer.from(String(hash));
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
@@ -1518,7 +1603,10 @@ function publicUser (u, withCounts) {
 /* ---------- add log (what each user added) ---------- */
 // Up to 3,000 entries — cached so the per-request daily-limit check isn't a full re-parse.
 let _addsCache = null, _addsMtime = 0;
+let _addsFlushTimer = null, _addsWriting = false, _addsGen = 0;
 function readAdds () {
+  // A batched write is pending or in flight: memory is newer than the file.
+  if (_addsCache && (_addsFlushTimer || _addsWriting)) return _addsCache;
   try {
     const st = fs.statSync(ADDS_PATH);
     if (_addsCache && st.mtimeMs === _addsMtime) return _addsCache;
@@ -1527,15 +1615,47 @@ function readAdds () {
     return (_addsCache = d);
   } catch (e) { return { adds: [] }; }
 }
-function writeAdds (a) { fs.writeFileSync(ADDS_PATH, JSON.stringify(a, null, 2)); _addsCache = a; try { _addsMtime = fs.statSync(ADDS_PATH).mtimeMs; } catch (e) { _addsMtime = 0; } }
+/* Every add, play and admin action used to rewrite the whole log (up to 3,000 entries,
+   pretty-printed) synchronously. Now it updates memory and writes compact JSON at most
+   once a second, off the request path, via temp file + rename so it is never half-written. */
+function writeAdds (a) {
+  _addsCache = a;
+  if (!_addsFlushTimer) { _addsFlushTimer = setTimeout(flushAdds, 1000); if (_addsFlushTimer.unref) _addsFlushTimer.unref(); }
+}
+function flushAdds () {
+  _addsFlushTimer = null;
+  if (!_addsCache || _addsWriting) { if (_addsCache && !_addsFlushTimer) _addsFlushTimer = setTimeout(flushAdds, 1000); return; }
+  const gen = _addsGen, tmp = ADDS_PATH + '.tmp', body = JSON.stringify(_addsCache);
+  _addsWriting = true;
+  fs.promises.writeFile(tmp, body)
+    .then(() => { if (gen !== _addsGen) return fs.promises.unlink(tmp).catch(() => {}); return fs.promises.rename(tmp, ADDS_PATH).then(() => fs.promises.stat(ADDS_PATH)).then(st => { _addsMtime = st.mtimeMs; }); })
+    .catch(e => { try { logError('adds-log', 'could not save activity log', e.message); } catch (_) {} })
+    .finally(() => { _addsWriting = false; });
+}
+function flushAddsSync () {
+  if (!_addsFlushTimer || !_addsCache) return;
+  clearTimeout(_addsFlushTimer); _addsFlushTimer = null;
+  try { const tmp = ADDS_PATH + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(_addsCache)); fs.renameSync(tmp, ADDS_PATH); _addsMtime = fs.statSync(ADDS_PATH).mtimeMs; } catch (e) {}
+}
+// Anything restored from a backup wins over a pending in-memory write.
+function discardPendingAdds () { if (_addsFlushTimer) clearTimeout(_addsFlushTimer); _addsFlushTimer = null; _addsGen++; }
 function logAdd (entry) {
   const a = readAdds(); a.adds.unshift(entry); if (a.adds.length > MAX_ADDS_LOG) a.adds.length = MAX_ADDS_LOG; writeAdds(a);
   try { realtimePush('activity', { service: entry.service || '', type: entry.type || '', title: entry.title || '', username: entry.username || '' }); } catch (_) {}
 }
 
 /* ---------- favorite TV shows (per user) ---------- */
-function readFavs () { try { return JSON.parse(fs.readFileSync(FAVS_PATH, 'utf8')); } catch (e) { return { users: {} }; } }
-function writeFavs (f) { fs.writeFileSync(FAVS_PATH, JSON.stringify(f, null, 2)); }
+// Favorites are read on every home page and detail view; re-parse only when the file changes.
+let _favsCache = null, _favsMtime = 0;
+function readFavs () {
+  try {
+    const st = fs.statSync(FAVS_PATH);
+    if (_favsCache && st.mtimeMs === _favsMtime) return _favsCache;
+    _favsCache = JSON.parse(fs.readFileSync(FAVS_PATH, 'utf8')); _favsMtime = st.mtimeMs;
+    return _favsCache;
+  } catch (e) { return { users: {} }; }
+}
+function writeFavs (f) { fs.writeFileSync(FAVS_PATH, JSON.stringify(f, null, 2)); _favsCache = null; _favsMtime = 0; }
 function favKey (it) {
   if (it.imdbId) return 'imdb:' + String(it.imdbId).toLowerCase();
   if (it.tvdbId) return 'tvdb:' + it.tvdbId;
@@ -2032,11 +2152,20 @@ function addsTodayCount (username) { const t = startOfToday(); return readAdds()
 
 // Best-effort client IP. Behind Caddy/nginx the real client is in X-Forwarded-For (first hop);
 // otherwise fall back to the socket address. Strips the IPv4-in-IPv6 "::ffff:" prefix.
+// X-Forwarded-For is only honoured when the direct peer is a trusted proxy, so a client
+// on the internet cannot pick its own IP to dodge rate limits or CAPTCHA binding.
+// TRUST_PROXY=1 always trusts it, TRUST_PROXY=0 never does; by default loopback and
+// private-network peers (Caddy/nginx on the host or a Docker network) are trusted.
+const TRUST_PROXY = String(process.env.TRUST_PROXY || '').trim();
+function stripV4Mapped (ip) { ip = String(ip || ''); return ip.indexOf('::ffff:') === 0 ? ip.slice(7) : ip; }
+function isPrivatePeer (ip) {
+  return /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/.test(ip) || ip === '::1' || /^f[cd][0-9a-f]{2}:/i.test(ip) || /^fe80:/i.test(ip);
+}
 function clientIp (req) {
-  const xff = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  let ip = xff || (req.socket && req.socket.remoteAddress) || '';
-  if (ip.indexOf('::ffff:') === 0) ip = ip.slice(7);
-  return ip;
+  const peer = stripV4Mapped(req.socket && req.socket.remoteAddress);
+  const trust = TRUST_PROXY === '1' || (TRUST_PROXY !== '0' && isPrivatePeer(peer));
+  const xff = trust ? (req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '';
+  return stripV4Mapped(xff || peer);
 }
 // A single media play triggers many range/segment requests, so throttle to one log entry
 // per user+file per 60s (re-watching later logs a fresh play, which is fine for monitoring).
@@ -2359,6 +2488,20 @@ async function runAllChecks () {
 }
 
 /* ---------- proxy a request to an arr server or cinemeta ---------- */
+/* Routes that change library state, run Arr commands, or can use stored service
+   credentials. The UI only offers these to admins; the server enforces it too. */
+const ADMIN_ONLY_ROUTES = new Set([
+  'POST /api/command',
+  'POST /api/update',
+  'POST /api/tv/season-monitor',
+  'POST /api/tv/episode-monitor',
+  'POST /api/tv/missing/start',
+  'POST /api/tv/missing/stop',
+  'POST /api/test'
+]);
+/* Read-only Radarr/Sonarr endpoints a regular user's UI needs. Anything else (host
+   config with the Arr API key, download clients, indexers, backups, logs…) is admin-only. */
+const ARR_USER_READ_PATHS = /^\/api\/v[13]\/(?:(?:movie|series)(?:\/\d+|\/lookup)?|calendar|rootfolder|qualityprofile|languageprofile|tag|episode(?:\/\d+)?|queue)$/;
 async function proxyArr (svc, subPath, req, res) {
   const cfg = readConfig()[svc];
   if (!cfg.url || !cfg.apiKey) return sendJSON(res, 400, { message: svc + ' is not configured yet' });
@@ -2373,6 +2516,9 @@ async function proxyArr (svc, subPath, req, res) {
   // Regular users may only read (GET) and add (POST to the collection). No edits, monitor changes, commands, or deletes.
   if (user && user.role !== 'admin' && req.method !== 'GET' && !isAdd) {
     return sendJSON(res, 403, { message: 'Editing library options and monitoring is restricted to admins.' });
+  }
+  if (user && user.role !== 'admin' && req.method === 'GET' && !ARR_USER_READ_PATHS.test(cleanPath)) {
+    return sendJSON(res, 403, { message: 'That ' + svc + ' endpoint is restricted to admins.' });
   }
   if (isAdd && user && user.role !== 'admin' && user.dailyLimit > 0) {
     const used = addsTodayCount(user.username);
@@ -2397,11 +2543,10 @@ async function proxyArr (svc, subPath, req, res) {
       notify('added', (svc === 'radarr' ? '🎬 ' : '📺 ') + title + (year ? ' (' + year + ')' : ''), 'Added to ' + (svc === 'radarr' ? 'Radarr' : 'Sonarr') + ' by ' + user.username, 'good');
       if (createdItem && createdItem.id) upsertLibCacheItem(svc, createdItem);
       if (svc === 'sonarr') scheduleLibraryReconcile('sonarr', 1500);
-      liveIdx[svc] = { ts: 0, ids: null };
+      invalidateLive(svc);
       realtimePush('arr.added', { service: svc, title, year, user: user.username, id: createdItem && createdItem.id || null });   // force a fresh "already added?" check next time
     }
-    res.writeHead(up.status, { 'Content-Type': up.headers['content-type'] || 'application/json' });
-    res.end(up.body);
+    sendBody(res, up.status, { 'Content-Type': up.headers['content-type'] || 'application/json' }, up.body);
   } catch (e) {
     sendJSON(res, 502, { message: 'Could not reach ' + svc + ': ' + e.message });
   }
@@ -2409,8 +2554,7 @@ async function proxyArr (svc, subPath, req, res) {
 async function proxyCinemeta (subPath, res) {
   try {
     const up = await upstream(CINEMETA + subPath, { headers: { 'Accept': 'application/json' } });
-    res.writeHead(up.status, { 'Content-Type': 'application/json' });
-    res.end(up.body);
+    sendBody(res, up.status, { 'Content-Type': 'application/json' }, up.body);
   } catch (e) {
     sendJSON(res, 502, { message: 'Cinemeta error: ' + e.message });
   }
@@ -2422,8 +2566,7 @@ async function proxyTmdb (subPath, res) {
   const target = TMDB + subPath + sep + 'api_key=' + encodeURIComponent(key);
   try {
     const up = await upstream(target, { headers: { 'Accept': 'application/json' } });
-    res.writeHead(up.status, { 'Content-Type': 'application/json' });
-    res.end(up.body);
+    sendBody(res, up.status, { 'Content-Type': 'application/json' }, up.body);
   } catch (e) {
     sendJSON(res, 502, { message: 'TMDB error: ' + e.message });
   }
@@ -2457,8 +2600,7 @@ async function proxyPlex (subPath, res) {
   const target = normUrl(cfg.url) + subPath;
   try {
     const up = await upstream(target, { headers: { 'X-Plex-Token': cfg.token, 'Accept': 'application/json' } });
-    res.writeHead(up.status, { 'Content-Type': up.headers['content-type'] || 'application/json' });
-    res.end(up.body);
+    sendBody(res, up.status, { 'Content-Type': up.headers['content-type'] || 'application/json' }, up.body);
   } catch (e) {
     sendJSON(res, 502, { message: 'Could not reach Plex: ' + e.message });
   }
@@ -2885,22 +3027,50 @@ async function dlnaPlay (deviceId, mediaUrl, title, mime) {
 // opts: { ac:'2' downmix audio to stereo, vc:'1' force video re-encode }. Live transcode — seeking is limited.
 const VIDEO_OK = ['h264', 'vp8', 'vp9', 'av1'];
 const AUDIO_OK = ['aac', 'mp3'];
+/* One ffprobe per file, shared and cached.
+   The player asks for the playback plan and the track list at the same time, and a
+   file is usually played more than once. Both now read one probe result, kept for 6h
+   (local files are re-probed if size/mtime change). Over WebDAV this saves a network
+   read of the file header and up to 12s on every start. */
+const PROBE_TTL_MS = 6 * 3600 * 1000, PROBE_MAX = 400;
+const _probeCache = new Map();   // key -> { at, json }   (Map order = LRU)
+const _probeInflight = new Map();
+function probeKey (inputUrl) {
+  if (/^https?:\/\//i.test(inputUrl)) return inputUrl;
+  try { const st = fs.statSync(inputUrl); return inputUrl + '|' + st.size + '|' + st.mtimeMs; } catch (e) { return inputUrl; }
+}
+function ffprobeJson (inputUrl) {
+  if (!FFPROBE) return Promise.resolve(null);
+  const key = probeKey(inputUrl), hit = _probeCache.get(key);
+  if (hit && Date.now() - hit.at < PROBE_TTL_MS) { _probeCache.delete(key); _probeCache.set(key, hit); return Promise.resolve(hit.json); }
+  if (_probeInflight.has(key)) return _probeInflight.get(key);
+  const pr = new Promise(resolve => {
+    let fp; try { fp = spawn(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration,format_name:stream=index,codec_type,codec_name,pix_fmt,channels:stream_tags=language,title', '-of', 'json', inputUrl]); } catch (e) { return resolve(null); }
+    let out = ''; const t = setTimeout(() => { try { fp.kill('SIGKILL'); } catch (e) {} }, 12000);
+    fp.stdout.on('data', d => { out += d; }); fp.stderr.on('data', () => {});
+    fp.on('error', () => { clearTimeout(t); resolve(null); });
+    fp.on('close', () => {
+      clearTimeout(t);
+      let j = null; try { j = JSON.parse(out); } catch (e) {}
+      if (j && Array.isArray(j.streams) && j.streams.length) {
+        _probeCache.set(key, { at: Date.now(), json: j });
+        while (_probeCache.size > PROBE_MAX) _probeCache.delete(_probeCache.keys().next().value);
+      }
+      resolve(j);
+    });
+  }).finally(() => _probeInflight.delete(key));
+  _probeInflight.set(key, pr);
+  return pr;
+}
 function ffprobeCodecs (inputUrl, cb) {
-  if (!FFPROBE) return cb(null);
-  let fp; try { fp = spawn(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration,format_name:stream=codec_type,codec_name,pix_fmt', '-of', 'json', inputUrl]); } catch (e) { return cb(null); }
-  let out = ''; const t = setTimeout(() => { try { fp.kill('SIGKILL'); } catch (e) {} }, 12000);
-  fp.stdout.on('data', d => { out += d; }); fp.stderr.on('data', () => {});
-  fp.on('error', () => { clearTimeout(t); cb(null); });
-  fp.on('close', () => {
-    clearTimeout(t);
-    try {
-      const j = JSON.parse(out); const streams = j.streams || [];
-      const v = streams.find(s => s.codec_type === 'video') || {};
-      const a = streams.find(s => s.codec_type === 'audio') || {};
-      const dur = j.format && parseFloat(j.format.duration);
-      cb({ video: (v.codec_name || '').toLowerCase(), pix: (v.pix_fmt || '').toLowerCase(), audio: (a.codec_name || '').toLowerCase(), format: ((j.format && j.format.format_name) || '').toLowerCase(), duration: (dur && isFinite(dur)) ? dur : 0 });
-    } catch (e) { cb(null); }
-  });
+  ffprobeJson(inputUrl).then(j => {
+    if (!j) return cb(null);
+    const streams = j.streams || [];
+    const v = streams.find(s => s.codec_type === 'video') || {};
+    const a = streams.find(s => s.codec_type === 'audio') || {};
+    const dur = j.format && parseFloat(j.format.duration);
+    cb({ video: (v.codec_name || '').toLowerCase(), pix: (v.pix_fmt || '').toLowerCase(), audio: (a.codec_name || '').toLowerCase(), format: ((j.format && j.format.format_name) || '').toLowerCase(), duration: (dur && isFinite(dur)) ? dur : 0 });
+  }, () => cb(null));
 }
 
 // Automatic playback selection. This is deliberately conservative: direct play is chosen only
@@ -3177,14 +3347,8 @@ function webdavTracks (rel, res) {
   let inputUrl = mediaInput(cfg, rel);
   try { if (!inputUrl) throw new Error('bad path'); }
   catch (e) { return sendJSON(res, 400, { message: 'Bad path' }); }
-  let fp; try { fp = spawn(FFPROBE, ['-v', 'error', '-show_entries', 'stream=index,codec_type,codec_name,channels:stream_tags=language,title', '-of', 'json', inputUrl]); }
-  catch (e) { return sendJSON(res, 200, { audio: [], subs: [] }); }
-  let out = ''; const t = setTimeout(() => { try { fp.kill('SIGKILL'); } catch (e) {} }, 12000);
-  fp.stdout.on('data', d => { out += d; }); fp.stderr.on('data', () => {});
-  fp.on('error', () => { clearTimeout(t); sendJSON(res, 200, { audio: [], subs: [] }); });
-  fp.on('close', () => {
-    clearTimeout(t);
-    let streams = []; try { streams = (JSON.parse(out).streams) || []; } catch (e) {}
+  ffprobeJson(inputUrl).then(j => {
+    const streams = (j && j.streams) || [];
     const audio = [], subs = []; let ai = 0, si = 0;
     for (const s of streams) {
       const tags = s.tags || {};
@@ -3194,7 +3358,7 @@ function webdavTracks (rel, res) {
       else if (s.codec_type === 'subtitle') subs.push({ i: si++, codec: s.codec_name || '', lang, title, text: TEXT_SUBS.includes((s.codec_name || '').toLowerCase()) });
     }
     sendJSON(res, 200, { audio, subs });
-  });
+  }, () => sendJSON(res, 200, { audio: [], subs: [] }));
 }
 // Extract one text subtitle track to WebVTT so the player can show it as a <track>.
 function webdavSubtitle (rel, sidx, res) {
@@ -3337,7 +3501,7 @@ async function autoStep () {
             if (r.ok) {
               autoJob.added++; autoLog('✓', it.title, 'added' + (runtime ? ' · ' + runtime + ' min' : ''));
               if (it.tmdbId) rememberExt(isMovie ? 'movie' : 'series', it.tmdbId, obj.imdbId || '', obj.tvdbId || null);
-              liveIdx[svc] = { ts: 0, ids: null };
+              invalidateLive(svc);
               logAdd({ ts: Date.now(), username: autoJob.username, role: autoJob.role, service: svc, type: isMovie ? 'movie' : 'series', title: it.title || obj.title, year: obj.year || '', ip: autoJob.ip || '' });
               notify('added', (isMovie ? '🎬 ' : '📺 ') + (obj.title || it.title) + (obj.year ? ' (' + obj.year + ')' : ''), 'Auto added to ' + (isMovie ? 'Radarr' : 'Sonarr'), 'good');
             } else { autoJob.failed++; autoLog('⚠', it.title, r.message || 'add failed'); }
@@ -3623,7 +3787,11 @@ function missingFrom (episodes) {
 /* Background job: rescan each series, work out what's actually missing, then search for it. */
 /* Fast pass: ask Sonarr directly which episodes are already known to be missing.
    One paged call covers the whole library, instead of rescanning every series. */
-async function fastMissingScan () {
+// Sonarr's wanted/missing list, cached for 5 minutes (cleared on any Sonarr change).
+// The explicit "search missing episodes" job still uses the live scan.
+const MISSING_SCAN_TTL_MS = 5 * 60 * 1000;
+function fastMissingScan () { return memo('missing:sonarr', MISSING_SCAN_TTL_MS, fastMissingScanLive); }
+async function fastMissingScanLive () {
   const out = new Map();          // seriesId -> { id, title, count }
   let page = 1, pages = 1, seen = 0;
   while (page <= pages && page <= 40) {
@@ -4044,7 +4212,7 @@ async function addToArr (b, me, req, opts) {
   if (!created.ok) { logError(svc + ':add', created.message, 'title=' + (hit.title || b.title || '')); return { status: 502, body: { ok: false, message: created.message } }; }
   if (created.data && created.data.id) upsertLibCacheItem(svc, created.data);
   if (svc === 'sonarr') scheduleLibraryReconcile('sonarr', 1500);
-  liveIdx[svc] = { ts: 0, ids: null };
+  invalidateLive(svc);
   realtimePush('arr.added', { service: svc, title: (created.data && created.data.title) || hit.title || b.title || '', user: me && me.username || '', id: created.data && created.data.id || null });
   if (me) logAdd({ ts: Date.now(), username: me.username, role: me.role, service: svc, type: isMovie ? 'movie' : 'series', title: hit.title, year: hit.year || '', ip: clientIp(req) });
   if (!quiet) notify('added', (isMovie ? '🎬 ' : '📺 ') + hit.title + (hit.year ? ' (' + hit.year + ')' : ''),
@@ -4692,7 +4860,7 @@ async function updateArrItem (b, me) {
   for (const c of candidates) {
     const r = await arrPut(svc, c + '?moveFiles=' + move, next);
     if (r.ok) {
-      liveIdx[svc] = { ts: 0, ids: null };
+      invalidateLive(svc);
       return { status: 200, body: { ok: true, item: r.data || next, message: 'Updated' } };
     }
     last = r;
@@ -4792,6 +4960,12 @@ function warmExtMapFromLibrary (items, type) {
 const LIVE_IDS_TTL = 60000;
 const SONARR_LIVE_IDS_TTL = 15000;
 let liveIdx = { radarr: { ts: 0, ids: null }, sonarr: { ts: 0, ids: null } };
+// Library changed (add, edit, webhook, wizard): drop every cached view of that service.
+function invalidateLive (svc) {
+  liveIdx[svc] = { ts: 0, ids: null };
+  memoClear('arrlist:' + svc + ':');
+  if (svc === 'sonarr') memoClear('missing:');
+}
 async function liveLibraryIds (svc, force) {
   const cur = liveIdx[svc];
   const cfg = readConfig()[svc];
@@ -5040,8 +5214,14 @@ function v2MarkInbox (username, ids, all) {
   const valid=new Set(st.inbox.map(x=>x.id)); for(const id of Object.keys(st.read[username]))if(!valid.has(id))delete st.read[username][id];
   v2Save();
 }
+// Full Radarr/Sonarr lists for the 2.0 hub and Universal Search. Cached for 90s and
+// dropped immediately by invalidateLive() on adds/edits/webhooks, so typing in search
+// no longer re-downloads the whole library on every keystroke.
+const V2_LIST_TTL_MS = 90 * 1000;
 function v2ArrList (svc, pathName) {
-  return arrJson(svc, '/api/v3/' + pathName).then(x=>Array.isArray(x)?x:[]);
+  return memo('arrlist:' + svc + ':' + pathName, V2_LIST_TTL_MS,
+    // A failed read yields an empty list flagged ok:false so it is not cached.
+    () => arrJson(svc, '/api/v3/' + pathName).then(x => Array.isArray(x) ? x : Object.assign([], { ok: false })));
 }
 function v2MovieState (m) {
   const has=!!(m.hasFile || Number(m.sizeOnDisk)>0 || m.movieFile);
@@ -5853,7 +6033,7 @@ const server = http.createServer(async (req, res) => {
       if (data.users.length) return sendJSON(res, 403, { message: 'Setup already complete' });
       const { username, password } = JSON.parse(await readBody(req) || '{}');
       if (!username || !password) return sendJSON(res, 400, { message: 'Username and password required' });
-      const { salt, hash } = hashPassword(password);
+      const { salt, hash } = (await hashPassword(password));
       const u = { username: String(username).trim(), role: 'admin', dailyLimit: 0, salt, hash, approved: true, registrationMethod: 'setup', createdAt: Date.now(), approvedAt: Date.now() };
       data.users.push(u); writeUsers(data);
       createSession(req, res, u.username);
@@ -5877,7 +6057,7 @@ const server = http.createServer(async (req, res) => {
       if (!username) return sendJSON(res, 400, { message: 'Username must be 3–40 characters using only letters, numbers, dots, dashes, or underscores.' });
       if (password.length < 4 || password.length > 256) return sendJSON(res, 400, { message: 'Password must be 4–256 characters.' });
       if (data.users.some(x => String(x.username || '').toLowerCase() === username.toLowerCase())) return sendJSON(res, 409, { message: 'That username already exists.' });
-      const { salt, hash } = hashPassword(password), now = Date.now();
+      const { salt, hash } = (await hashPassword(password)), now = Date.now();
       const account = { username, role: 'user', dailyLimit: 10, salt, hash, approved: false, registrationMethod: 'password', requestedAt: now, createdAt: now };
       data.users.push(account); writeUsers(data); registrationRecord(ip); announceRegistration(account);
       return sendJSON(res, 202, { pending: true, username, message: 'Registration submitted. An administrator must approve your account before you can sign in.' });
@@ -5953,7 +6133,7 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 429, { message: 'Too many failed attempts. Try again in ' + (wait >= 60 ? Math.ceil(wait / 60) + ' minute' + (wait >= 120 ? 's' : '') : wait + ' seconds') + '.' });
       }
       const u = findUser(username);
-      if (!u || !u.hash || !verifyPassword(password, u.salt, u.hash)) {
+      if (!(await verifyPassword(password, u && u.salt, u && u.hash))) {
         const locked = loginFailed(ip, username);
         logError('login', 'failed login', 'ip=' + ip + ' user=' + String(username || '?').slice(0, 40) + (locked ? ' — locked for ' + locked + 's' : ''));
         return sendJSON(res, 401, { message: locked
@@ -5988,7 +6168,9 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/')) {
       const me = currentUser(req);
       if (!me) return sendJSON(res, 401, { message: 'Not logged in' });
-      const adminOnly = (p === '/api/config' && req.method === 'POST') || p.startsWith('/api/admin/') || p.startsWith('/api/releases') || (p === '/api/plex/scan' && req.method === 'POST');
+      // Enforce admin-only actions here, server-side, not just by hiding them in the UI.
+      const adminOnly = (p === '/api/config' && req.method === 'POST') || p.startsWith('/api/admin/') || p.startsWith('/api/releases') || (p === '/api/plex/scan' && req.method === 'POST') ||
+        ADMIN_ONLY_ROUTES.has(req.method + ' ' + p);
       if (adminOnly && me.role !== 'admin') return sendJSON(res, 403, { message: 'Admin only' });
 
       // ---- realtime dashboard + setup wizard (admin) ----
@@ -6032,7 +6214,7 @@ const server = http.createServer(async (req, res) => {
         cfg.realtime = Object.assign({}, DEFAULT_CONFIG.realtime, cfg.realtime || {}, { setupComplete: true });
         if (!cfg.realtime.webhookToken) cfg.realtime.webhookToken = crypto.randomBytes(18).toString('hex');
         writeConfig(cfg);
-        liveIdx.radarr = { ts: 0, ids: null }; liveIdx.sonarr = { ts: 0, ids: null };
+        invalidateLive('radarr'); invalidateLive('sonarr');
         setTimeout(() => scanAllLibraries('setup-wizard').catch(() => {}), 100);
         realtimePush('setup.completed', { user: me.username, skipped: false });
         return sendJSON(res, 200, { ok: true, config: sanitize(cfg), webhooks: webhookInfo(req) });
@@ -6074,7 +6256,10 @@ const server = http.createServer(async (req, res) => {
         const cfg = readConfig().sab;
         if (!cfg.url || !cfg.apiKey) return sendJSON(res, 200, { configured: false });
         const limit = Math.min(100, Number(u.searchParams.get('history')) || 30);
-        const [q, h] = await Promise.all([ sabCall('queue'), sabCall('history', '&limit=' + limit) ]);
+        const [q, h] = await Promise.all([
+          memo('activity:sab:queue', ACTIVITY_TTL_MS, () => sabCall('queue')),
+          memo('activity:sab:history:' + limit, ACTIVITY_TTL_MS, () => sabCall('history', '&limit=' + limit))
+        ]);
         if (!q.ok && !h.ok) { logError('sabnzbd', q.message || h.message, cfg.url); return sendJSON(res, 200, { configured: true, error: q.message || h.message }); }
         return sendJSON(res, 200, sabSlim(q.ok ? q.data : null, h.ok ? h.data : null));
       }
@@ -6462,7 +6647,7 @@ const server = http.createServer(async (req, res) => {
             const monitored = all.ok ? all.items.filter(x => x.monitored !== false) : [];
             missJob.scanned = monitored.length;
             let cands = [];
-            const fast = await fastMissingScan();
+            const fast = await fastMissingScanLive(); memoClear('missing:');
             if (fast.ok && fast.series.length) {
               const okIds = new Set(monitored.map(x => Number(x.id)));
               cands = fast.series.filter(x => !okIds.size || okIds.has(Number(x.id)));
@@ -6869,7 +7054,7 @@ const server = http.createServer(async (req, res) => {
         if (!username || !password) return sendJSON(res, 400, { message: 'Username and password required' });
         const data = readUsers();
         if (data.users.find(u => u.username.toLowerCase() === String(username).toLowerCase())) return sendJSON(res, 400, { message: 'That username already exists' });
-        const { salt, hash } = hashPassword(password);
+        const { salt, hash } = (await hashPassword(password));
         const now = Date.now();
         const u = { username: String(username).trim(), role: role === 'admin' ? 'admin' : 'user', dailyLimit: Number(dailyLimit) >= 0 ? Number(dailyLimit) : 10, salt, hash, approved: true, registrationMethod: 'admin', createdAt: now, approvedAt: now, approvedBy: me.username };
         data.users.push(u); writeUsers(data);
@@ -6891,7 +7076,7 @@ const server = http.createServer(async (req, res) => {
           u.approved = approved;
           if (approved) { u.approvedAt = Date.now(); u.approvedBy = me.username; try { realtimePush('registration.approved', { username: u.username, approvedBy: me.username }); } catch (_) {} }
         }
-        if (password) { const { salt, hash } = hashPassword(password); u.salt = salt; u.hash = hash; }
+        if (password) { const { salt, hash } = (await hashPassword(password)); u.salt = salt; u.hash = hash; }
         writeUsers(data);
         return sendJSON(res, 200, publicUser(u, true));
       }
@@ -6920,17 +7105,28 @@ const server = http.createServer(async (req, res) => {
         const { currentPassword, newPassword } = JSON.parse(await readBody(req) || '{}');
         if (!me.hash) return sendJSON(res, 400, { message: 'This account uses Plex sign-in and does not have a MEDIARR password.' });
         if (!newPassword || String(newPassword).length < 4) return sendJSON(res, 400, { message: 'New password must be at least 4 characters' });
-        if (!verifyPassword(currentPassword, me.salt, me.hash)) return sendJSON(res, 403, { message: 'Current password is incorrect' });
+        if (!(await verifyPassword(currentPassword, me.salt, me.hash))) return sendJSON(res, 403, { message: 'Current password is incorrect' });
         const data = readUsers();
         const target = data.users.find(x => x.username.toLowerCase() === me.username.toLowerCase());
-        const { salt, hash } = hashPassword(newPassword);
+        const { salt, hash } = (await hashPassword(newPassword));
         target.salt = salt; target.hash = hash; writeUsers(data);
         return sendJSON(res, 200, { ok: true });
       }
     }
 
     // config
-    if (p === '/api/config' && req.method === 'GET')  return sendJSON(res, 200, sanitize(readConfig()));
+    if (p === '/api/config' && req.method === 'GET') {
+      const out = sanitize(readConfig());
+      const who = currentUser(req);
+      if (!who || who.role !== 'admin') {
+        // Regular users don't need saved maintenance commands, notification targets,
+        // or the Docker allow-list.
+        out.shell = { enabled: false, commands: [] };
+        out.notify = { enabled: out.notify.enabled, targets: [], events: {} };
+        out.dockerControl = { enabled: false, allowedContainers: [] };
+      }
+      return sendJSON(res, 200, out);
+    }
     if (p === '/api/config' && req.method === 'POST') {
       const incoming = JSON.parse(await readBody(req) || '{}');
       const cur = readConfig();
@@ -7097,7 +7293,13 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/sonarr/'))   return proxyArr('sonarr', p.slice('/api/sonarr'.length) + u.search, req, res);
     if (p.startsWith('/api/cinemeta/')) return proxyCinemeta(p.slice('/api/cinemeta'.length) + u.search, res);
     if (p.startsWith('/api/tmdb/'))     return proxyTmdb(p.slice('/api/tmdb'.length) + u.search, res);
-    if (p.startsWith('/api/plex/'))     return proxyPlex(p.slice('/api/plex'.length) + u.search, res);
+    if (p.startsWith('/api/plex/')) {
+      // Raw passthrough uses the server owner's Plex token, so it is admin-only.
+      // Per-user Plex features use the dedicated /api/plex/* routes above.
+      const who = currentUser(req);
+      if (!who || who.role !== 'admin') return sendJSON(res, 403, { message: 'Admin only' });
+      return proxyPlex(p.slice('/api/plex'.length) + u.search, res);
+    }
 
     // other static assets under public/
     if (req.method === 'GET') return serveStatic(res, p.replace(/^\//, ''));
@@ -7107,6 +7309,14 @@ const server = http.createServer(async (req, res) => {
     sendJSON(res, 500, { message: e.message });
   }
 });
+
+// Save anything still batched in memory when Docker/systemd stops MEDIARR.
+function flushPendingWrites () {
+  try { flushAddsSync(); } catch (e) {}
+  try { if (errDirty) { errDirty = false; fs.writeFileSync(ERRLOG_PATH, JSON.stringify(readErrLog())); } } catch (e) {}
+  try { if (_extDirty) { _extDirty = false; writeExtMap(); } } catch (e) {}
+}
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { flushPendingWrites(); process.exit(0); });
 
 server.listen(PORT, HOST, () => {
   console.log('\n  MEDIARR running →  http://localhost:' + PORT + '\n');

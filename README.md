@@ -2,6 +2,17 @@
 
 # MEDIARR
 
+## MEDIARR 2.1
+
+MEDIARR 2.1 is a speed and security release.
+
+- **Faster hub and search** — the 2.0 hub and Universal Search reuse a shared library list (refreshed on adds, edits and Radarr/Sonarr webhooks) instead of downloading the whole library on every keystroke.
+- **Smaller, cached pages** — HTML, JavaScript, CSS and API JSON are Brotli/gzip-compressed, and app files are revalidated with ETags, so a reload is a quick `304` instead of a full download.
+- **Shared polling** — several people watching Download Activity share one set of SABnzbd/Radarr/Sonarr requests.
+- **Quicker playback start** — one cached ffprobe per file serves both the playback plan and the audio/subtitle list.
+- **No event-loop stalls** — logins hash passwords off the main thread, and the activity log is written in the background in batches.
+- **Security fixes** — admin-only actions are now enforced on the server for every route, and regular users can no longer reach stored service credentials. See the [changelog](CHANGELOG.md#210).
+
 ## MEDIARR 2.0
 
 MEDIARR 2.0 adds a shared responsive **Media Intelligence Hub** on desktop, mobile, and the installed PWA. The hub correlates Radarr, Sonarr, SABnzbd, Plex, watch progress, request/add history, health monitoring, and the on-disk state reported by the Arr applications into one operational view.
@@ -24,7 +35,7 @@ The legacy desktop/mobile pages remain available for compatibility, while the 2.
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-1.9.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.1.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -43,7 +54,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.0.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.1.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -322,8 +333,8 @@ Once a release has been published, the recommended community installation is the
 A release ZIP contains a `docker-compose.release.yml` that references the exact release image:
 
 ```bash
-unzip mediarr-1.3.1.zip
-cd mediarr-1.3.1
+unzip mediarr-2.1.0.zip
+cd mediarr-2.1.0
 mkdir -p data
 docker compose -f docker-compose.release.yml up -d
 ```
@@ -333,7 +344,7 @@ Using versioned images is important because MEDIARR's updater can retain the pre
 The release workflow publishes images in this form:
 
 ```text
-ghcr.io/xxsmack003xx/mediarr:1.3.1
+ghcr.io/xxsmack003xx/mediarr:2.1.0
 ghcr.io/xxsmack003xx/mediarr:latest
 ```
 
@@ -489,12 +500,14 @@ Depending on enabled features, the data directory can contain files such as:
 | `autoadd.json` | Resumable auto-add job state |
 | `library-cache.json` | Cached Radarr/Sonarr library index |
 | `errors.json` | Application/integration errors shown to admins |
+| `watch-progress.json` | Per-user MEDIARR playback positions (Continue Watching) |
+| `v2-state.json` | 2.0 Notification Center inbox and automation settings |
 | `tmdb-map.json` | Cached TMDB-to-IMDb/TVDB ID mappings |
 | `backups/` | MEDIARR application-level configuration snapshots |
 
 These files are ignored by Git so secrets and runtime state are not accidentally published.
 
-MEDIARR's **built-in application backup** currently snapshots `config.json`, `users.json`, `favorites.json`, `adds.json`, `rss.json`, `blocked.json`, and `autoadd.json`. For full disaster recovery, copy the entire data directory so health history, caches, error history, and every other runtime file are retained too.
+MEDIARR's **built-in application backup** currently snapshots `config.json`, `users.json`, `favorites.json`, `adds.json`, `rss.json`, `blocked.json`, `autoadd.json`, `watch-progress.json`, and `v2-state.json`. For full disaster recovery, copy the entire data directory so health history, caches, error history, and every other runtime file are retained too.
 
 > [!WARNING]
 > `config.json` contains service credentials in plain text on the MEDIARR host. Protect the data directory with appropriate filesystem permissions and backups.
@@ -1433,7 +1446,7 @@ The replacement must become healthy. If it does not, the helper attempts to recr
 The release workflow publishes both:
 
 ```text
-:1.3.1
+:2.1.0
 :latest
 ```
 
@@ -1505,6 +1518,7 @@ Treat API keys like passwords. Revoke and regenerate a key if it is exposed.
 | `DATA_DIR` | app directory / `/data` in Docker | Persistent state directory |
 | `SESSION_HOURS` | `1` | Login session lifetime in hours |
 | `SECURE_COOKIES` | automatic | Force secure-cookie behavior when set appropriately |
+| `TRUST_PROXY` | automatic | `1` always trusts `X-Forwarded-For`, `0` never does. By default it is trusted only from loopback/private-network peers (a reverse proxy on the host or a Docker network) |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker Engine Unix socket inside the container/process |
 | `MEDIARR_VERSION` | package version | Runtime version override, mainly for release images |
 | `MEDIARR_UPDATE_REPO` | build/config dependent | GitHub `owner/repository` used by System Update |
@@ -1561,9 +1575,12 @@ However, the server still needs those credentials locally. Protect the data dire
 
 - Passwords are scrypt-hashed.
 - Sessions use HttpOnly cookies.
-- Administrative APIs are checked server-side, not only hidden in the UI.
+- Administrative APIs are checked server-side, not only hidden in the UI. This includes Radarr/Sonarr commands, item edits, season/episode monitoring, the missing-episode search, and service connection tests.
+- Regular users can read only the Radarr/Sonarr endpoints the interface needs (library, lookup, calendar, profiles, root folders); host config, download clients, indexers, backups and logs are admin-only.
+- The raw Plex passthrough uses the server owner's token and is admin-only; the Plex artwork proxy only returns images.
 - Manual-release endpoints are admin-only.
 - Docker-control endpoints are admin-only.
+- Login, registration and CAPTCHA rate limits use the real client address; `X-Forwarded-For` is only honoured from a trusted proxy (see `TRUST_PROXY`).
 
 ### Docker socket
 
@@ -1806,7 +1823,7 @@ The short version:
 1. Update `package.json` with the new semantic version.
 2. Update `CHANGELOG.md`.
 3. Commit and push to `main`.
-4. Create a matching tag such as `v1.3.1`.
+4. Create a matching tag such as `v2.1.0`.
 5. Push the tag.
 
 The GitHub Actions workflow will:

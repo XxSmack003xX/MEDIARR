@@ -16,3 +16,5 @@ blocked.json
 errors.json
 library-cache.json
 tmdb-map.json
+watch-progress.json
+v2-state.json

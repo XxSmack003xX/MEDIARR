@@ -8,7 +8,11 @@ rss.json
 blocked.json
 autoadd.json
 library-cache.json
-error-log.json
+errors.json
+tmdb-map.json
+watch-progress.json
+v2-state.json
+adds.json.tmp
 plex-cache.json
 backups/
 data/

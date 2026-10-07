@@ -1,5 +1,36 @@
 # Changelog
 
+## 2.1.0
+
+### Security
+
+- **Regular users could read stored service credentials.** The connection-test endpoint fell back to the saved Radarr/Sonarr/Plex/TMDB/SABnzbd/WebDAV credentials while letting the caller choose the URL, so any signed-in user could have the key sent to a server they control. Connection tests are now admin-only.
+- Radarr/Sonarr commands (`/api/command`), item edits (`/api/update`), season/episode monitoring and the missing-episode search were hidden in the UI but not enforced on the server. They are now admin-only server-side.
+- The Radarr/Sonarr passthrough now limits regular users to the read-only endpoints the interface uses. Host configuration (which contains the Arr API key), download clients, indexers, backups and logs are admin-only.
+- The raw Plex passthrough, which uses the server owner's Plex token, is now admin-only. The Plex artwork proxy only fetches artwork paths and only returns image responses.
+- `X-Forwarded-For` is only trusted from loopback/private-network peers by default (configurable with `TRUST_PROXY`), so internet clients cannot spoof their address to bypass registration and CAPTCHA rate limits.
+- Unknown-username logins now take the same time as wrong-password logins.
+- Saved maintenance commands, notification targets and the Docker allow-list are no longer included in the configuration returned to non-admin users.
+
+**Upgrade recommendation:** if you have non-admin users, consider rotating your Radarr, Sonarr, Plex, SABnzbd and WebDAV credentials after upgrading.
+
+### Performance
+
+- The 2.0 hub and Universal Search use a shared 90-second library list that is cleared immediately on adds, edits and Radarr/Sonarr webhooks. Search no longer downloads the entire Radarr and Sonarr library on every keystroke.
+- Sonarr's missing-episode scan is cached for 5 minutes and cleared on any Sonarr change.
+- API JSON, proxied Radarr/Sonarr/TMDB responses, HTML, JavaScript and CSS are compressed with Brotli or gzip when the browser supports it.
+- App files are served with ETags and `Cache-Control: no-cache` instead of `no-store`: browsers revalidate on every load (so releases still appear immediately) but receive a `304` when nothing changed.
+- Download Activity and SABnzbd views share upstream results for 2.5 seconds, so multiple open dashboards no longer multiply SABnzbd/Radarr/Sonarr traffic.
+- A single cached ffprobe (6 hours, re-probed if a local file changes) now serves both the playback plan and the audio/subtitle track list.
+- Password hashing uses asynchronous scrypt, so logins no longer pause other requests and streams.
+- The add/activity log is written in the background at most once per second as compact JSON, via temp file and rename. Pending entries are flushed on shutdown and before backups.
+- Favorites are cached in memory and only re-read when the file changes.
+
+### Maintenance
+
+- Fixed `.gitignore` entries for `errors.json`, `tmdb-map.json`, `watch-progress.json` and `v2-state.json`.
+- Updated README version references, the runtime-file table and the backup file list.
+
 ## 2.0.0
 
 ### Media Intelligence platform
