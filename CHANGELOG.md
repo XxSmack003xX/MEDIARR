@@ -1,5 +1,51 @@
 # Changelog
 
+## 2.2.0
+
+### Built-in database for history and per-user state
+
+- Added `mediarr.db`, a single SQLite file in the data directory, using Node's built-in `node:sqlite` module (still no `npm install`).
+- Moved into the database: the activity/audit log (`adds.json`), watch progress (`watch-progress.json`), the Notification Center and 2.0 automation settings (`v2-state.json`), the admin error log (`errors.json`), service-health history (`health.json`) and the Plex stream-block log (`blocked.json`).
+- Settings and accounts stay as editable JSON: `config.json`, `users.json`, `favorites.json`, `rss.json`, `autoadd.json`.
+
+### Automatic migration on first launch
+
+- MEDIARR 2.2 reads the six old files, saves them in a backup named `mediarr-config-<date>-pre-sqlite-migration.json`, imports them in one transaction, checks that every record is present, and then deletes them.
+- If the backup can't be written or any record fails verification, the old files are kept and the migration retries on the next start. Re-running it never creates duplicates.
+- A file that isn't valid JSON is left untouched and reported in the admin error log; the rest are still migrated.
+- Admins get a Notification Center message when the migration completes.
+- The migration backup is excluded from automatic backup pruning, so it stays until an admin deletes it.
+
+### Stay signed in
+
+- Login sessions are stored in the database, so restarts and one-click updates no longer sign everyone out.
+- Only a SHA-256 hash of each session token is stored; a copy of the database can't be used to sign in.
+- Signing out, account deletion and backup restores still end sessions as before.
+
+### Longer history and safer writes
+
+- The activity log keeps up to 50,000 entries (previously 3,000). The admin Activity page searches the full history; home pages and request lists use the most recent entries.
+- Error log: last 2,000 distinct errors (was 300). Plex block log: 5,000 (was 500). Notification Center: 2,000 (was 500). Watch progress: 1,000 titles per user (was 250).
+- Writes now change one record at a time in a crash-safe database instead of rewriting whole JSON files.
+- Daily add limits are counted with an indexed database query.
+- The database is closed cleanly on shutdown.
+
+### Backups
+
+- Backups keep the same format: database contents are written under their old names (`adds.json`, `watch-progress.json`, `v2-state.json`, `blocked.json`). Backups from 2.1 and earlier restore into 2.2, and a 2.2 backup restores into older versions.
+- Restoring the pre-migration backup also merges back error and health history.
+- Restoring now also resets the Notification Center and automation state correctly (in 2.0/2.1 an in-memory copy could survive a restore).
+
+### Requirements and release pipeline
+
+- **Source installs now require Node.js 22.13 or newer.** MEDIARR exits with a clear message on older versions. Docker images already include a suitable Node.js.
+- The release workflow now smoke-tests the Docker image before publishing: it must start, migrate a pre-2.2 data folder, keep the backup, remove the old files, and pass its health check.
+
+### Upgrade notes
+
+- Nothing to do by hand; back up your data folder first if you like.
+- If you roll back to 2.1 after the migration, 2.1 won't see the history that moved into `mediarr.db`. Restore the `pre-sqlite-migration` backup from the admin Backups page in 2.1 to get it back.
+
 ## 2.1.0
 
 ### Security

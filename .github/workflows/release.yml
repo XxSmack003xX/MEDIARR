@@ -51,6 +51,49 @@ jobs:
             --label "org.opencontainers.image.version=${{ steps.meta.outputs.version }}" \
             -t "$IMAGE:${{ steps.meta.outputs.version }}" \
             -t "$IMAGE:latest" .
+
+      # Start the image on a pre-2.2 style data folder before publishing anything:
+      # it must boot as the unprivileged user, migrate the legacy JSON files into
+      # mediarr.db, keep a backup of them, remove them, and answer its health check.
+      - name: Smoke-test release image
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ steps.meta.outputs.repo_lc }}:${{ steps.meta.outputs.version }}"
+          D="$RUNNER_TEMP/smoke-data"; mkdir -p "$D"
+          NOW=$(($(date +%s) * 1000))
+          echo '{"users":[{"username":"admin","role":"admin","dailyLimit":0,"approved":true}]}' > "$D/users.json"
+          echo "{\"adds\":[{\"ts\":$NOW,\"username\":\"admin\",\"role\":\"admin\",\"service\":\"radarr\",\"type\":\"movie\",\"title\":\"Smoke Test\",\"year\":2026}]}" > "$D/adds.json"
+          echo "{\"version\":1,\"users\":{\"admin\":{\"k1\":{\"path\":\"movies/a.mkv\",\"title\":\"A\",\"position\":60,\"duration\":600,\"progressPct\":10,\"updatedAt\":$NOW}}}}" > "$D/watch-progress.json"
+          echo '{"inbox":[{"id":"abc123","key":"k","ts":1,"event":"added","title":"Hello","message":"","level":"info"}],"read":{},"automation":{"mode":"report","enabled":false,"intervalMinutes":90}}' > "$D/v2-state.json"
+          echo '{"events":[]}' > "$D/errors.json"
+          echo '{"services":{},"events":[]}' > "$D/health.json"
+          echo '{"events":[]}' > "$D/blocked.json"
+          sudo chown -R 1000:1000 "$D"
+          docker run -d --name mediarr-smoke -p 127.0.0.1:7599:7575 -v "$D:/data" "$IMAGE"
+          ok=""
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7599/api/setup-needed >/dev/null 2>&1; then ok=1; break; fi
+            sleep 1
+          done
+          docker logs mediarr-smoke
+          [ -n "$ok" ] || { echo "MEDIARR did not answer its health check" >&2; exit 1; }
+          sudo test -f "$D/mediarr.db" || { echo "mediarr.db was not created" >&2; exit 1; }
+          for f in adds.json watch-progress.json v2-state.json errors.json health.json blocked.json; do
+            if sudo test -e "$D/$f"; then echo "legacy file $f was not migrated/removed" >&2; exit 1; fi
+          done
+          # capture first: grep -q closing a pipe early would trip pipefail
+          BACKUPS="$(sudo ls "$D/backups")"; LOGS="$(docker logs mediarr-smoke 2>&1)"
+          grep -q 'pre-sqlite-migration' <<< "$BACKUPS" || { echo "pre-migration backup missing" >&2; exit 1; }
+          grep -q 'moved adds.json (1)' <<< "$LOGS" || { echo "migration log line missing" >&2; exit 1; }
+          docker rm -f mediarr-smoke >/dev/null
+          echo "Smoke test passed"
+
+      - name: Publish release image
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ steps.meta.outputs.repo_lc }}"
           docker push "$IMAGE:${{ steps.meta.outputs.version }}"
           docker push "$IMAGE:latest"
 
@@ -61,7 +104,7 @@ jobs:
           VERSION="${{ steps.meta.outputs.version }}"
           IMAGE="ghcr.io/${{ steps.meta.outputs.repo_lc }}:$VERSION"
           mkdir -p "dist/mediarr-$VERSION/public"
-          cp package.json server.js update-helper.js docker-recreate.js README.md CHANGELOG.md SECURITY.md Caddyfile.example Dockerfile docker-entrypoint.sh docker-compose.yml "dist/mediarr-$VERSION/"
+          cp package.json server.js store.js update-helper.js docker-recreate.js README.md CHANGELOG.md SECURITY.md Caddyfile.example Dockerfile docker-entrypoint.sh docker-compose.yml "dist/mediarr-$VERSION/"
           cp public/index.html public/mobile.html public/v140.js public/v150.js public/v160.js public/v170.js public/v180.js public/v200.js public/manifest.webmanifest public/sw.js "dist/mediarr-$VERSION/public/"
           mkdir -p "dist/mediarr-$VERSION/public/icons"
           cp public/icons/mediarr-icon.svg public/icons/mediarr-icon-192.png public/icons/mediarr-icon-512.png "dist/mediarr-$VERSION/public/icons/"

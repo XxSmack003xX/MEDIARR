@@ -15,7 +15,7 @@ Because desktop and mobile are separate frontends, user-facing features often re
 
 ## Development setup
 
-Node.js 18+ is required.
+Node.js 22.13+ is required.
 
 ```bash
 git clone https://github.com/XxSmack003xX/MEDIARR.git
@@ -49,6 +49,7 @@ Run:
 
 ```bash
 node --check server.js
+node --check store.js
 node --check update-helper.js
 ```
 
@@ -86,7 +87,10 @@ rss.json
 blocked.json
 autoadd.json
 library-cache.json
-error-log.json
+errors.json
+mediarr.db
+watch-progress.json
+v2-state.json
 plex-cache.json
 data/
 backups/

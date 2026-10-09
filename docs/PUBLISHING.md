@@ -47,6 +47,7 @@ Before creating a release:
 
    ```bash
    node --check server.js
+   node --check store.js
    node --check update-helper.js
    ```
 
@@ -121,7 +122,10 @@ rss.json
 blocked.json
 autoadd.json
 library-cache.json
-error-log.json
+errors.json
+mediarr.db
+watch-progress.json
+v2-state.json
 plex-cache.json
 data/
 backups/

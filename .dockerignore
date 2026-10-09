@@ -18,3 +18,6 @@ library-cache.json
 tmdb-map.json
 watch-progress.json
 v2-state.json
+mediarr.db
+mediarr.db-wal
+mediarr.db-shm

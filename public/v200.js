@@ -1,7 +1,7 @@
 /* MEDIARR 2.0 — shared responsive Intelligence Hub for desktop, mobile and installed PWA. */
 (function(){
 'use strict';
-const V='2.1.0';
+const V='2.2.0';
 let root=null,tab='overview',snap=null,notifyTimer=null,deferredInstall=null;
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtBytes=n=>{n=Number(n)||0;if(!n)return '0 B';const u=['B','KB','MB','GB','TB','PB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i<2?n.toFixed(0):n.toFixed(1))+' '+u[i];};

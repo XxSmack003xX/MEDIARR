@@ -30,3 +30,6 @@ node_modules/
 public/bootstrap.min.css
 public/bootstrap.bundle.min.js
 public/hls.min.js
+mediarr.db
+mediarr.db-wal
+mediarr.db-shm

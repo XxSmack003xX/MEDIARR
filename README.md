@@ -2,6 +2,19 @@
 
 # MEDIARR
 
+## MEDIARR 2.2
+
+MEDIARR 2.2 moves history and per-user state into a built-in database.
+
+- **Stay signed in through restarts and updates** — login sessions are stored in the database (only a hash of each token), so an update no longer signs everyone out.
+- **Much longer history** — the activity log keeps up to 50,000 entries (it was capped at 3,000), and the admin Activity page searches all of it.
+- **Safer writes** — watch progress, the Notification Center and logs are updated one record at a time instead of rewriting whole files, so a crash can't damage other users' data.
+- **Automatic migration** — on first launch MEDIARR saves a backup of the old files, moves them into `mediarr.db`, checks that every record arrived, and then deletes them. Nothing to do by hand.
+- **Same backups** — backups keep the same format, so 2.2 restores older backups and older versions can still read a 2.2 backup.
+- **Requires Node.js 22.13+** for source installs (the database is built into Node, so there is still no `npm install`). Docker images already include it.
+
+Settings and accounts (`config.json`, `users.json` and friends) intentionally stay as editable JSON files.
+
 ## MEDIARR 2.1
 
 MEDIARR 2.1 is a speed and security release.
@@ -35,8 +48,8 @@ The legacy desktop/mobile pages remain available for compatibility, while the 2.
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.1.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-43853d)](https://nodejs.org/)
+[![Version](https://img.shields.io/badge/version-2.2.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
 
@@ -54,7 +67,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.1.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.2.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -183,7 +196,7 @@ This README is written against the **v2.1.0 source in this repository**. Feature
 
 ### Deployment
 
-- Node.js 18+ with no runtime npm dependencies.
+- Node.js 22.13+ with no runtime npm dependencies (uses Node's built-in SQLite).
 - Docker and Docker Compose support.
 - Persistent `/data` directory.
 - FFmpeg included in the official Docker build.
@@ -244,7 +257,7 @@ MEDIARR uses a server-side proxy model so browser clients never need direct acce
         └───────────┘      └─────────────┘      └──────────────┘
 ```
 
-Runtime state is stored as JSON in the MEDIARR data directory. In Docker this is `/data`; source installs default to the application directory unless `DATA_DIR` is set.
+Runtime state is stored in the MEDIARR data directory: settings and accounts as JSON files, history and per-user state in one SQLite file, `mediarr.db`. In Docker this is `/data`; source installs default to the application directory unless `DATA_DIR` is set.
 
 ---
 
@@ -272,7 +285,7 @@ MEDIARR can be installed as a standalone Progressive Web App on supported deskto
 
 ### Direct Node.js installation
 
-- Node.js **18 or newer**.
+- Node.js **22.13 or newer** (MEDIARR uses Node's built-in SQLite module).
 - FFmpeg and ffprobe are optional but required for transcoding and media probing.
 - No `npm install` is required for the application itself.
 
@@ -492,22 +505,19 @@ Depending on enabled features, the data directory can contain files such as:
 | --- | --- |
 | `config.json` | Service URLs, API credentials and application settings |
 | `users.json` | Users, scrypt password hashes, roles, quotas, themes, API keys and linked Plex-user data |
-| `adds.json` | Add/download/play and administrative activity audit records |
+| `mediarr.db` (+ `-wal`, `-shm`) | SQLite database: activity/audit log, watch progress, Notification Center, error log, service-health history, Plex block log, 2.0 automation settings and login sessions |
 | `favorites.json` | Per-user favorites |
-| `health.json` | Radarr/Sonarr/Plex service-health history |
 | `rss.json` | RSS seen-state and RSS run log |
-| `blocked.json` | Plex stream-block events |
 | `autoadd.json` | Resumable auto-add job state |
 | `library-cache.json` | Cached Radarr/Sonarr library index |
-| `errors.json` | Application/integration errors shown to admins |
-| `watch-progress.json` | Per-user MEDIARR playback positions (Continue Watching) |
-| `v2-state.json` | 2.0 Notification Center inbox and automation settings |
 | `tmdb-map.json` | Cached TMDB-to-IMDb/TVDB ID mappings |
 | `backups/` | MEDIARR application-level configuration snapshots |
 
+Before 2.2, the database contents lived in `adds.json`, `watch-progress.json`, `v2-state.json`, `errors.json`, `health.json` and `blocked.json`. The first 2.2 launch moves them into `mediarr.db`, verifies every record, saves a backup named `mediarr-config-<date>-pre-sqlite-migration.json` (which is never pruned automatically), and then deletes the old files. If anything goes wrong the old files are left in place and the migration retries on the next start. A file that isn't valid JSON is left untouched and reported in the admin error log.
+
 These files are ignored by Git so secrets and runtime state are not accidentally published.
 
-MEDIARR's **built-in application backup** currently snapshots `config.json`, `users.json`, `favorites.json`, `adds.json`, `rss.json`, `blocked.json`, `autoadd.json`, `watch-progress.json`, and `v2-state.json`. For full disaster recovery, copy the entire data directory so health history, caches, error history, and every other runtime file are retained too.
+MEDIARR's **built-in application backup** snapshots `config.json`, `users.json`, `favorites.json`, `rss.json`, `autoadd.json`, plus the activity log, watch progress, Notification Center and Plex block log from the database. Database contents are stored in the backup under their pre-2.2 names (`adds.json`, `watch-progress.json`, `v2-state.json`, `blocked.json`), so backups from older versions restore into 2.2 and the other way round. For full disaster recovery, stop MEDIARR and copy the entire data directory so health history, error history, caches and every other runtime file are retained too.
 
 > [!WARNING]
 > `config.json` contains service credentials in plain text on the MEDIARR host. Protect the data directory with appropriate filesystem permissions and backups.
@@ -629,7 +639,7 @@ environment:
   SESSION_HOURS: 8
 ```
 
-Sessions are memory-resident, so restarting MEDIARR signs users out.
+Since 2.2, sessions are stored in `mediarr.db` (only a SHA-256 hash of each token), so restarts and updates no longer sign users out. Restoring a backup still signs everyone out.
 
 ### Per-user API keys
 
@@ -717,7 +727,7 @@ This is intended to make a missing Play button or unexpected transcode explainab
 
 ### MEDIARR Continue Watching
 
-Local and WebDAV playback now saves per-user position in `watch-progress.json`. The player periodically records position/duration, resumes unfinished media, and marks titles complete near the end.
+Local and WebDAV playback now saves per-user position in `mediarr.db`. The player periodically records position/duration, resumes unfinished media, and marks titles complete near the end.
 
 The User Home **Continue Watching** rail merges MEDIARR playback with linked Plex Continue Watching. Clicking a MEDIARR item resumes it directly in the built-in player.
 
@@ -1773,7 +1783,15 @@ Proxy the entire site—including `/api`—to MEDIARR. A configuration that serv
 
 ### Users are signed out after restart
 
-Expected behavior. Sessions are intentionally held in memory; persisted user accounts remain, but active login sessions do not survive a MEDIARR restart.
+Since 2.2, login sessions survive restarts and updates. Users are still signed out when a session expires (`SESSION_HOURS`), when they sign out, or when an administrator restores a backup.
+
+### MEDIARR exits with "needs Node.js 22.13 or newer"
+
+MEDIARR 2.2 stores history in Node's built-in SQLite module. Docker images already include a suitable Node.js; for a source install, upgrade Node.js to 22.13 or newer.
+
+### Data directory on a network share
+
+SQLite works best on a local disk. If `/data` is on NFS/SMB, MEDIARR falls back from WAL mode automatically, but some network filesystems do not lock files reliably. Keep the data directory on local storage where possible.
 
 ### Configuration file is damaged
 
@@ -1807,6 +1825,7 @@ MEDIARR/
 ├── package.json
 ├── docker-recreate.js           # Shared container recreate + rename-and-restore rollback
 ├── server.js                    # Main HTTP server/API/integrations/background jobs
+├── store.js                     # SQLite storage (mediarr.db) + migration from pre-2.2 JSON files
 └── update-helper.js             # One-shot Docker update/rollback helper
 ```
 
@@ -1855,6 +1874,7 @@ When proposing a change:
 
    ```bash
    node --check server.js
+   node --check store.js
    node --check update-helper.js
    node --check docker-recreate.js
    ```

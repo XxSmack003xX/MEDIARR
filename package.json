@@ -1,13 +1,13 @@
 {
   "name": "mediarr",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Self-hosted media intelligence and automation platform unifying Radarr, Sonarr, Plex, SABnzbd, playback, requests, notifications, PWA access, and library health.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13"
   },
   "private": true,
   "homepage": "https://github.com/XxSmack003xX/MEDIARR#readme",

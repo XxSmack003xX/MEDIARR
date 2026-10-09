@@ -74,15 +74,21 @@ const UPDATE_API_BASE = String(process.env.MEDIARR_UPDATE_API_BASE || 'https://a
 // traditional non-Docker layout unchanged, while Docker can mount /data.
 const DATA_DIR    = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : ROOT;
 try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) {}
+/* History, per-user state and sessions live in DATA_DIR/mediarr.db (see store.js).
+   The first launch of 2.2 moves the old JSON files into it, verifies every record,
+   keeps a restorable backup of them, and then deletes them. */
+let store;
+try { store = require('./store').open(DATA_DIR, { log: m => console.log('  ' + m) }); }
+catch (e) { console.error('\n  Could not open the MEDIARR database: ' + e.message + '\n'); process.exit(1); }
+let STORE_MIGRATION = null;
+try {
+  STORE_MIGRATION = store.migrateLegacy(path.join(DATA_DIR, 'backups'), ['config.json', 'users.json', 'favorites.json', 'rss.json', 'autoadd.json']);
+} catch (e) { console.error('  [migration] unexpected error, old files kept: ' + e.message); }
 const PUBLIC_DIR  = path.join(ROOT, 'public');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
-const HEALTH_PATH = path.join(DATA_DIR, 'health.json');
 const USERS_PATH  = path.join(DATA_DIR, 'users.json');
-const ADDS_PATH   = path.join(DATA_DIR, 'adds.json');
 const FAVS_PATH   = path.join(DATA_DIR, 'favorites.json');
 const AUTOADD_PATH = path.join(DATA_DIR, 'autoadd.json');
-const WATCH_PROGRESS_PATH = path.join(DATA_DIR, 'watch-progress.json');
-const V2_STATE_PATH = path.join(DATA_DIR, 'v2-state.json');
 const CINEMETA    = 'https://v3-cinemeta.strem.io';
 const TMDB        = 'https://api.themoviedb.org/3';
 const HEALTH_INTERVAL_MS = 60 * 1000;   // background check cadence
@@ -887,31 +893,16 @@ function writeUsers (u) { fs.writeFileSync(USERS_PATH, JSON.stringify(u, null, 2
 /* ---------- error log ----------
    Somewhere to record the things that used to fail silently, so problems are visible
    in the admin panel instead of needing a hunt. */
-const ERRLOG_PATH = path.join(DATA_DIR, 'errors.json');
-let errLog = null, errDirty = false;
-function readErrLog () {
-  if (errLog) return errLog;
-  try { errLog = JSON.parse(fs.readFileSync(ERRLOG_PATH, 'utf8')); } catch (e) { errLog = { events: [] }; }
-  if (!errLog.events) errLog.events = [];
-  return errLog;
-}
+// Stored in mediarr.db (last 2,000 distinct errors; repeats within 5 minutes are collapsed).
 function logError (where, message, detail) {
-  const l = readErrLog();
   const msg = String(message == null ? '' : (message.message || message)).slice(0, 400);
-  const top = l.events[0];
-  // collapse repeats instead of flooding the log
-  if (top && top.where === where && top.message === msg && (Date.now() - top.last) < 300000) {
-    top.count++; top.last = Date.now(); errDirty = true; return;
-  }
-  l.events.unshift({
-    ts: Date.now(), last: Date.now(), count: 1, where: String(where).slice(0, 80), message: msg,
-    detail: detail ? String(typeof detail === 'string' ? detail : JSON.stringify(detail)).slice(0, 600) : ''
-  });
-  if (l.events.length > 300) l.events.length = 300;
-  errDirty = true;
+  const w = String(where).slice(0, 80);
+  const d = detail ? String(typeof detail === 'string' ? detail : JSON.stringify(detail)).slice(0, 600) : '';
+  let r;
+  try { r = store.errors.log(w, msg, d); } catch (e) { console.error('[' + w + '] ' + msg); return; }
+  if (r.collapsed) return;
   if (!/^notify:|^login$/.test(where)) { try { notify('errors', '⚠ ' + where, msg, 'bad'); } catch (e) {} }
 }
-setInterval(() => { if (errDirty) { errDirty = false; try { fs.writeFileSync(ERRLOG_PATH, JSON.stringify(readErrLog())); } catch (e) {} } }, 5000).unref?.();
 process.on('uncaughtException', e => { try { logError('uncaught', e && e.message, e && e.stack); } catch (_) {} });
 process.on('unhandledRejection', e => { try { logError('unhandled-promise', e && (e.message || e), e && e.stack); } catch (_) {} });
 
@@ -1227,13 +1218,24 @@ async function downloadActivitySnapshot (me, historyLimit) {
    activity, RSS state, blocklist. Caches are deliberately excluded. */
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_FILES = ['config.json', 'users.json', 'favorites.json', 'adds.json', 'rss.json', 'blocked.json', 'autoadd.json', 'watch-progress.json', 'v2-state.json'];
+/* Since 2.2 these four live in mediarr.db. Backups still store them under their old
+   file names and formats, so 2.2 restores older backups, and older versions can
+   still read a 2.2 backup. */
+const DB_BACKUP_FILES = new Set(['adds.json', 'blocked.json', 'watch-progress.json', 'v2-state.json']);
+function exportDbDoc (name) {
+  if (name === 'adds.json') return { adds: store.activity.exportAll() };
+  if (name === 'blocked.json') return { events: store.blocks.recent() };
+  if (name === 'watch-progress.json') return store.watch.exportAll();
+  if (name === 'v2-state.json') return Object.assign(store.inbox.exportAll(), { automation: v2State().automation });
+  return null;
+}
 const BACKUP_VERSION = 1;
 let backupTimer = null, backupDebounce = null, lastBackupHash = '';
 function ensureBackupDir () { try { fs.mkdirSync(BACKUP_DIR, { recursive: true, mode: 0o700 }); } catch (e) {} }
 function buildBackup (reason) {
-  flushAddsSync();   // include activity that is still waiting in memory
   const files = {};
   for (const name of BACKUP_FILES) {
+    if (DB_BACKUP_FILES.has(name)) { try { files[name] = exportDbDoc(name); } catch (e) { logError('backup', e.message, name); } continue; }
     try {
       const raw = fs.readFileSync(path.join(DATA_DIR, name), 'utf8');
       files[name] = JSON.parse(raw);
@@ -1247,7 +1249,8 @@ function backupStamp (d) {
 }
 function pruneBackups (keep) {
   try {
-    const list = fs.readdirSync(BACKUP_DIR).filter(f => /^mediarr-config-.*\.json$/.test(f)).sort();
+    // The one-time pre-2.2 migration backup is kept until an admin deletes it.
+    const list = fs.readdirSync(BACKUP_DIR).filter(f => /^mediarr-config-.*\.json$/.test(f) && !/-pre-sqlite-migration\.json$/.test(f)).sort();
     const extra = list.length - Math.max(1, keep || 20);
     for (let i = 0; i < extra; i++) { try { fs.unlinkSync(path.join(BACKUP_DIR, list[i])); } catch (e) {} }
   } catch (e) {}
@@ -1306,20 +1309,26 @@ function restoreBackup (data, opts) {
   if (!data || data.app !== 'mediarr-config-backup' || !data.files) return { ok: false, message: 'That is not a MEDIARR configuration backup' };
   const only = (opts && opts.only) || null;      // e.g. ['config.json']
   const before = createBackup('pre-restore');
-  discardPendingAdds();
   const done = [], failed = [];
   for (const name of BACKUP_FILES) {
     if (!data.files[name]) continue;
     if (only && !only.includes(name)) continue;
     try {
-      fs.writeFileSync(path.join(DATA_DIR, name), JSON.stringify(data.files[name], null, 2));
+      if (DB_BACKUP_FILES.has(name)) store.restoreLegacyDoc(name, data.files[name]);
+      else fs.writeFileSync(path.join(DATA_DIR, name), JSON.stringify(data.files[name], null, 2));
       done.push(name);
     } catch (e) { failed.push(name + ': ' + e.message); }
   }
+  // The pre-2.2 migration backup also carries error/health history: merge it back in.
+  for (const name of ['errors.json', 'health.json']) {
+    if (!data.files[name] || (only && !only.includes(name))) continue;
+    try { store.importLegacyDoc(name, data.files[name]); done.push(name); } catch (e) { failed.push(name + ': ' + e.message); }
+  }
   // drop every cache so nothing stale survives the restore
-  _cfgCache = null; _cfgMtime = 0; _usrCache = null; _usrMtime = 0; _addsCache = null; _addsMtime = 0;
-  libCache = null; rssState = null; blockLog = null; errLog = null; _watchCache = null; _watchMtime = 0;
+  _cfgCache = null; _cfgMtime = 0; _usrCache = null; _usrMtime = 0; _recentAdds = null; _v2State = null;
+  libCache = null; rssState = null;
   _favsCache = null; _favsMtime = 0;
+  if (data.files['health.json']) { const h = store.kv.get('health', null); if (h) healthState = { services: h.services || {}, events: h.events || [] }; }
   try { sessions.clear(); } catch (e) {}      // old sessions won't match restored users
   return { ok: failed.length === 0, restored: done, failed, safetyCopy: before.name || null };
 }
@@ -1518,7 +1527,32 @@ async function verifyPassword (password, salt, hash) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-const sessions = new Map();   // token -> { username, expires }
+/* Login sessions survive restarts and updates: they are mirrored to mediarr.db.
+   Only a SHA-256 of each token is stored, so the database alone can't be used to
+   sign in. Lookups stay in memory; the expiry is re-saved at most once a minute
+   (streaming touches the session on every range request). */
+class PersistentSessions extends Map {
+  constructor () {
+    super();
+    try { for (const r of store.sessions.loadValid(Date.now())) { Object.defineProperty(r.value, '_saved', { value: r.value.expires, writable: true, enumerable: false, configurable: true }); super.set(r.hash, r.value); } }
+    catch (e) { console.error('  sessions: ' + e.message); }
+  }
+  get (tok) { return super.get(store.sha256(tok)); }
+  has (tok) { return super.has(store.sha256(tok)); }
+  set (tok, v) {
+    const h = store.sha256(tok);
+    super.set(h, v);
+    if (v && (v._saved == null || Math.abs(v.expires - v._saved) > 60000)) {
+      try { store.sessions.put(h, v); Object.defineProperty(v, '_saved', { value: v.expires, writable: true, enumerable: false, configurable: true }); } catch (e) {}
+    }
+    return this;
+  }
+  delete (tok) { const h = store.sha256(tok); try { store.sessions.del(h); } catch (e) {} return super.delete(h); }
+  clear () { try { store.sessions.clear(); } catch (e) {} return super.clear(); }
+  // Iteration yields hashed keys, so expiry cleanup goes through here.
+  prune (now) { for (const [h, v] of super.entries()) if (!v || v.expires < now) { try { store.sessions.del(h); } catch (e) {} super.delete(h); } }
+}
+const sessions = new PersistentSessions();   // token -> { username, expires }
 function parseCookies (req) {
   const out = {};
   (req.headers.cookie || '').split(';').forEach(p => { const i = p.indexOf('='); if (i > 0) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim()); });
@@ -1600,47 +1634,18 @@ function publicUser (u, withCounts) {
   return o;
 }
 
-/* ---------- add log (what each user added) ---------- */
-// Up to 3,000 entries — cached so the per-request daily-limit check isn't a full re-parse.
-let _addsCache = null, _addsMtime = 0;
-let _addsFlushTimer = null, _addsWriting = false, _addsGen = 0;
+/* ---------- add log (what each user added) ----------
+   Stored in mediarr.db with up to 50,000 entries of history (it was capped at 3,000).
+   The most recent entries are also kept in memory for the home page, request lists
+   and daily-limit checks; the admin Activity page queries the full history. */
+let _recentAdds = null;
 function readAdds () {
-  // A batched write is pending or in flight: memory is newer than the file.
-  if (_addsCache && (_addsFlushTimer || _addsWriting)) return _addsCache;
-  try {
-    const st = fs.statSync(ADDS_PATH);
-    if (_addsCache && st.mtimeMs === _addsMtime) return _addsCache;
-    const d = JSON.parse(fs.readFileSync(ADDS_PATH, 'utf8'));
-    _addsMtime = st.mtimeMs;
-    return (_addsCache = d);
-  } catch (e) { return { adds: [] }; }
+  if (!_recentAdds) { try { _recentAdds = store.activity.recent(MAX_ADDS_LOG); } catch (e) { _recentAdds = []; } }
+  return { adds: _recentAdds };
 }
-/* Every add, play and admin action used to rewrite the whole log (up to 3,000 entries,
-   pretty-printed) synchronously. Now it updates memory and writes compact JSON at most
-   once a second, off the request path, via temp file + rename so it is never half-written. */
-function writeAdds (a) {
-  _addsCache = a;
-  if (!_addsFlushTimer) { _addsFlushTimer = setTimeout(flushAdds, 1000); if (_addsFlushTimer.unref) _addsFlushTimer.unref(); }
-}
-function flushAdds () {
-  _addsFlushTimer = null;
-  if (!_addsCache || _addsWriting) { if (_addsCache && !_addsFlushTimer) _addsFlushTimer = setTimeout(flushAdds, 1000); return; }
-  const gen = _addsGen, tmp = ADDS_PATH + '.tmp', body = JSON.stringify(_addsCache);
-  _addsWriting = true;
-  fs.promises.writeFile(tmp, body)
-    .then(() => { if (gen !== _addsGen) return fs.promises.unlink(tmp).catch(() => {}); return fs.promises.rename(tmp, ADDS_PATH).then(() => fs.promises.stat(ADDS_PATH)).then(st => { _addsMtime = st.mtimeMs; }); })
-    .catch(e => { try { logError('adds-log', 'could not save activity log', e.message); } catch (_) {} })
-    .finally(() => { _addsWriting = false; });
-}
-function flushAddsSync () {
-  if (!_addsFlushTimer || !_addsCache) return;
-  clearTimeout(_addsFlushTimer); _addsFlushTimer = null;
-  try { const tmp = ADDS_PATH + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(_addsCache)); fs.renameSync(tmp, ADDS_PATH); _addsMtime = fs.statSync(ADDS_PATH).mtimeMs; } catch (e) {}
-}
-// Anything restored from a backup wins over a pending in-memory write.
-function discardPendingAdds () { if (_addsFlushTimer) clearTimeout(_addsFlushTimer); _addsFlushTimer = null; _addsGen++; }
 function logAdd (entry) {
-  const a = readAdds(); a.adds.unshift(entry); if (a.adds.length > MAX_ADDS_LOG) a.adds.length = MAX_ADDS_LOG; writeAdds(a);
+  try { store.activity.add(entry); } catch (e) { console.error('activity log: ' + e.message); }
+  const a = readAdds().adds; a.unshift(entry); if (a.length > MAX_ADDS_LOG) a.length = MAX_ADDS_LOG;
   try { realtimePush('activity', { service: entry.service || '', type: entry.type || '', title: entry.title || '', username: entry.username || '' }); } catch (_) {}
 }
 
@@ -2002,36 +2007,16 @@ async function homeDiscover () {
   const out=[]; for(let i=0;i<Math.max(movies.length,shows.length);i++){ if(movies[i])out.push(movies[i]); if(shows[i])out.push(shows[i]); }
   return out.slice(0,16);
 }
-let _watchCache = null, _watchMtime = 0;
-function readWatchProgress () {
-  try {
-    const st = fs.statSync(WATCH_PROGRESS_PATH);
-    if (_watchCache && st.mtimeMs === _watchMtime) return _watchCache;
-    const d = JSON.parse(fs.readFileSync(WATCH_PROGRESS_PATH, 'utf8'));
-    _watchMtime = st.mtimeMs;
-    return (_watchCache = d && d.users ? d : { version: 1, users: {} });
-  } catch (_) { return (_watchCache = { version: 1, users: {} }); }
-}
-function writeWatchProgress (d) {
-  try {
-    const tmp = WATCH_PROGRESS_PATH + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(d, null, 2));
-    fs.renameSync(tmp, WATCH_PROGRESS_PATH);
-    _watchCache = d;
-    try { _watchMtime = fs.statSync(WATCH_PROGRESS_PATH).mtimeMs; } catch (_) { _watchMtime = Date.now(); }
-  } catch (e) { logError('watch-progress', e.message, 'write'); }
-}
+// Per-user playback positions live in mediarr.db (up to 1,000 titles per user).
 function watchKey (rel) { return crypto.createHash('sha1').update(safeSegments(rel).join('/').toLowerCase()).digest('hex'); }
 function watchProgressForPath (username, rel) {
-  const u = readWatchProgress().users[String(username || '').toLowerCase()] || {};
-  return u[watchKey(rel)] || null;
+  try { return store.watch.get(String(username || '').toLowerCase(), watchKey(rel)); } catch (e) { return null; }
 }
 function saveWatchProgress (username, body) {
   const rel = safeSegments(body.path || '').join('/');
   if (!rel) return null;
-  const d = readWatchProgress(), uk = String(username || '').toLowerCase();
-  const bucket = d.users[uk] || (d.users[uk] = {});
-  const key = watchKey(rel), prev = bucket[key] || {};
+  const uk = String(username || '').toLowerCase();
+  const key = watchKey(rel), prev = store.watch.get(uk, key) || {};
   const duration = Math.max(0, Number(body.duration) || Number(prev.duration) || 0);
   const position = Math.max(0, Math.min(duration || Number.MAX_SAFE_INTEGER, Number(body.position) || 0));
   const pct = duration > 0 ? Math.max(0, Math.min(100, Math.round(position / duration * 1000) / 10)) : 0;
@@ -2053,15 +2038,12 @@ function saveWatchProgress (username, body) {
   };
   // Starting a completed title from near the beginning makes it resumable again.
   if (prev.completed && duration > 0 && pct < 80 && !body.ended) rec.completed = false;
-  bucket[key] = rec;
-  const keys = Object.keys(bucket).sort((a,b)=>(bucket[b].updatedAt||0)-(bucket[a].updatedAt||0));
-  for (const k of keys.slice(250)) delete bucket[k];
-  writeWatchProgress(d);
+  try { store.watch.put(uk, key, rec); } catch (e) { logError('watch-progress', e.message, 'write'); }
   return rec;
 }
 function watchContinueForUser (username, limit) {
-  const bucket = readWatchProgress().users[String(username || '').toLowerCase()] || {};
-  return Object.values(bucket)
+  let rows = []; try { rows = store.watch.forUser(String(username || '').toLowerCase()); } catch (e) {}
+  return rows
     .filter(x => !x.completed && Number(x.duration) > 0 && Number(x.position) >= 10 && Number(x.progressPct) < 95)
     .sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))
     .slice(0, Math.max(1, Math.min(50, limit || 18)))
@@ -2148,7 +2130,7 @@ async function userHomeData (me) {
 
 function startOfToday () { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
 // Count only limit-relevant actions (adds + downloads) toward the daily limit — never plays.
-function addsTodayCount (username) { const t = startOfToday(); return readAdds().adds.filter(e => e.username === username && e.ts >= t && e.type !== 'play').length; }
+function addsTodayCount (username) { try { return store.activity.countSince(username, startOfToday()); } catch (e) { return 0; } }
 
 // Best-effort client IP. Behind Caddy/nginx the real client is in X-Forwarded-For (first hop);
 // otherwise fall back to the socket address. Strips the IPv4-in-IPv6 "::ffff:" prefix.
@@ -2343,10 +2325,8 @@ async function plexTerminate (sessionId, reason) {
     return { ok: true };
   } catch (e) { return { ok: false, message: e.message }; }
 }
-const BLOCK_LOG_PATH = path.join(DATA_DIR, 'blocked.json');
-let blockLog = null;
-function readBlockLog () { if (blockLog) return blockLog; try { blockLog = JSON.parse(fs.readFileSync(BLOCK_LOG_PATH, 'utf8')); } catch (e) { blockLog = { events: [] }; } return blockLog; }
-function logBlock (ev) { const b = readBlockLog(); b.events.unshift(ev); if (b.events.length > 500) b.events.length = 500; try { fs.writeFileSync(BLOCK_LOG_PATH, JSON.stringify(b)); } catch (e) {} }
+// Plex stream-block events live in mediarr.db (last 5,000).
+function logBlock (ev) { try { store.blocks.add(ev); } catch (e) { logError('plexblock', e.message, 'log'); } }
 // Watch active sessions and end any coming from a blocked address.
 let blockRecent = new Map();
 async function enforcePlexBlocks () {
@@ -2403,7 +2383,7 @@ setInterval(() => { enforcePlexBlocks().catch(() => {}); }, 15000).unref?.();
 // Drop expired login tokens so the sessions map can't grow without bound on a long-running server.
 setInterval(() => {
   const now = Date.now();
-  for (const [tok, s] of sessions) if (!s || s.expires < now) sessions.delete(tok);
+  sessions.prune(now);
   for (const [k, t] of recentPlays) if (now - t > 300000) recentPlays.delete(k);
   for (const [k, t] of blockRecent) if (now - t > 300000) blockRecent.delete(k);
 }, 300000).unref?.();
@@ -2428,11 +2408,12 @@ async function plexSessions (withTech) {
 }
 
 /* ---------- health monitoring (background) ---------- */
+// Current status + outage history, kept as one small document in mediarr.db.
 let healthState = (function () {
-  try { return JSON.parse(fs.readFileSync(HEALTH_PATH, 'utf8')); }
-  catch (e) { return { services: {}, events: [] }; }
+  const h = store.kv.get('health', null);
+  return (h && typeof h === 'object') ? { services: h.services || {}, events: Array.isArray(h.events) ? h.events : [] } : { services: {}, events: [] };
 })();
-function saveHealth () { try { fs.writeFileSync(HEALTH_PATH, JSON.stringify(healthState, null, 2)); } catch (e) {} }
+function saveHealth () { try { store.kv.set('health', healthState); } catch (e) {} }
 
 function monitoredTargets () {
   const c = readConfig(); const t = [];
@@ -5182,37 +5163,31 @@ async function dockerControlStatus () {
 /* ---------- MEDIARR 2.0 intelligence / requests / notification inbox ----------
    This layer intentionally composes the existing Radarr, Sonarr, Plex, SAB and
    watch-progress systems instead of introducing another database dependency. */
+// Automation settings are a small document in mediarr.db; the Notification Center
+// inbox (last 2,000 events) and per-user read state are database tables.
+const V2_AUTOMATION_DEFAULTS = { mode:'report', enabled:false, intervalMinutes:60, plexScanAfterImport:true, searchMissingMovies:true, searchMissingEpisodes:true, minFreeGB:50, lastRun:0, lastResult:null };
 let _v2State = null;
 function v2State () {
   if (_v2State) return _v2State;
-  try { _v2State = JSON.parse(fs.readFileSync(V2_STATE_PATH, 'utf8')); } catch (_) { _v2State = {}; }
-  if (!_v2State.inbox) _v2State.inbox = [];
-  if (!_v2State.read) _v2State.read = {};
-  if (!_v2State.automation) _v2State.automation = { mode:'report', enabled:false, intervalMinutes:60, plexScanAfterImport:true, searchMissingMovies:true, searchMissingEpisodes:true, minFreeGB:50, lastRun:0, lastResult:null };
-  return _v2State;
+  let a = null; try { a = store.kv.get('v2.automation', null); } catch (_) {}
+  return (_v2State = { automation: Object.assign({}, V2_AUTOMATION_DEFAULTS, a || {}) });
 }
 function v2Save () {
-  try { fs.writeFileSync(V2_STATE_PATH, JSON.stringify(v2State(), null, 2), { mode:0o600 }); } catch (_) {}
+  try { store.kv.set('v2.automation', v2State().automation); } catch (e) { logError('v2-automation', e.message, 'save'); }
 }
 function v2InboxPush (ev) {
   try {
-    const st=v2State(), key=String(ev.event||'event')+'|'+String(ev.title||'')+'|'+String(ev.message||'');
-    if (st.inbox[0] && st.inbox[0].key===key && Date.now()-st.inbox[0].ts<60000) return;
-    st.inbox.unshift({ id:crypto.randomBytes(8).toString('hex'), key, ts:Number(ev.ts)||Date.now(), event:String(ev.event||'event'), title:String(ev.title||'MEDIARR').slice(0,220), message:String(ev.message||'').slice(0,800), level:String(ev.level||'info') });
-    if(st.inbox.length>500)st.inbox.length=500;
-    v2Save();
+    const key=String(ev.event||'event')+'|'+String(ev.title||'')+'|'+String(ev.message||'');
+    const top=store.inbox.top();
+    if (top && top.key===key && Date.now()-Number(top.ts||0)<60000) return;
+    store.inbox.push({ id:crypto.randomBytes(8).toString('hex'), key, ts:Number(ev.ts)||Date.now(), event:String(ev.event||'event'), title:String(ev.title||'MEDIARR').slice(0,220), message:String(ev.message||'').slice(0,800), level:String(ev.level||'info') });
   } catch (_) {}
 }
 function v2InboxFor (username) {
-  const st=v2State(), read=st.read[username]||{};
-  return st.inbox.map(x=>Object.assign({},x,{read:!!read[x.id]}));
+  try { return store.inbox.listFor(username, 500); } catch (_) { return []; }
 }
 function v2MarkInbox (username, ids, all) {
-  const st=v2State(); if(!st.read[username])st.read[username]={};
-  if(all) for(const x of st.inbox)st.read[username][x.id]=true;
-  else for(const id of (ids||[]).slice(0,500))st.read[username][String(id)]=true;
-  const valid=new Set(st.inbox.map(x=>x.id)); for(const id of Object.keys(st.read[username]))if(!valid.has(id))delete st.read[username][id];
-  v2Save();
+  try { store.inbox.markRead(username, ids, all); } catch (e) { logError('v2-inbox', e.message, 'mark read'); }
 }
 // Full Radarr/Sonarr lists for the 2.0 hub and Universal Search. Cached for 90s and
 // dropped immediately by invalidateLive() on adds/edits/webhooks, so typing in search
@@ -6431,15 +6406,11 @@ const server = http.createServer(async (req, res) => {
 
       // ---- error log & login security ----
       if (p === '/api/admin/errors' && req.method === 'GET') {
-        const l = readErrLog();
         const q = (u.searchParams.get('q') || '').trim().toLowerCase();
-        let list = l.events;
-        if (q) list = list.filter(e => ((e.where || '') + ' ' + (e.message || '') + ' ' + (e.detail || '')).toLowerCase().includes(q));
-        return sendJSON(res, 200, { events: list.slice(0, 200), total: list.length, all: l.events.length, lockouts: loginLockouts() });
+        return sendJSON(res, 200, Object.assign(store.errors.list({ q, limit: 200 }), { lockouts: loginLockouts() }));
       }
       if (p === '/api/admin/errors' && req.method === 'DELETE') {
-        errLog = { events: [] }; errDirty = true;
-        try { fs.writeFileSync(ERRLOG_PATH, JSON.stringify(errLog)); } catch (e) {}
+        store.errors.clear();
         return sendJSON(res, 200, { ok: true });
       }
       if (p === '/api/admin/login-unlock' && req.method === 'POST') {
@@ -6581,25 +6552,24 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Plex stream blocking (admin) ----
       if (p === '/api/admin/plexblock/log' && req.method === 'GET') {
-        const all = readBlockLog().events || [];
+        const all = store.blocks.recent();
         const q = (u.searchParams.get('q') || '').trim().toLowerCase();
         const limit = Math.min(500, Number(u.searchParams.get('limit')) || 200);
         const list = q ? all.filter(e => ((e.user || '') + ' ' + (e.ip || '') + ' ' + (e.device || '') + ' ' + (e.item || '') + ' ' + (e.rule || '')).toLowerCase().includes(q)) : all;
         return sendJSON(res, 200, { events: list.slice(0, limit), total: list.length, all: all.length });
       }
       if (p === '/api/admin/plexblock/log' && req.method === 'DELETE') {
-        blockLog = { events: [] };
-        try { fs.writeFileSync(BLOCK_LOG_PATH, JSON.stringify(blockLog)); } catch (e) {}
+        store.blocks.clear();
         return sendJSON(res, 200, { ok: true, events: [] });
       }
       if (p === '/api/admin/plexblock' && req.method === 'GET') {
         const c = readConfig().plexBlock;
-        return sendJSON(res, 200, { enabled: !!c.enabled, ips: c.ips || [], message: c.message || '', events: readBlockLog().events.slice(0, 50) });
+        return sendJSON(res, 200, { enabled: !!c.enabled, ips: c.ips || [], message: c.message || '', events: store.blocks.recent(50) });
       }
       if (p === '/api/admin/plexblock/test' && req.method === 'POST') {
         let b = {}; try { b = JSON.parse((await readBody(req)) || '{}'); } catch (e) {}
         const r = await enforcePlexBlocks();
-        return sendJSON(res, 200, Object.assign({ ok: true }, r, { events: readBlockLog().events.slice(0, 20) }));
+        return sendJSON(res, 200, Object.assign({ ok: true }, r, { events: store.blocks.recent(20) }));
       }
       // ---- manual Radarr/Sonarr release search + grab ----
       if (p === '/api/releases' && req.method === 'GET') {
@@ -7094,10 +7064,8 @@ const server = http.createServer(async (req, res) => {
         const limit = Math.min(1000, Number(u.searchParams.get('limit')) || 200);
         const q = (u.searchParams.get('q') || '').trim().toLowerCase();
         const type = u.searchParams.get('type') || 'all';
-        let list = readAdds().adds;
-        if (type && type !== 'all') list = list.filter(e => type === 'add' ? (e.type === 'movie' || e.type === 'series') : e.type === type);
-        if (q) list = list.filter(e => ((e.title || '') + ' ' + (e.username || '') + ' ' + (e.ip || '') + ' ' + (e.service || '') + ' ' + (e.type || '')).toLowerCase().includes(q));
-        return sendJSON(res, 200, { adds: list.slice(0, limit), total: list.length });
+        // full history from the database, not just the recent in-memory window
+        return sendJSON(res, 200, store.activity.query({ q, type, limit }));
       }
 
       // any logged-in user can change their own password
@@ -7310,18 +7278,29 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// Save anything still batched in memory when Docker/systemd stops MEDIARR.
+// Save anything still batched in memory and close the database cleanly when
+// Docker/systemd stops MEDIARR.
 function flushPendingWrites () {
-  try { flushAddsSync(); } catch (e) {}
-  try { if (errDirty) { errDirty = false; fs.writeFileSync(ERRLOG_PATH, JSON.stringify(readErrLog())); } } catch (e) {}
   try { if (_extDirty) { _extDirty = false; writeExtMap(); } } catch (e) {}
+  try { store.close(); } catch (e) {}
 }
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { flushPendingWrites(); process.exit(0); });
 
 server.listen(PORT, HOST, () => {
   console.log('\n  MEDIARR running →  http://localhost:' + PORT + '\n');
+  if (STORE_MIGRATION && STORE_MIGRATION.deleted && STORE_MIGRATION.deleted.length) {
+    v2InboxPush({ event: 'system', level: 'info', title: 'History moved to the MEDIARR database',
+      message: 'Activity, watch progress, notifications, error and health history now live in mediarr.db. A backup of the old files was saved as ' + STORE_MIGRATION.backup + '.' });
+  } else if (STORE_MIGRATION && STORE_MIGRATION.error) {
+    logError('migration', 'Moving history into mediarr.db failed; the old files were kept and it will retry on the next start', STORE_MIGRATION.error);
+  } else if (STORE_MIGRATION && STORE_MIGRATION.imported && Object.keys(STORE_MIGRATION.imported).length && !STORE_MIGRATION.backup) {
+    logError('migration', 'History was copied into mediarr.db, but the safety backup could not be written, so the old files were kept. It will retry on the next start.', 'check that the backups folder in the data directory is writable');
+  }
+  if (STORE_MIGRATION && STORE_MIGRATION.unreadable && STORE_MIGRATION.unreadable.length) {
+    logError('migration', 'Could not read ' + STORE_MIGRATION.unreadable.join(', ') + '; left it in the data folder untouched', 'the file is not valid JSON');
+  }
   console.log('  Config stored at:  ' + CONFIG_PATH);
-  console.log('  Health log at:     ' + HEALTH_PATH);
+  console.log('  Database at:       ' + store.file);
   console.log('  Stop with Ctrl+C\n');
   // background health monitoring: first run shortly after boot, then on an interval
   setTimeout(() => { runAllChecks().catch(() => {}); }, 2500);
