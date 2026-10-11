@@ -91,5 +91,5 @@ async function show(which){tab=which;setTab();body('<div class="v2empty">Loading
 async function refreshBadge(){if(!user())return;try{const d=await api('/api/v2/notifications');const b=document.getElementById('v2Badge');if(b)b.textContent=String(d.unread||0);}catch(_){}}
 function boot(){shell();refreshBadge();if(notifyTimer)clearInterval(notifyTimer);notifyTimer=setInterval(()=>{if(!document.hidden)refreshBadge();},30000);const p=new URLSearchParams(location.search).get('v2');if(p)setTimeout(()=>openHub(p),300);}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(boot,0));else setTimeout(boot,0);
-window.MEDIARR2={open:openHub,version:V};
+window.MEDIARR2={open:openHub,close:closeHub,version:V};
 })();

@@ -46,6 +46,9 @@
   .wrap{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:0 22px 90px}
   header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:26px 0 22px;position:sticky;top:0;z-index:30;background:linear-gradient(var(--bg) 72%, transparent)}
   .brand{display:flex;align-items:baseline;gap:12px}
+  a.brand{color:inherit;text-decoration:none;cursor:pointer;border-radius:8px;transition:opacity .15s}
+  a.brand:hover{opacity:.85}
+  a.brand:focus-visible{outline:2px solid var(--gold);outline-offset:4px}
   .logo{font-family:'Bebas Neue',sans-serif;font-size:40px;letter-spacing:3px;line-height:.9;background:linear-gradient(180deg,#fff,var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
   .logo b{color:var(--gold);-webkit-text-fill-color:var(--gold)}
   .tag{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
@@ -588,10 +591,10 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
         <span>Menu</span>
       </button>
-      <div class="brand">
+      <a class="brand" id="brandHome" href="/" title="Go to home" aria-label="MEDIARR home">
         <div class="logo">MEDI<b>ARR</b></div>
         <div class="tag">Cinemeta · Radarr · Sonarr</div>
-      </div>
+      </a>
     </div>
   </header>
   <div class="side-nav-scrim" id="sideNavScrim" aria-hidden="true"></div>
@@ -604,6 +607,12 @@
       <button class="side-nav-close" id="menuClose" type="button" aria-label="Close navigation menu">&times;</button>
     </div>
     <div class="side-nav-scroll">
+    <section class="side-nav-section">
+      <div class="settings-btn" id="navHome" title="Back to your home page">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg>
+      Home
+      </div>
+    </section>
     <section class="side-nav-section">
       <div class="side-nav-section-title">Library</div>
       <div class="side-nav-section-sub">Browse and manage your media</div>
@@ -2969,6 +2978,26 @@ qInput.addEventListener('input', ()=>{
   if(v.length<2){ if(mode==='person') showPopularPeople(); else showHome(); return; }
   searchTimer = setTimeout(()=>triggerSearch(v), 350);
 });
+/* ---------- go home (header logo / drawer "Home") ----------
+   Clears the search, returns to Title mode with the All filter, closes the drawer
+   and the 2.0 hub, re-shows the signed-in user's home page and scrolls to the top.
+   Ctrl/Cmd/Shift/middle-click on the logo still opens home in a new tab. */
+function goHome(){
+  clearTimeout(searchTimer);
+  setSideNav(false);
+  try{ if(window.MEDIARR2 && typeof window.MEDIARR2.close==='function') window.MEDIARR2.close(); }catch(e){}
+  qInput.value='';
+  const allBtn=document.querySelector('.filters:not(.modeswitch) button[data-f="all"]');
+  if(allBtn && !allBtn.classList.contains('active')) allBtn.click();
+  const titleBtn=document.querySelector('.modeswitch button[data-mode="title"]');
+  if(titleBtn) titleBtn.click(); else showHome();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+document.getElementById('brandHome').addEventListener('click', e=>{
+  if(e.button!==0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;   // let the browser open a new tab/window
+  e.preventDefault(); goHome();
+});
+document.getElementById('navHome').onclick=()=>goHome();
 function triggerSearch(q){
   if(mode==='year') return /^\d{4}$/.test(q) ? discoverByYear(q) : undefined;
   if(mode==='studio') return searchStudio(q);
