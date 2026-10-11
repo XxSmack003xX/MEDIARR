@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.3.0
+
+### Navigation
+
+- The MEDIARR logo on desktop and mobile returns to the home page: it clears the search, switches back to Title mode and the All filter, closes the menu and hub, and scrolls to the top. Ctrl/Cmd/middle-click opens home in a new tab. Added a **Home** item at the top of the desktop menu.
+- **Escape** closes the topmost window on desktop (Library, Settings, Calendar, Details, the hub and every other window) by pressing its own ✕, so cleanup such as stopping the player still runs.
+- The browser and phone **Back** button now closes windows one at a time and steps back through searches instead of leaving MEDIARR. Forward works too.
+- The address bar follows the current search (`?q=…`, `?mode=person&q=…`) and the open title (`?title=movie:tt…`, `?title=series:tmdb:…`). Opening such a link (after signing in, if needed) restores the search or opens the title.
+
+### One place for the hub
+
+- Removed the floating "MEDIARR 2.0" button, which covered content on phones.
+- Desktop menu: new **Insights** section with Overview, Requests, Notifications, Library health, Storage & quality and Automation (admins only).
+- Mobile menu: the same entries under **Insights**.
+- A notification bell in the desktop and mobile headers opens the Notifications inbox and shows the unread count; the menu's Notifications item shows it too.
+- The hub is now titled "MEDIARR Hub".
+- Fixed: the mobile page never showed the unread-notification count (the hub didn't recognise the mobile page's signed-in user).
+
+### Search
+
+- When the search service (Cinemeta) can't be reached, desktop and mobile now say "Search is unavailable" and offer **Try again**, instead of "No results". A partial outage (only movies or only TV) still shows the results that did load.
+- Other search failures (person, year, studio, genre) also offer **Try again**.
+
+### Accessibility and touch
+
+- Desktop menu items are real keyboard controls (Tab, Enter, Space) with a visible focus ring.
+- The closed menu is no longer reachable with Tab.
+- When a window opens, keyboard focus moves into it and Tab stays inside; when it closes, focus returns to where it was.
+- On touch screens, buttons, menu items, close buttons and the logo are at least 44px tall on desktop (including the installed app on phones) and mobile.
+
+### Polish
+
+- The theme switch in the menu has a label ("Light mode" / "Dark mode") instead of a bare icon.
+- "Now streaming" replaces the odd "– streaming" item; its count is hidden until Plex is configured.
+- Menu icons are consistent outline icons.
+- Header tagline changed from "Cinemeta · Radarr · Sonarr" to "Requests · Library · Playback".
+- Removed the permanent "Powered by Stremio Cinemeta…" line under the search bar; the other search modes still show their instructions.
+
 ## 2.2.0
 
 ### Built-in database for history and per-user state

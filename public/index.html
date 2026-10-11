@@ -47,6 +47,23 @@
   header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:26px 0 22px;position:sticky;top:0;z-index:30;background:linear-gradient(var(--bg) 72%, transparent)}
   .brand{display:flex;align-items:baseline;gap:12px}
   a.brand{color:inherit;text-decoration:none;cursor:pointer;border-radius:8px;transition:opacity .15s}
+  .hdr-bell{position:relative;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex:none;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--txt);cursor:pointer;transition:.15s}
+  .hdr-bell:hover{border-color:var(--gold);color:var(--gold)}
+  .hdr-bell:focus-visible,.settings-btn:focus-visible,.side-nav .settings-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  .bell-badge{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--gold);color:#17120a;font-size:11px;font-weight:900;display:inline-flex;align-items:center;justify-content:center}
+  .bell-badge[hidden]{display:none}
+  .nav-count{margin-left:auto}
+  .side-nav .nav-badge{margin-left:auto;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--gold);color:#17120a;font-size:11px;font-weight:900;display:inline-flex;align-items:center;justify-content:center}
+  .side-nav .nav-badge[hidden]{display:none}
+  .hint:empty{display:none}
+  .state .retry{margin-top:14px}
+  /* Touch screens (including the installed app on phones): 44px tap targets */
+  @media (pointer:coarse){
+    .modeswitch button,.filters button,.hidechk,.settings-btn,.linkbtn,.btn,.x,.card-add,.menu-toggle,.side-nav-close,.lib-tabs button,.v2btn,.v2tab{min-height:44px}
+    .x,.side-nav-close{min-width:44px}
+    a.brand{min-height:44px;align-items:center}
+    .linkbtn{padding-top:10px;padding-bottom:10px}
+  }
   a.brand:hover{opacity:.85}
   a.brand:focus-visible{outline:2px solid var(--gold);outline-offset:4px}
   .logo{font-family:'Bebas Neue',sans-serif;font-size:40px;letter-spacing:3px;line-height:.9;background:linear-gradient(180deg,#fff,var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -593,9 +610,13 @@
       </button>
       <a class="brand" id="brandHome" href="/" title="Go to home" aria-label="MEDIARR home">
         <div class="logo">MEDI<b>ARR</b></div>
-        <div class="tag">Cinemeta · Radarr · Sonarr</div>
+        <div class="tag">Requests · Library · Playback</div>
       </a>
     </div>
+    <button class="hdr-bell" id="hdrBell" type="button" data-v2-open="notifications" aria-label="Notifications" title="Notifications">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      <span class="bell-badge" data-v2-badge hidden>0</span>
+    </button>
   </header>
   <div class="side-nav-scrim" id="sideNavScrim" aria-hidden="true"></div>
   <aside class="side-nav" id="sideNav" aria-hidden="true" aria-label="MEDIARR navigation">
@@ -641,7 +662,7 @@
       <div class="side-nav-section-title">Discover</div>
       <div class="side-nav-section-sub">Personal media tools</div>
       <div class="settings-btn" id="openUpcoming" title="Upcoming episodes of your favorite shows">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20.5l-1.2-1.1C6 15 3 12.3 3 8.9 3 6.2 5.1 4 7.8 4c1.6 0 3.1.8 4.2 2 1.1-1.2 2.6-2 4.2-2C18.9 4 21 6.2 21 8.9c0 3.4-3 6.1-7.8 10.5L12 20.5z"/></svg>
       Upcoming
       </div>
       <div class="settings-btn" id="openCalendar" title="Upcoming movies & episodes">
@@ -649,12 +670,40 @@
       Calendar
       </div>
       <div class="settings-btn" id="openPlexMe" title="Your Plex watchlist, history and stats">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M4 2h6l6 10-6 10H4l6-10z"/></svg>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m10 8 4 2.5-4 2.5z"/></svg>
       My Plex
       </div>
       <div class="settings-btn" id="openStreams" title="Who's streaming on Plex right now">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      <span id="streamCount" class="stream-count">0</span><span class="streamword"> streaming</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/></svg>
+      Now streaming <span id="streamCount" class="stream-count nav-count" hidden>0</span>
+      </div>
+    </section>
+    <section class="side-nav-section" id="navInsights">
+      <div class="side-nav-section-title">Insights</div>
+      <div class="side-nav-section-sub">Library health, requests and alerts</div>
+      <div class="settings-btn" data-v2-open="overview" title="Missing media, downloads, streams and service health at a glance">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>
+      Overview
+      </div>
+      <div class="settings-btn" data-v2-open="requests" title="What has been requested and added">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      Requests
+      </div>
+      <div class="settings-btn" data-v2-open="notifications" title="Your notification inbox">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      Notifications <span class="nav-badge" data-v2-badge hidden>0</span>
+      </div>
+      <div class="settings-btn" data-v2-open="library" title="Missing and unmonitored titles">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/><path d="M11 8v3M11 14h.01"/></svg>
+      Library health
+      </div>
+      <div class="settings-btn" data-v2-open="storage" title="Disk usage and quality across your library">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></svg>
+      Storage &amp; quality
+      </div>
+      <div class="settings-btn" data-v2-open="automation" id="navAutomation" style="display:none" title="Find and repair missing media automatically">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
+      Automation
       </div>
     </section>
     <section class="side-nav-section">
@@ -666,6 +715,7 @@
       </div>
       <div class="settings-btn" id="themeToggle" title="Toggle light / dark mode">
       <svg id="themeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+      <span id="themeLabel">Light mode</span>
       </div>
     </section>
     <section class="side-nav-section">
@@ -734,7 +784,7 @@
     </div>
     <button class="toggle-pill" id="hideAddedBtn" title="Hide titles already in your Radarr/Sonarr library"><span class="box"></span>Hide added</button>
   </div>
-  <div class="hint" id="hint">Powered by Stremio Cinemeta. Pick a title, then push it to Radarr (movies) or Sonarr (TV).</div>
+  <div class="hint" id="hint"></div>
 
   <div id="results">
     <div class="state"><div class="big">Search to begin</div>Type at least 2 characters above.</div>
@@ -1249,6 +1299,8 @@
 
 <script src="/hls.min.js"></script>
 <script src="/v160.js"></script>
+<script src="/nav.js"></script>
+<script>window.MEDIARR_HUB_IN_MENU = true;   /* 2.3: the hub opens from the menu + bell, no floating button */</script>
 <script>
 let config = null;            // sanitized config from server
 let sideNavLastFocus = null;
@@ -1256,10 +1308,12 @@ function setSideNav(open){
   const nav=document.getElementById('sideNav'), scrim=document.getElementById('sideNavScrim'), toggle=document.getElementById('menuToggle');
   if(!nav||!scrim||!toggle) return;
   nav.classList.toggle('open', !!open); scrim.classList.toggle('show', !!open); document.body.classList.toggle('side-nav-open', !!open);
+  nav.inert = !open;   // a closed drawer's controls must not be reachable with Tab
   nav.setAttribute('aria-hidden', open?'false':'true'); scrim.setAttribute('aria-hidden', open?'false':'true'); toggle.setAttribute('aria-expanded', open?'true':'false');
   if(open){ sideNavLastFocus=document.activeElement; setTimeout(()=>document.getElementById('menuClose')?.focus(),30); }
   else if(sideNavLastFocus && typeof sideNavLastFocus.focus==='function'){ try{ sideNavLastFocus.focus(); }catch(e){} sideNavLastFocus=null; }
 }
+document.getElementById('sideNav').inert = true;
 document.getElementById('menuToggle').onclick=()=>setSideNav(true);
 document.getElementById('menuClose').onclick=()=>setSideNav(false);
 document.getElementById('sideNavScrim').onclick=()=>setSideNav(false);
@@ -2209,7 +2263,7 @@ function upRow(i){
   const root=document.documentElement, btn=document.getElementById('themeToggle'), icon=document.getElementById('themeIcon');
   const SUN='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
   const MOON='<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>';
-  function paint(){ const t=root.getAttribute('data-theme')||'dark'; if(icon) icon.innerHTML=(t==='dark'?SUN:MOON); if(btn) btn.title=(t==='dark'?'Switch to light mode':'Switch to dark mode'); }
+  function paint(){ const t=root.getAttribute('data-theme')||'dark'; if(icon) icon.innerHTML=(t==='dark'?SUN:MOON); if(btn) btn.title=(t==='dark'?'Switch to light mode':'Switch to dark mode'); const l=document.getElementById('themeLabel'); if(l) l.textContent=(t==='dark'?'Light mode':'Dark mode'); }
   if(btn) btn.onclick=()=>{ const t=(root.getAttribute('data-theme')==='light')?'dark':'light'; root.setAttribute('data-theme',t); try{localStorage.setItem('mediarr-theme',t);}catch(e){} try{ applyThemeVars(t); }catch(e){} paint(); };
   paint();
 })();
@@ -2831,7 +2885,8 @@ function updateStreamButton(data){
   const btn = document.getElementById('openStreams');
   const cnt = document.getElementById('streamCount');
   const n = (data && data.configured && !data.error) ? data.count : 0;
-  cnt.textContent = (data && data.configured) ? n : '–';
+  cnt.textContent = n;
+  cnt.hidden = !(data && data.configured);   // no "–" placeholder when Plex isn't set up
   btn.classList.toggle('live', n > 0);
 }
 async function pollStreams(){
@@ -2918,6 +2973,7 @@ document.querySelectorAll('.modeswitch button').forEach(b=>{
   b.onclick = ()=>{
     document.querySelectorAll('.modeswitch button').forEach(x=>x.classList.remove('active'));
     b.classList.add('active'); mode = b.dataset.mode;
+    if(window.MEDIARRNav) MEDIARRNav.viewChanged();
     qInput.placeholder = mode==='genre' ? 'Filter genres…'
       : mode==='person' ? 'Search by actor or director…'
       : mode==='year' ? 'Enter a year, e.g. 1999'
@@ -2932,7 +2988,7 @@ document.querySelectorAll('.modeswitch button').forEach(b=>{
       ? 'Enter a 4-digit year to list every movie & show released that year (most popular first).'
       : mode==='studio'
       ? 'Type a studio (Pixar, Warner Bros, A24…) to list its movies, most popular first.'
-      : 'Powered by Stremio Cinemeta. Pick a title, then push it to Radarr (movies) or Sonarr (TV).';
+      : '';
     currentPerson = null; currentCredits = []; lastPeople = [];
     const v = qInput.value.trim();
     if(mode==='year'){
@@ -2964,6 +3020,7 @@ document.querySelectorAll('.filters:not(.modeswitch) button').forEach(b=>{
 });
 qInput.addEventListener('input', ()=>{
   clearTimeout(searchTimer); const v = qInput.value.trim();
+  if(window.MEDIARRNav) MEDIARRNav.viewChanged();
   if(mode==='year'){
     if(/^\d{4}$/.test(v)) searchTimer = setTimeout(()=>discoverByYear(v), 400);
     else results.innerHTML='<div class="state"><div class="big">Search by year</div>Type a 4-digit year like 1999.</div>';
@@ -2978,6 +3035,16 @@ qInput.addEventListener('input', ()=>{
   if(v.length<2){ if(mode==='person') showPopularPeople(); else showHome(); return; }
   searchTimer = setTimeout(()=>triggerSearch(v), 350);
 });
+/* ---------- search errors: say what failed and offer a retry ---------- */
+function searchUnavailable(what, retry){
+  results.innerHTML = '<div class="state"><div class="big">Search is unavailable</div>MEDIARR couldn’t reach '+esc(what)+'. Check that the MEDIARR server has internet access, then try again.<div class="retry"><button class="btn btn-gold" type="button" id="searchRetry">Try again</button></div></div>';
+  document.getElementById('searchRetry').onclick = retry;
+}
+function searchFailedState(e){
+  results.innerHTML = '<div class="state"><div class="big">Search failed</div>'+esc((e && e.message) || 'Something went wrong')+'<div class="retry"><button class="btn btn-gold" type="button" id="searchRetry">Try again</button></div></div>';
+  document.getElementById('searchRetry').onclick = ()=>{ const v=qInput.value.trim(); if(v) triggerSearch(v); };
+}
+
 /* ---------- go home (header logo / drawer "Home") ----------
    Clears the search, returns to Title mode with the All filter, closes the drawer
    and the 2.0 hub, re-shows the signed-in user's home page and scrolls to the top.
@@ -2998,6 +3065,64 @@ document.getElementById('brandHome').addEventListener('click', e=>{
   e.preventDefault(); goHome();
 });
 document.getElementById('navHome').onclick=()=>goHome();
+
+const NAV_MODES = ['title','person','year','genre','studio'];
+function currentView(){ return { mode, q: qInput.value.trim() }; }
+function viewParams(v){ const o={}; if(v && v.mode && v.mode!=='title') o.mode=v.mode; if(v && v.q) o.q=v.q; return o; }
+function navUrl(params){
+  const u = new URL(location.href);
+  ['mode','q','title'].forEach(k=>u.searchParams.delete(k));
+  Object.keys(params||{}).forEach(k=>{ if(params[k]) u.searchParams.set(k, params[k]); });
+  return u.pathname + u.search;
+}
+function detailLinkParam(){
+  if(!detailOverlay.classList.contains('show') || !(detailCtx.imdbId || detailCtx.tmdbId)) return '';
+  return (detailCtx.mediaType==='movie' ? 'movie' : 'series') + ':' + (detailCtx.imdbId || ('tmdb:'+detailCtx.tmdbId));
+}
+MEDIARRNav.init({
+  overlays: [
+    { sel:'.overlay', open:'show', close:'.x' },
+    { sel:'#sideNav', open:'open', close:'#menuClose' },
+    { sel:'#v2Hub', open:'open', close:'.v2close' }
+  ],
+  clickables: '.settings-btn',
+  guardUrl(){ const p = viewParams(currentView()); const t = detailLinkParam(); if(t) p.title = t; return navUrl(p); },
+  views: {
+    current: currentView,
+    isHome: v => v.mode==='title' && !v.q,
+    url: v => navUrl(viewParams(v)),
+    fromUrl(loc){ const p=new URLSearchParams(loc.search); const m=p.get('mode'); return { mode: NAV_MODES.includes(m) ? m : 'title', q: (p.get('q')||'').trim() }; },
+    restore(v){
+      v = v || { mode:'title', q:'' };
+      qInput.value = v.q || '';
+      const b = document.querySelector('.modeswitch button[data-mode="'+(NAV_MODES.includes(v.mode)?v.mode:'title')+'"]');
+      if(b) b.click();
+      window.scrollTo({ top:0 });
+    }
+  }
+});
+// Open the 2.0 hub (Insights menu items and the header bell)
+document.addEventListener('click', e=>{
+  const t = e.target.closest('[data-v2-open]'); if(!t) return;
+  e.preventDefault();
+  if(window.MEDIARR2) window.MEDIARR2.open(t.dataset.v2Open);
+});
+// A shared link (?mode=…&q=… or ?title=movie:tt…) is applied once after sign-in.
+let startUrlApplied = false;
+function applyStartUrl(){
+  if(startUrlApplied) return; startUrlApplied = true;
+  const p = new URLSearchParams(location.search);
+  const v = { mode: NAV_MODES.includes(p.get('mode')) ? p.get('mode') : 'title', q: (p.get('q')||'').trim() };
+  const t = p.get('title') || '';
+  if(t){ try{ history.replaceState(history.state, '', navUrl(viewParams(v))); }catch(e){} }
+  if(v.mode!=='title' || v.q){ qInput.value = v.q; const b=document.querySelector('.modeswitch button[data-mode="'+v.mode+'"]'); if(b) b.click(); }
+  const i = t.indexOf(':');
+  if(i>0){
+    const type = t.slice(0,i), id = t.slice(i+1);
+    if(id.startsWith('tmdb:')) openDetailFromTmdb(type==='movie'?'movie':'tv', id.slice(5));
+    else if(id) openDetail(type==='movie'?'movie':'series', id);
+  }
+}
 function triggerSearch(q){
   if(mode==='year') return /^\d{4}$/.test(q) ? discoverByYear(q) : undefined;
   if(mode==='studio') return searchStudio(q);
@@ -3053,15 +3178,19 @@ function renderHome(){
 async function doSearch(q){
   results.innerHTML='<div class="state"><div class="spinner"></div>Searching Cinemeta…</div>';
   const want = currentFilter==='all' ? ['movie','series'] : [currentFilter];
+  let failed = 0;
   try{
     const lists = await Promise.all(want.map(async type=>{
-      const r = await fetch(`/api/cinemeta/catalog/${type}/top/search=${encodeURIComponent(q)}.json`);
-      if(!r.ok) return [];
-      const j = await r.json();
-      return (j.metas||[]).map(m=>({...m, type}));
+      try{
+        const r = await fetch(`/api/cinemeta/catalog/${type}/top/search=${encodeURIComponent(q)}.json`);
+        if(!r.ok){ failed++; return []; }
+        const j = await r.json();
+        return (j.metas||[]).map(m=>({...m, type}));
+      }catch(e){ failed++; return []; }
     }));
+    if(failed===want.length) return searchUnavailable('the Cinemeta search service', ()=>doSearch(q));
     renderResults(lists.flat().slice(0,60));
-  }catch(e){ results.innerHTML='<div class="state"><div class="big">Search failed</div>'+e.message+'</div>'; }
+  }catch(e){ searchFailedState(e); }
 }
 let _liveStamp = 0;
 function renderResults(metas){
@@ -3120,7 +3249,7 @@ async function searchPerson(q){
     const data = await tmdb(`/search/person?query=${encodeURIComponent(q)}&include_adult=false`);
     lastPeople = (data.results||[]).filter(p=>p.known_for_department!=='Production' || (p.known_for||[]).length).slice(0,18);
     renderPeople();
-  }catch(e){ results.innerHTML='<div class="state"><div class="big">Search failed</div>'+esc(e.message)+'</div>'; }
+  }catch(e){ searchFailedState(e); }
 }
 async function showPopularPeople(){
   if(!isConfigured('tmdb')){
@@ -3276,7 +3405,7 @@ async function pickGenre(name, year){
                  movie:{page:0,total:1,done:false}, tv:{page:0,total:1,done:false}, items:[], keys:new Set() };
   results.innerHTML='<div class="state"><div class="spinner"></div>Loading '+esc(g.name)+'…</div>';
   try{ await loadGenrePages(); renderGenreResults(); }
-  catch(e){ results.innerHTML='<div class="state"><div class="big">Search failed</div>'+esc(e.message)+'</div>'; }
+  catch(e){ searchFailedState(e); }
 }
 async function loadGenrePages(){
   for(const type of ['movie','tv']){
@@ -3358,7 +3487,7 @@ async function discoverByYear(year){
   try{
     await loadYearPages();
     renderYearResults();
-  }catch(e){ results.innerHTML='<div class="state"><div class="big">Search failed</div>'+esc(e.message)+'</div>'; }
+  }catch(e){ searchFailedState(e); }
 }
 async function loadYearPages(){
   // always load both movie + tv so the All/Movies/TV filter can switch instantly
@@ -3448,7 +3577,7 @@ async function searchStudio(q){
     studioState = { query:q, companyIds:companies.map(c=>c.id), companyNames:companies.map(c=>c.name), items:[], page:0, total:1, done:false, keys:new Set() };
     await loadStudioPages();
     renderStudioResults();
-  }catch(e){ results.innerHTML='<div class="state"><div class="big">Search failed</div>'+esc(e.message)+'</div>'; }
+  }catch(e){ searchFailedState(e); }
 }
 async function loadStudioPages(){
   if(studioState.done) return;
@@ -3496,6 +3625,8 @@ async function showAllStudio(btn){
 async function openDetailFromTmdb(mediaType, tmdbId, credit){
   detailBody.innerHTML='<div class="state"><div class="spinner"></div>Loading details…</div>';
   detailOverlay.classList.add('show');
+  detailCtx = { mediaType: mediaType==='movie' ? 'movie' : 'tv', imdbId:null, tmdbId:String(tmdbId) };
+  if(window.MEDIARRNav) MEDIARRNav.refreshUrl();
   const fb = credit ? {
     name: credit.title || credit.name,
     poster: credit.poster_path ? TMDB_IMG+credit.poster_path : '',
@@ -3783,6 +3914,7 @@ async function openDetail(type, id, fallback, tmdbId){
     imdbId: String(id).startsWith('tmdb:') ? null : id,
     tmdbId: tmdbId || (String(id).startsWith('tmdb:') ? id.slice(5) : null)
   };
+  if(window.MEDIARRNav) MEDIARRNav.refreshUrl();   // keep the address bar pointing at this title
   try{
     const r = await fetch(`/api/cinemeta/meta/${type}/${encodeURIComponent(id)}.json`);
     let j = null;
@@ -5006,6 +5138,7 @@ function applyRoleUI(){
   document.getElementById('openAdmin').style.display = admin ? '' : 'none';
   document.getElementById('openUpdate').style.display = admin ? '' : 'none';
   document.getElementById('openTranscodes').style.display = admin ? '' : 'none';
+  { const na=document.getElementById('navAutomation'); if(na) na.style.display = admin ? '' : 'none'; }
   document.getElementById('logoutBtn').style.display = '';
   document.getElementById('pwBtn').style.display = (currentUser && currentUser.hasPassword===false) ? 'none' : '';
   updateUserChip();
@@ -6343,6 +6476,7 @@ async function onAuthed(){
   // v1.4+ first-run configuration is handled by the shared setup wizard.
   qInput.focus();
   showHome();   // greet with recently released movies
+  applyStartUrl();   // a shared search/title link
   if(updateNoticeTimerD) clearInterval(updateNoticeTimerD);
   if(registrationNoticeTimerD) clearInterval(registrationNoticeTimerD);
   if(currentUser&&currentUser.role==='admin'){

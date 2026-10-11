@@ -1,13 +1,13 @@
 /* MEDIARR 2.0 — shared responsive Intelligence Hub for desktop, mobile and installed PWA. */
 (function(){
 'use strict';
-const V='2.2.0';
+const V='2.3.0';
 let root=null,tab='overview',snap=null,notifyTimer=null,deferredInstall=null;
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtBytes=n=>{n=Number(n)||0;if(!n)return '0 B';const u=['B','KB','MB','GB','TB','PB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i<2?n.toFixed(0):n.toFixed(1))+' '+u[i];};
 const age=t=>{const s=Math.max(0,Math.floor((Date.now()-Number(t||0))/1000));if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';};
 async function api(url,opt){const r=await fetch(url,opt);let j={};try{j=await r.json();}catch(_){}const d=j&&j.data!==undefined?j.data:j;if(!r.ok)throw new Error((d&&d.message)||('HTTP '+r.status));return d;}
-function user(){try{return typeof currentUser!=='undefined'?currentUser:null;}catch(_){return null;}}
+function user(){try{if(typeof currentUser!=='undefined'&&currentUser)return currentUser;if(typeof me!=='undefined'&&me)return me;return null;}catch(_){return null;}}   /* desktop: currentUser, mobile: me */
 function css(){
  const s=document.createElement('style');s.id='v2Style';s.textContent=`
  #v2Launch{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:4200;border:1px solid rgba(232,176,75,.5);background:linear-gradient(135deg,#241d2b,#141217);color:#f6d58e;border-radius:999px;padding:12px 17px;font:800 13px Manrope,system-ui,sans-serif;box-shadow:0 15px 45px rgba(0,0,0,.45);cursor:pointer}
@@ -24,8 +24,8 @@ function css(){
 function shell(){
  if(document.getElementById('v2Hub'))return;
  css();
- const b=document.createElement('button');b.id='v2Launch';b.innerHTML='◆ MEDIARR 2.0 <b id="v2Badge">0</b>';b.onclick=()=>openHub();document.body.appendChild(b);
- root=document.createElement('div');root.id='v2Hub';root.innerHTML=`<div class="v2shell"><div class="v2top"><div><div class="v2brand">MEDIARR <em>2.0</em></div><div class="v2sub">Media Intelligence · Automation · Requests · Notifications</div></div><button class="v2btn" id="v2Install" style="display:none">Install app</button><button class="v2btn v2close">✕ Close</button></div><div class="v2tabs" id="v2Tabs"></div><main id="v2Body"><div class="v2empty">Loading…</div></main></div>`;
+ if(!window.MEDIARR_HUB_IN_MENU){const b=document.createElement('button');b.id='v2Launch';b.innerHTML='◆ MEDIARR Hub <b id="v2Badge">0</b>';b.onclick=()=>openHub();document.body.appendChild(b);}
+ root=document.createElement('div');root.id='v2Hub';root.innerHTML=`<div class="v2shell"><div class="v2top"><div><div class="v2brand">MEDIARR <em>Hub</em></div><div class="v2sub">Media Intelligence · Automation · Requests · Notifications</div></div><button class="v2btn" id="v2Install" style="display:none">Install app</button><button class="v2btn v2close">✕ Close</button></div><div class="v2tabs" id="v2Tabs"></div><main id="v2Body"><div class="v2empty">Loading…</div></main></div>`;
  document.body.appendChild(root);root.querySelector('.v2close').onclick=closeHub;
  const tabs=[['overview','Overview'],['search','Universal Search'],['pipeline','Pipeline'],['library','Library Intelligence'],['requests','Requests'],['notifications','Notifications'],['storage','Storage & Quality'],['automation','Automation']];
  const t=root.querySelector('#v2Tabs');for(const x of tabs){const z=document.createElement('button');z.className='v2tab';z.dataset.tab=x[0];z.textContent=x[1];z.onclick=()=>show(x[0]);t.appendChild(z);}
@@ -34,7 +34,7 @@ function shell(){
 }
 function setTab(){root.querySelectorAll('.v2tab').forEach(x=>x.classList.toggle('on',x.dataset.tab===tab));}
 async function openHub(initial){shell();root.classList.add('open');document.body.style.overflow='hidden';await show(initial||tab);}
-function closeHub(){if(root)root.classList.remove('open');document.body.style.overflow='';}
+function closeHub(){if(root)root.classList.remove('open');document.body.style.overflow='';refreshBadge();}
 function body(html){root.querySelector('#v2Body').innerHTML=html;}
 async function ensureSnap(force){if(snap&&!force&&Date.now()-snap.generatedAt<30000)return snap;snap=await api('/api/v2/intelligence');return snap;}
 function stat(n,label){return `<div class="v2stat"><strong>${esc(n)}</strong><span>${esc(label)}</span></div>`;}
@@ -88,8 +88,11 @@ async function automation(){
  root.querySelector('#aReport').onclick=e=>run('report',e.currentTarget);root.querySelector('#aRepair').onclick=e=>run('repair',e.currentTarget);
 }
 async function show(which){tab=which;setTab();body('<div class="v2empty">Loading…</div>');try{if(which==='overview')await overview();else if(which==='search')await search();else if(which==='pipeline')await pipeline();else if(which==='library')await library();else if(which==='requests')await requests();else if(which==='notifications')await notifications();else if(which==='storage')await storage();else if(which==='automation')await automation();}catch(e){body('<div class="v2empty">⚠ '+esc(e.message)+'</div>');}}
-async function refreshBadge(){if(!user())return;try{const d=await api('/api/v2/notifications');const b=document.getElementById('v2Badge');if(b)b.textContent=String(d.unread||0);}catch(_){}}
+async function refreshBadge(){if(!user())return;try{const d=await api('/api/v2/notifications');const n=Number(d.unread||0);const b=document.getElementById('v2Badge');if(b)b.textContent=String(n);
+ // menu items and header bells opt in with data-v2-badge; hidden when there is nothing unread
+ document.querySelectorAll('[data-v2-badge]').forEach(x=>{x.textContent=n>99?'99+':String(n);x.hidden=!n;});
+ document.querySelectorAll('[data-v2-open="notifications"]').forEach(x=>{const base=x.getAttribute('data-label')||'Notifications';x.setAttribute('aria-label',n?base+' ('+n+' unread)':base);});}catch(_){}}
 function boot(){shell();refreshBadge();if(notifyTimer)clearInterval(notifyTimer);notifyTimer=setInterval(()=>{if(!document.hidden)refreshBadge();},30000);const p=new URLSearchParams(location.search).get('v2');if(p)setTimeout(()=>openHub(p),300);}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(boot,0));else setTimeout(boot,0);
-window.MEDIARR2={open:openHub,close:closeHub,version:V};
+window.MEDIARR2={open:openHub,close:closeHub,refresh:refreshBadge,version:V};
 })();

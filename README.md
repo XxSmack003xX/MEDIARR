@@ -2,6 +2,18 @@
 
 # MEDIARR
 
+## MEDIARR 2.3
+
+MEDIARR 2.3 is a usability release for desktop, mobile and the installed app.
+
+- **Logo → home** — click the MEDIARR logo (or the new **Home** menu item) to clear the search and return to your home page. Ctrl/Cmd-click opens home in a new tab.
+- **Escape and Back work** — Escape closes the window on top. The browser or phone Back button closes windows one at a time instead of leaving MEDIARR, and steps back through your searches.
+- **Shareable links** — the address bar follows your search (`?q=matrix`, `?mode=person&q=keanu`) and the title you're viewing (`?title=movie:tt0133093`), so a link opens the same search or title after sign-in.
+- **One navigation** — the floating "MEDIARR 2.0" button is gone. The hub's Overview, Requests, Notifications, Library health, Storage & quality and Automation (admins) are in the menu, and a bell in the header shows unread notifications.
+- **Clear search errors** — if the search service can't be reached, MEDIARR says so and offers **Try again** instead of showing "No results".
+- **Keyboard and touch** — every menu item works with Tab and Enter, focus moves into windows and returns afterwards, the hidden menu is skipped by Tab, and buttons on touch screens are at least 44px tall.
+- **Tidier menu** — the theme switch has a label, "Now streaming" shows its count only when Plex is set up, icons match, and the header no longer advertises "Cinemeta · Radarr · Sonarr".
+
 ## MEDIARR 2.2
 
 MEDIARR 2.2 moves history and per-user state into a built-in database.
@@ -40,15 +52,15 @@ MEDIARR 2.0 adds a shared responsive **Media Intelligence Hub** on desktop, mobi
 - **Storage & Quality Intelligence** — aggregates Arr-reported movie/TV storage and highlights the largest library items and available quality labels.
 - **Automation & Self-Healing** — report-only mode audits missing media; optional repair mode queues safe Radarr movie searches and Sonarr searches for aired, monitored, missing episodes. Scheduled repair has a minimum 15-minute interval.
 - **Responsive shared UI** — all new 2.0 features live in one `v200.js` interface used by desktop, mobile, and PWA instead of duplicating the feature implementation.
-- **PWA-first launch** — installed MEDIARR launches the full desktop application shell on phones and opens directly into the 2.0 overview. App shortcuts open Intelligence, Search, Pipeline, and Notifications.
+- **PWA-first launch** — installed MEDIARR launches the full desktop application shell on phones and opens directly into the hub overview. App shortcuts open Intelligence, Search, Pipeline, and Notifications.
 - **Backups** — persistent 2.0 inbox/automation state is included in MEDIARR configuration backups.
 
-The legacy desktop/mobile pages remain available for compatibility, while the 2.0 Hub is the shared responsive surface for new features.
+The hub is opened from the menu's **Insights** section and the header bell on both desktop and mobile (since 2.3 there is no floating launcher button).
 
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.2.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.3.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -67,7 +79,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.2.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.3.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1812,6 +1824,7 @@ MEDIARR/
 │   └── PUBLISHING.md            # Maintainer release instructions
 ├── public/
 │   ├── index.html               # Desktop application
+│   ├── nav.js                   # Shared Escape/Back/keyboard handling and address-bar state
 │   └── mobile.html              # Mobile application
 ├── .dockerignore
 ├── .gitignore
