@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.1
+
+### Hub on phones
+
+- Fixed hub lists (Notifications, Requests, Pipeline, Library and others) growing wider than the screen on phones. Long titles pushed every row past the right edge, cutting off text.
+- Fixed iPhone Safari enlarging text in those over-wide rows, which made notification titles and messages roughly twice their normal size. Desktop, mobile and the hub now turn off Safari's automatic text enlargement.
+- Long titles now wrap onto a second line on narrow screens instead of being cut off, and the hub's tabs stay on one line and scroll sideways.
+- The hub background is now solid, so the page behind no longer shows through.
+
 ## 2.3.0
 
 ### Navigation

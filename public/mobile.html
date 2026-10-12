@@ -20,6 +20,8 @@
       https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/) -->
 <link href="/bootstrap.min.css" rel="stylesheet">
 <style>
+  /* Stop iOS Safari from enlarging text in wide blocks */
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   /* 2.3: 44px touch targets; hidden badges stay hidden */
   @media (pointer:coarse){ #mBrandHome{display:inline-flex;align-items:center;min-height:44px} .btn,.btn-sm,.form-control,.input-group-text{min-height:44px} .navbar .btn-sm{min-width:44px} .btn-close{min-width:44px;min-height:44px} .form-check-input{width:1.4em;height:1.4em} }
   [data-v2-badge][hidden]{display:none!important}
