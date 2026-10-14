@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.4.0
+
+### Lidarr (music)
+
+- Connect Lidarr in Settings or in the new Lidarr step of the setup wizard: URL, API key, quality profile, metadata profile, root folder, and which albums to monitor when an artist is added. **Test & load options** pre-selects the root folder's default profiles.
+- New **🎵 Music** search mode on the desktop page and installed app, shown once Lidarr is connected. Results are grouped into Artists and Albums and marked when they're already in Lidarr. The address bar follows music searches (`?mode=music&q=…`).
+- Add an artist from a search card or artist page. Lidarr searches for missing albums right away.
+- Request a single album: for an artist already in Lidarr, MEDIARR monitors that album and searches for it; for a new artist, it adds the artist with only that album monitored.
+- Artist pages list albums with release year and tracks on disk. Admins can switch monitoring per album and search for one album or all monitored albums. Links to an artist page (`?title=artist:<MusicBrainz id>`) can be shared.
+- Admin menu: **Music** opens the Lidarr library, with tracks on disk per artist.
+- Calendar shows upcoming album releases, with a **Music** filter.
+- Download Activity has a Lidarr tab, and Health monitors Lidarr.
+- New webhook endpoint `/api/webhooks/lidarr?token=…`, listed in the wizard and Live Dashboard. Imports refresh the music library immediately and send notifications such as "Radiohead — Kid A".
+- Music requests count toward daily limits and appear in request history, home pages, the admin activity log and notifications.
+- Regular users can read Lidarr's catalogue and calendar through MEDIARR but can't change Lidarr settings or send commands. The Lidarr API key never reaches the browser.
+
+### Fixes
+
+- Setup wizard: going Back and then Next no longer clears an API key typed earlier (Radarr, Sonarr, Lidarr and TMDB).
+- Settings: the API key hint names the app with a capital letter ("in Radarr").
+
+### Not yet included
+
+- Music on the separate mobile page, manual album release selection, and music playback.
+
 ## 2.3.1
 
 ### Hub on phones

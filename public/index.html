@@ -23,13 +23,13 @@
   :root{
     --bg:#0c0b0e;--bg2:#141217;--panel:#1a171e;--panel2:#221d28;--line:#2e2834;
     --txt:#ece7f2;--muted:#9a90a8;--gold:#e8b04b;--gold-dim:#b9893a;
-    --radarr:#ffc230;--sonarr:#35c5f0;--green:#4ade80;--red:#f4607a;
+    --radarr:#ffc230;--sonarr:#35c5f0;--lidarr:#3fd68f;--green:#4ade80;--red:#f4607a;
     --shadow:0 18px 50px -12px rgba(0,0,0,.7);
   }
   html[data-theme="light"]{
     --bg:#f4f2f8;--bg2:#eae4f1;--panel:#ffffff;--panel2:#f3eef9;--line:#e0d9ea;
     --txt:#211c2a;--muted:#6c6480;--gold:#a9762a;--gold-dim:#8a6023;
-    --radarr:#bd8b0d;--sonarr:#1c93bb;--green:#2c9a58;--red:#cf3d5c;
+    --radarr:#bd8b0d;--sonarr:#1c93bb;--lidarr:#1f9a63;--green:#2c9a58;--red:#cf3d5c;
     --shadow:0 16px 40px -16px rgba(70,50,100,.30);
   }
   html[data-theme="light"] body::before{opacity:.02}
@@ -223,6 +223,25 @@
   .svc-head .pill{font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;padding:4px 10px;border-radius:20px}
   .pill.radarr{background:rgba(255,194,48,.16);color:var(--radarr)}
   .pill.sonarr{background:rgba(53,197,240,.16);color:var(--sonarr)}
+  .pill.lidarr{background:rgba(63,214,143,.16);color:var(--lidarr)}
+  .cbadge.music{background:rgba(63,214,143,.16);color:var(--lidarr)}
+  .badge.artist,.badge.album{background:rgba(63,214,143,.92);color:#032617}
+  .card-add.lidarr{background:linear-gradient(180deg,#6ee7b0,#22a86b);color:#032617}
+  .music-sec{margin:6px 0 14px;font-weight:800;font-size:15px;color:var(--muted)}
+  .music-head{display:flex;gap:18px;align-items:flex-start;margin-bottom:16px}
+  .music-head img,.music-head .ph{width:140px;height:140px;border-radius:12px;object-fit:cover;flex:none;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-size:42px}
+  .music-head h3{margin:0 0 4px;font-size:22px}
+  .music-sub{color:var(--muted);font-size:13px;margin-bottom:8px}
+  .music-stats{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;margin:8px 0}
+  .music-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .album-list{display:grid;gap:8px;grid-template-columns:minmax(0,1fr)}
+  .album-row{display:flex;align-items:center;gap:12px;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+  .album-row img,.album-row .ph{width:56px;height:56px;border-radius:8px;object-fit:cover;flex:none;background:var(--panel2);display:flex;align-items:center;justify-content:center}
+  .album-row .grow{min-width:0;flex:1}
+  .album-row .t{font-weight:700;overflow-wrap:anywhere}
+  .album-row .m{color:var(--muted);font-size:12px;margin-top:2px}
+  .album-row .acts{display:flex;gap:6px;flex:none;align-items:center}
+  .album-row label{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted);cursor:pointer}
   .pill.tmdb{background:rgba(144,205,116,.16);color:#90cd74}
   .pill.plex{background:rgba(229,160,13,.16);color:#e5a00d}
   .hd-row{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:11px}
@@ -647,6 +666,10 @@
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="13" rx="2"/><path d="M8 3l4 4 4-4"/></svg>
       Shows
       </div>
+      <div class="settings-btn" id="openLibLidarr" style="display:none" title="All artists in Lidarr">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      Music
+      </div>
       <div class="settings-btn" id="openDownloads" style="display:none" title="Browse & download videos from WebDAV">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
       Downloads
@@ -774,12 +797,13 @@
       <button data-mode="year">📅 Year</button>
       <button data-mode="genre">🎭 Genre</button>
       <button data-mode="studio">🏢 Studio</button>
+      <button data-mode="music" style="display:none">🎵 Music</button>
     </div>
     <div class="search-input">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
       <input id="q" type="text" placeholder="Search movies & TV shows…" autocomplete="off">
     </div>
-    <div class="filters">
+    <div class="filters" id="typeFilters">
       <button data-f="all" class="active">All</button>
       <button data-f="movie">Movies</button>
       <button data-f="series">TV</button>
@@ -807,7 +831,7 @@
     </div>
     <div class="modal-body">
       <div class="note">
-        <b>No CORS headaches:</b> the local Node server proxies every request, so you can use plain <code>http://IP:PORT</code>. Radarr default port <code>7878</code>, Sonarr <code>8989</code>. API keys live under <b>Settings → General → Security</b> in each app.
+        <b>No CORS headaches:</b> the local Node server proxies every request, so you can use plain <code>http://IP:PORT</code>. Radarr default port <code>7878</code>, Sonarr <code>8989</code>, Lidarr <code>8686</code>. API keys live under <b>Settings → General → Security</b> in each app.
       </div>
 
       <div class="svc" data-svc="radarr">
@@ -829,6 +853,24 @@
         <div class="two" style="margin-top:14px">
           <div class="field"><label>Quality profile</label><select id="sonarrProfile"><option value="">— test first —</option></select></div>
           <div class="field"><label>Root folder</label><select id="sonarrFolder"><option value="">— test first —</option></select></div>
+        </div>
+      </div>
+
+      <div class="svc" data-svc="lidarr">
+        <div class="svc-head"><span class="pill lidarr">Lidarr</span><h3>Music <span style="font-weight:500;color:var(--muted);font-size:12px">— optional</span></h3></div>
+        <div class="field"><label>Server URL / IP</label><input type="text" id="lidarrUrl" placeholder="http://192.168.1.10:8686"></div>
+        <div class="field"><label>API Key</label><input type="password" id="lidarrKey" placeholder="paste API key"><div class="small" id="lidarrKeyNote"></div></div>
+        <div class="test-row"><button class="btn btn-ghost" data-test="lidarr">Test &amp; load options</button><span class="test-status" id="lidarrStatus"></span></div>
+        <div class="two" style="margin-top:14px">
+          <div class="field"><label>Quality profile</label><select id="lidarrProfile"><option value="">— test first —</option></select></div>
+          <div class="field"><label>Metadata profile</label><select id="lidarrMeta"><option value="">— test first —</option></select></div>
+        </div>
+        <div class="two">
+          <div class="field"><label>Root folder</label><select id="lidarrFolder"><option value="">— test first —</option></select></div>
+          <div class="field"><label>When adding an artist, monitor</label><select id="lidarrMonitor">
+            <option value="all">All albums</option><option value="future">Future albums</option><option value="missing">Missing albums</option>
+            <option value="existing">Existing albums</option><option value="latest">Latest album</option><option value="first">First album</option><option value="none">None</option>
+          </select></div>
         </div>
       </div>
 
@@ -1052,6 +1094,7 @@
         <button class="chip-btn active" data-filter="all">All</button>
         <button class="chip-btn" data-filter="movie">Movies</button>
         <button class="chip-btn" data-filter="tv">TV</button>
+        <button class="chip-btn" data-filter="music" id="calMusic" style="display:none">Music</button>
       </div>
       <div class="cal-ranges" id="calRanges">
         <button class="chip-btn" data-days="7">7 days</button>
@@ -1529,14 +1572,17 @@ function openSettings(firstRun){
   if(currentUser && currentUser.role!=='admin') return;   // settings are admin-only
   document.getElementById('settingsTitle').textContent = firstRun ? 'Connect your servers' : 'Settings';
   document.getElementById('skipSettings').style.display = firstRun ? 'inline-flex' : 'none';
-  for(const svc of ['radarr','sonarr']){
+  for(const svc of ['radarr','sonarr','lidarr']){
+    if(!config[svc]) continue;
     document.getElementById(svc+'Url').value = config[svc].url || '';
     document.getElementById(svc+'Key').value = '';
-    document.getElementById(svc+'KeyNote').textContent = config[svc].hasKey ? 'A key is already saved — leave blank to keep it.' : 'Settings → General → Security in '+svc+'.';
+    document.getElementById(svc+'KeyNote').textContent = config[svc].hasKey ? 'A key is already saved — leave blank to keep it.' : 'Settings → General → Security in '+({radarr:'Radarr',sonarr:'Sonarr',lidarr:'Lidarr'}[svc]||svc)+'.';
     document.getElementById(svc+'Status').textContent='';
   }
   if(isConfigured('radarr')) loadOptions('radarr', true);
   if(isConfigured('sonarr')) loadOptions('sonarr', true);
+  if(isConfigured('lidarr')) loadOptions('lidarr', true);
+  { const lm=document.getElementById('lidarrMonitor'); if(lm) lm.value=(config.lidarr&&config.lidarr.monitor)||'all'; }
   document.getElementById('tmdbKey').value = '';
   document.getElementById('tmdbKeyNote').innerHTML = config.tmdb && config.tmdb.hasKey
     ? 'A key is already saved — leave blank to keep it.'
@@ -1694,8 +1740,11 @@ async function loadOptions(svc, silent){
     const r = await fetch('/api/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({svc,url,key})});
     const data = await r.json();
     if(!r.ok) throw new Error(data.message||'failed');
-    fillSelect(svc+'Profile', data.profiles.map(p=>({v:p.id,t:p.name})), config[svc].qualityProfileId);
+    // Lidarr's root folders carry default profiles: use them until something is saved
+    const f0 = (data.folders||[]).find(f=>f.path===config[svc].rootFolderPath) || (data.folders||[])[0] || {};
+    fillSelect(svc+'Profile', data.profiles.map(p=>({v:p.id,t:p.name})), config[svc].qualityProfileId || (svc==='lidarr' ? f0.defaultQualityProfileId : ''));
     fillSelect(svc+'Folder', data.folders.map(f=>({v:f.path,t:f.path+(f.freeSpace?'  ('+gb(f.freeSpace)+' free)':'')})), config[svc].rootFolderPath);
+    if(svc==='lidarr') fillSelect('lidarrMeta', (data.metadataProfiles||[]).map(p=>({v:p.id,t:p.name})), config.lidarr.metadataProfileId || f0.defaultMetadataProfileId);
     status.className='test-status ok'; status.textContent='✓ Connected — '+data.name+' v'+data.version;
   }catch(e){ status.className='test-status err'; status.textContent='✕ '+e.message; }
 }
@@ -1708,6 +1757,14 @@ function gb(b){ return (b/1073741824).toFixed(0)+' GB'; }
 
 document.getElementById('saveSettings').onclick = async ()=>{
   const payload = { radarr:{}, sonarr:{} };
+  payload.lidarr = {
+    url: document.getElementById('lidarrUrl').value.trim(),
+    apiKey: document.getElementById('lidarrKey').value.trim(),
+    qualityProfileId: document.getElementById('lidarrProfile').value,
+    metadataProfileId: document.getElementById('lidarrMeta').value,
+    rootFolderPath: document.getElementById('lidarrFolder').value,
+    monitor: document.getElementById('lidarrMonitor').value
+  };
   for(const svc of ['radarr','sonarr']){
     payload[svc] = {
       url: document.getElementById(svc+'Url').value.trim(),
@@ -2498,7 +2555,7 @@ function renderHealth(h){
   }
   let html = '';
   // status rows (Plex first)
-  const order = ['plex','radarr','sonarr'].filter(n=>monitored.includes(n));
+  const order = ['plex','radarr','sonarr','lidarr'].filter(n=>monitored.includes(n));
   order.forEach(name=>{
     const s = (h.services||{})[name] || { up:null };
     const up = s.up===true, down = s.up===false;
@@ -2601,6 +2658,7 @@ document.getElementById('calendarBody').addEventListener('click', e=>{
   if(ev) openCalendarItem(ev);
 });
 function openCalendarItem(e){
+  if(e.kind==='music'){ if(e.artistId){ calendarOverlay.classList.remove('show'); openMusicArtist({ id:e.artistId }); } return; }
   const id = e.imdbId || (e.tmdbId ? 'tmdb:'+e.tmdbId : '');
   if(!id) return;   // nothing we can resolve against Cinemeta/TMDB
   calendarOverlay.classList.remove('show');
@@ -2616,8 +2674,9 @@ function posterOf(images){
 async function loadCalendar(){
   const body=document.getElementById('calendarBody');
   body.innerHTML='<div class="state"><div class="spinner"></div>Loading the schedule…</div>';
-  const haveR=isConfigured('radarr'), haveS=isConfigured('sonarr');
-  if(!haveR && !haveS){
+  const haveR=isConfigured('radarr'), haveS=isConfigured('sonarr'), haveL=isConfigured('lidarr');
+  { const cm=document.getElementById('calMusic'); if(cm) cm.style.display=haveL?'':'none'; }
+  if(!haveR && !haveS && !haveL){
     body.innerHTML = `<div class="state"><div class="big">Nothing connected</div>Add Radarr or Sonarr in <a href="#" onclick="calendarOverlay.classList.remove('show');openSettings(false);return false;">Settings</a> to see what's coming up.</div>`;
     return;
   }
@@ -2644,7 +2703,17 @@ async function loadCalendar(){
           se:`S${pad(ep.seasonNumber)}E${pad(ep.episodeNumber)}`, ep:ep.title||'', hasFile:!!ep.hasFile, monitored:!!ep.monitored, hasTime:true,
           imdbId:s.imdbId||'', tmdbId:s.tmdbId||'' });
       });
-    }).catch(e=>errs.push('Sonarr: '+e.message)) : null
+    }).catch(e=>errs.push('Sonarr: '+e.message)) : null,
+    haveL ? arr('lidarr', `/api/v1/calendar?unmonitored=true&includeArtist=true&${qs}`).then(list=>{
+      (list||[]).forEach(al=>{
+        if(!al.releaseDate) return; const d=new Date(al.releaseDate); if(d<start||d>=end) return;
+        const a=al.artist||{}, cover=(al.images||[]).find(i=>i.coverType==='cover');
+        const st=al.statistics||{};
+        events.push({ kind:'music', date:d, title:a.artistName||'Music', album:al.title||'', albumType:al.albumType||'Album',
+          poster:(cover&&(cover.remoteUrl||''))||posterOf(a.images), hasFile:!!(st.trackFileCount && st.trackFileCount>=(st.trackCount||st.totalTrackCount||1)),
+          monitored:!!al.monitored, artistId:al.artistId||a.id||null });
+      });
+    }).catch(e=>errs.push('Lidarr: '+e.message)) : null
   ]);
   events.sort((a,b)=>a.date-b.date);
   events.forEach((e,i)=>{ e._i=i; });
@@ -2664,8 +2733,9 @@ function renderCalendar(){
   let evs=calState.events;
   if(calState.filter==='movie') evs=evs.filter(e=>e.kind==='movie');
   else if(calState.filter==='tv') evs=evs.filter(e=>e.kind==='tv');
+  else if(calState.filter==='music') evs=evs.filter(e=>e.kind==='music');
   const errHtml=(calState.errs&&calState.errs.length)?`<div class="note" style="margin:0 0 12px">Couldn't reach: ${esc(calState.errs.join(' · '))}</div>`:'';
-  if(!evs.length){ body.innerHTML=errHtml+`<div class="state"><div class="big">Nothing scheduled</div>No ${calState.filter==='all'?'releases':(calState.filter==='movie'?'movie releases':'episodes')} in the next ${calState.days} days.</div>`; return; }
+  if(!evs.length){ body.innerHTML=errHtml+`<div class="state"><div class="big">Nothing scheduled</div>No ${calState.filter==='all'?'releases':(calState.filter==='movie'?'movie releases':calState.filter==='music'?'album releases':'episodes')} in the next ${calState.days} days.</div>`; return; }
   // group by calendar day
   const groups=[]; let cur=null;
   evs.forEach(e=>{ const key=dayStart(e.date).getTime(); if(!cur||cur.key!==key){ cur={key, label:dayLabel(e.date), today:key===dayStart(new Date()).getTime(), items:[]}; groups.push(cur); } cur.items.push(e); });
@@ -2674,8 +2744,8 @@ function renderCalendar(){
     html += `<div class="cal-day ${g.today?'today':''}">${esc(g.label)} <span class="cd-count">· ${g.items.length} ${g.items.length===1?'item':'items'}</span></div>`;
     for(const e of g.items){
       const poster = e.poster ? `<img class="cposter" src="${esc(e.poster)}" loading="lazy" onerror="this.classList.add('ph');this.removeAttribute('src');this.textContent='🎬';">`
-                              : `<div class="cposter ph">${e.kind==='movie'?'🎬':'📺'}</div>`;
-      const sub = e.kind==='tv' ? `${e.se}${e.ep?' · '+esc(e.ep):''}` : `${esc(e.release)}${e.year?' · '+e.year:''}`;
+                              : `<div class="cposter ph">${e.kind==='movie'?'🎬':e.kind==='music'?'🎵':'📺'}</div>`;
+      const sub = e.kind==='tv' ? `${e.se}${e.ep?' · '+esc(e.ep):''}` : e.kind==='music' ? esc(e.album) : `${esc(e.release)}${e.year?' · '+e.year:''}`;
       const time = e.kind==='tv' ? e.date.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}) : '';
       const have = e.hasFile ? '<span class="cbadge have">Downloaded</span>' : (e.monitored? '' : '<span class="cbadge soon">Unmonitored</span>');
       html += `<div class="cal-item" data-ev="${e._i}" title="View details">
@@ -2683,10 +2753,10 @@ function renderCalendar(){
         <div class="cal-main">
           <div class="cal-title">${esc(e.title)}</div>
           <div class="cal-sub">${sub}</div>
-          <div class="cal-meta">${e.kind==='movie'?'Movie':'TV'}${time?' · '+time:''}</div>
+          <div class="cal-meta">${e.kind==='movie'?'Movie':e.kind==='music'?esc(e.albumType):'TV'}${time?' · '+time:''}</div>
         </div>
         <div class="cal-badges">
-          <span class="cbadge ${e.kind==='movie'?'movie':'tv'}">${e.kind==='movie'?'Radarr':'Sonarr'}</span>
+          <span class="cbadge ${e.kind==='movie'?'movie':e.kind==='music'?'music':'tv'}">${e.kind==='movie'?'Radarr':e.kind==='music'?'Lidarr':'Sonarr'}</span>
           ${have}
         </div>
       </div>`;
@@ -2700,6 +2770,7 @@ const libraryOverlay = document.getElementById('libraryOverlay');
 const libState = { svc:'radarr', items:null, filter:'' };
 document.getElementById('openLibRadarr').onclick = ()=> openLibrary('radarr');
 document.getElementById('openLibSonarr').onclick = ()=> openLibrary('sonarr');
+document.getElementById('openLibLidarr').onclick = ()=> openLibrary('lidarr');
 document.getElementById('closeLibrary').onclick = ()=> libraryOverlay.classList.remove('show');
 document.getElementById('libFilter').addEventListener('input', e=>{ libState.filter=e.target.value.toLowerCase(); renderLibrary(); });
 { const bar=document.getElementById('libStatus');
@@ -2762,12 +2833,17 @@ document.getElementById('libraryBody').addEventListener('click', e=>{
   const sb=e.target.closest('.lib-search');
   if(sb){ libSearchOne(libState.svc, Number(sb.dataset.id), sb); return; }
   const ti=e.target.closest('.lib-title');
+  if(ti && ti.dataset.artist){ libraryOverlay.classList.remove('show'); openMusicArtist({ id: ti.dataset.artist }); return; }
   if(ti && ti.dataset.open){ libraryOverlay.classList.remove('show'); openDetail(libState.svc==='radarr'?'movie':'series', ti.dataset.open); }
 });
 function updateLibraryButtons(){
   const admin = !!(currentUser && currentUser.role==='admin');
   const lr=document.getElementById('openLibRadarr'); if(lr) lr.style.display=(admin && isConfigured('radarr'))?'':'none';
   const ls=document.getElementById('openLibSonarr'); if(ls) ls.style.display=(admin && isConfigured('sonarr'))?'':'none';
+  const ll=document.getElementById('openLibLidarr'); if(ll) ll.style.display=(admin && isConfigured('lidarr'))?'':'none';
+  // Music search appears for everyone once Lidarr is set up
+  { const mm=document.querySelector('.modeswitch button[data-mode="music"]'); if(mm) mm.style.display=isConfigured('lidarr')?'':'none';
+    if(!isConfigured('lidarr') && mode==='music'){ const t=document.querySelector('.modeswitch button[data-mode="title"]'); if(t) t.click(); } }
   const sp=document.getElementById('scanPlex'); if(sp) sp.style.display=(admin && isConfigured('plex'))?'':'none';
   const dl=document.getElementById('openDownloads'); if(dl) dl.style.display=isConfigured('webdav')?'':'none';
   // Queue button appears for every signed-in user once SABnzbd is configured
@@ -2781,9 +2857,9 @@ async function openLibrary(svc){
   { const mb=document.getElementById('libSearchMissing'); if(mb) mb.style.display = (svc==='sonarr') ? '' : 'none'; }
   { const bar=document.getElementById('libStatus');
     if(bar){ bar.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.ls==='all'));
-      bar.querySelectorAll('[data-tv]').forEach(b=> b.style.display = (svc==='sonarr') ? '' : 'none'); } }
+      bar.querySelectorAll('[data-tv]').forEach(b=> b.style.display = (svc==='sonarr'||svc==='lidarr') ? '' : 'none'); } }
   document.getElementById('libFilter').value='';
-  document.getElementById('libraryTitle').textContent = svc==='radarr' ? 'Movie library (Radarr)' : 'TV library (Sonarr)';
+  document.getElementById('libraryTitle').textContent = svc==='radarr' ? 'Movie library (Radarr)' : svc==='lidarr' ? 'Music library (Lidarr)' : 'TV library (Sonarr)';
   libraryOverlay.classList.add('show');
   const body=document.getElementById('libraryBody'); const count=document.getElementById('libCount'); count.textContent='';
   body.innerHTML='<div class="state"><div class="spinner"></div>Loading library…</div>';
@@ -2802,6 +2878,7 @@ async function openLibrary(svc){
 // How much of an item is on disk: 'none' | 'partial' | 'full'
 function libHaveState(it, svc){
   if(svc==='radarr') return it.hasFile ? 'full' : 'none';
+  if(svc==='lidarr'){ const st=it.statistics||{}, tc=st.trackCount||0, tf=st.trackFileCount||0; if(!tc) return 'none'; return tf>=tc ? 'full' : (tf>0 ? 'partial' : 'none'); }
   const st=it.statistics||{}, ec=st.episodeCount||0, efc=st.episodeFileCount||0;
   if(!ec) return 'none';
   if(efc>=ec) return 'full';
@@ -2826,14 +2903,18 @@ function renderLibrary(){
   const narrowed = f || (libState.status && libState.status!=='all');
   const ageTxt = libState.cacheAge==null ? '' :
     (libState.cacheAge<1 ? ' · just scanned' : libState.cacheAge<60 ? ` · scanned ${libState.cacheAge}m ago` : ` · scanned ${Math.round(libState.cacheAge/60)}h ago`);
-  document.getElementById('libCount').innerHTML = `${items.length}${narrowed?' / '+libState.items.length:''} ${svc==='radarr'?'movies':'shows'}<span style="opacity:.65">${esc(ageTxt)}</span>`;
+  document.getElementById('libCount').innerHTML = `${items.length}${narrowed?' / '+libState.items.length:''} ${svc==='radarr'?'movies':svc==='lidarr'?'artists':'shows'}<span style="opacity:.65">${esc(ageTxt)}</span>`;
   if(!items.length){ body.innerHTML='<div class="state">Nothing matches this filter.</div>'; return; }
   body.innerHTML = items.map(it=>{
     const pos=posterOf(it.images);
-    const poster = pos ? `<img class="lposter" src="${esc(pos)}" loading="lazy" onerror="this.classList.add('ph');this.removeAttribute('src');this.textContent='${svc==='radarr'?'🎬':'📺'}';">`
-                       : `<div class="lposter ph">${svc==='radarr'?'🎬':'📺'}</div>`;
+    const icon = svc==='radarr'?'🎬':svc==='lidarr'?'🎵':'📺';
+    const poster = pos ? `<img class="lposter" src="${esc(pos)}" loading="lazy" onerror="this.classList.add('ph');this.removeAttribute('src');this.textContent='${icon}';">`
+                       : `<div class="lposter ph">${icon}</div>`;
     const meta=[];
-    if(svc==='radarr'){ meta.push(`<span class="lib-dot ${it.hasFile?'have':'miss'}"></span>${it.hasFile?'Downloaded':'Missing'}`); }
+    if(svc==='lidarr'){ const st=it.statistics||{}, h=libHaveState(it,svc);
+      meta.push(`<span class="lib-dot ${h==='full'?'have':(h==='partial'?'part':'miss')}"></span>${st.trackFileCount||0}/${st.trackCount||0} tracks`);
+      meta.push(`${st.albumCount||0} album${st.albumCount===1?'':'s'}`); }
+    else if(svc==='radarr'){ meta.push(`<span class="lib-dot ${it.hasFile?'have':'miss'}"></span>${it.hasFile?'Downloaded':'Missing'}`); }
     else { const st=it.statistics||{}, ec=st.episodeCount||0, efc=st.episodeFileCount||0; const h=libHaveState(it,svc);
       meta.push(`<span class="lib-dot ${h==='full'?'have':(h==='partial'?'part':'miss')}"></span>${efc}/${ec} eps${h==='partial'?' · '+(ec-efc)+' missing':''}`); }
     if(it.year) meta.push(String(it.year));
@@ -2841,11 +2922,11 @@ function renderLibrary(){
     return `<div class="lib-item">
       ${poster}
       <div class="lib-main">
-        <div class="lib-title" data-open="${esc(it.imdbId||(it.tmdbId?'tmdb:'+it.tmdbId:''))}">${esc(it.title)}</div>
+        <div class="lib-title" ${svc==='lidarr'?`data-artist="${esc(String(it.id))}"`:`data-open="${esc(it.imdbId||(it.tmdbId?'tmdb:'+it.tmdbId:''))}"`}>${esc(it.title)}</div>
         <div class="lib-meta">${meta.join('<span style="opacity:.4">·</span>')}</div>
       </div>
       ${svc==='radarr'?`<button class="lib-release" data-id="${esc(String(it.id))}" data-title="${esc(it.title||'Movie')}" title="Browse and manually grab a release">⚡</button>`:''}
-      <button class="lib-search" data-id="${esc(String(it.id))}" title="Search for ${svc==='radarr'?'this movie':'all episodes of this show'}">
+      <button class="lib-search" data-id="${esc(String(it.id))}" title="Search for ${svc==='radarr'?'this movie':svc==='lidarr'?'this artist’s monitored albums':'all episodes of this show'}">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       </button>
     </div>`;
@@ -2854,7 +2935,7 @@ function renderLibrary(){
 async function libSearchOne(svc, id, btn){
   const orig=btn.innerHTML; btn.disabled=true; btn.classList.remove('done'); btn.innerHTML='<div class="spinner"></div>';
   try{
-    const cmd = svc==='radarr' ? { name:'MoviesSearch', movieIds:[id] } : { name:'SeriesSearch', seriesId:id };
+    const cmd = svc==='radarr' ? { name:'MoviesSearch', movieIds:[id] } : svc==='lidarr' ? { name:'ArtistSearch', artistId:id } : { name:'SeriesSearch', seriesId:id };
     await postJSON('/api/command',{svc,cmd});
     btn.classList.add('done'); btn.innerHTML='✓';
     setTimeout(()=>{ btn.classList.remove('done'); btn.innerHTML=orig; btn.disabled=false; }, 2200);
@@ -2863,12 +2944,15 @@ async function libSearchOne(svc, id, btn){
 async function libSearchAll(){
   const svc=libState.svc; if(!libState.items) return;
   const monitored=libState.items.filter(it=>it.monitored);
-  if(!monitored.length){ alert('No monitored '+(svc==='radarr'?'movies':'shows')+' to search.'); return; }
-  if(!confirm(`Start a search for all ${monitored.length} monitored ${svc==='radarr'?'movies':'shows'}? This can put heavy load on your indexers.`)) return;
+  const noun = svc==='radarr'?'movies':svc==='lidarr'?'artists':'shows';
+  if(!monitored.length){ alert('No monitored '+noun+' to search.'); return; }
+  if(!confirm(`Start a search for all ${monitored.length} monitored ${noun}? This can put heavy load on your indexers.`)) return;
   const btn=document.getElementById('libSearchAll'); const orig=btn.textContent; btn.disabled=true; btn.textContent='Queueing…';
   try{
     if(svc==='radarr'){
       await postJSON('/api/command',{svc:'radarr',cmd:{name:'MoviesSearch', movieIds:monitored.map(m=>m.id)}});
+    } else if(svc==='lidarr'){
+      for(const a of monitored){ try{ await postJSON('/api/command',{svc:'lidarr',cmd:{name:'ArtistSearch', artistId:a.id}}); }catch(e){} }
     } else {
       for(const s of monitored){ try{ await postJSON('/api/command',{svc:'sonarr',cmd:{name:'SeriesSearch', seriesId:s.id}}); }catch(e){} }
     }
@@ -2980,9 +3064,13 @@ document.querySelectorAll('.modeswitch button').forEach(b=>{
       : mode==='person' ? 'Search by actor or director…'
       : mode==='year' ? 'Enter a year, e.g. 1999'
       : mode==='studio' ? 'Search by studio, e.g. Pixar'
+      : mode==='music' ? 'Search artists & albums…'
       : 'Search movies & TV shows…';
+    { const tf=document.getElementById('typeFilters'); if(tf) tf.style.display = mode==='music' ? 'none' : ''; }
     qInput.setAttribute('inputmode', mode==='year' ? 'numeric' : 'text');
-    hintEl.textContent = mode==='genre'
+    hintEl.textContent = mode==='music'
+      ? 'Find an artist or album, then add it to Lidarr.'
+      : mode==='genre'
       ? 'Pick a genre, then narrow it to a single year or browse all years.'
       : mode==='person'
       ? 'Search a person, pick them, then add any of their movies or shows.'
@@ -3003,6 +3091,7 @@ document.querySelectorAll('.modeswitch button').forEach(b=>{
       return;
     }
     if(mode==='genre'){ showGenres(v); return; }
+    if(mode==='music'){ if(v.length>=2) searchMusic(v); else musicEmpty(); return; }
     if(v.length>=2) triggerSearch(v);
     else if(mode==='person') showPopularPeople();
     else showHome();
@@ -3034,6 +3123,7 @@ qInput.addEventListener('input', ()=>{
     return;
   }
   if(mode==='genre'){ searchTimer = setTimeout(()=>showGenres(v), 250); return; }   // filter the genre list
+  if(mode==='music'){ if(v.length>=2) searchTimer = setTimeout(()=>searchMusic(v), 400); else musicEmpty(); return; }
   if(v.length<2){ if(mode==='person') showPopularPeople(); else showHome(); return; }
   searchTimer = setTimeout(()=>triggerSearch(v), 350);
 });
@@ -3045,6 +3135,145 @@ function searchUnavailable(what, retry){
 function searchFailedState(e){
   results.innerHTML = '<div class="state"><div class="big">Search failed</div>'+esc((e && e.message) || 'Something went wrong')+'<div class="retry"><button class="btn btn-gold" type="button" id="searchRetry">Try again</button></div></div>';
   document.getElementById('searchRetry').onclick = ()=>{ const v=qInput.value.trim(); if(v) triggerSearch(v); };
+}
+
+/* ---------- music (Lidarr) ----------
+   Music search uses Lidarr's own catalog lookup (MusicBrainz). Adds go through the
+   server so profiles, daily limits, request history and notifications apply. */
+const musicState = { q:'', items:null };
+function musicEmpty(){
+  musicState.items=null; musicState.q='';
+  results.innerHTML='<div class="state"><div class="big">Search music</div>Type an artist or album name to find it in Lidarr’s catalog.</div>';
+}
+async function searchMusic(q){
+  musicState.q=q;
+  results.innerHTML='<div class="state"><div class="spinner"></div>Searching Lidarr…</div>';
+  try{
+    const r=await fetch('/api/music/search?q='+encodeURIComponent(q)); const d=await r.json();
+    if(q!==musicState.q) return;   // a newer search has started
+    if(!d.configured){ results.innerHTML='<div class="state"><div class="big">Lidarr isn’t set up</div>An admin can connect Lidarr in Settings.</div>'; return; }
+    if(d.error) return searchUnavailable('Lidarr', ()=>searchMusic(q));
+    musicState.items=d.items||[]; renderMusic();
+  }catch(e){ searchFailedState(e); }
+}
+function musicCard(it, i){
+  const poster = it.poster
+    ? `<img class="poster" src="${esc(it.poster)}" loading="lazy" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'poster placeholder',textContent:'🎵'}))">`
+    : `<div class="poster placeholder">🎵</div>`;
+  const sub = it.kind==='artist' ? [it.artistType, it.disambiguation].filter(Boolean).join(' · ') : [it.artistName, it.year].filter(Boolean).join(' · ');
+  const btn = it.inLibrary ? `<button class="card-add added" disabled>✓ In library</button>`
+    : `<button class="card-add lidarr" type="button" data-madd="${i}">＋ ${it.kind==='artist'?'Add artist':'Add album'}</button>`;
+  return `<div class="card${it.inLibrary?' added':''}" data-mopen="${i}" role="button" tabindex="0" aria-label="${esc(it.title)}">${poster}
+    <span class="badge ${it.kind}">${it.kind==='artist'?'Artist':'Album'}</span>${it.inLibrary?'<span class="check" title="In your library">✓</span>':''}
+    <div class="card-meta"><div class="card-title">${esc(it.title)}</div><div class="card-year">${esc(sub)}</div></div>
+    <div class="addrow">${btn}</div></div>`;
+}
+function renderMusic(){
+  const all=musicState.items||[];
+  let items=hideAdded ? all.filter(x=>!x.inLibrary) : all;
+  if(!items.length){
+    results.innerHTML = all.length
+      ? '<div class="state"><div class="big">All set</div>Everything that matched is already in your library. Turn off “Hide added” to see it.</div>'
+      : '<div class="state"><div class="big">No matches</div>Lidarr didn’t find an artist or album with that name. Try a different spelling.</div>';
+    return;
+  }
+  const idx=x=>all.indexOf(x);
+  const artists=items.filter(x=>x.kind==='artist'), albums=items.filter(x=>x.kind==='album');
+  let h='';
+  if(artists.length) h+=`<div class="music-sec">Artists</div><div class="grid">${artists.map(x=>musicCard(x, idx(x))).join('')}</div>`;
+  if(albums.length) h+=`<div class="music-sec" style="margin-top:22px">Albums</div><div class="grid">${albums.map(x=>musicCard(x, idx(x))).join('')}</div>`;
+  results.innerHTML=h;
+  results.querySelectorAll('[data-madd]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); addMusic(all[Number(b.dataset.madd)], b); });
+  results.querySelectorAll('[data-mopen]').forEach(c=>{
+    const open=()=>{ const it=all[Number(c.dataset.mopen)];
+      openMusicArtist({ foreignArtistId:it.foreignArtistId, id:(it.kind==='artist'?it.libraryId:it.artistLibraryId)||'', focusAlbum:it.kind==='album'?it.foreignAlbumId:'' }); };
+    c.addEventListener('click', e=>{ if(e.target.closest('.card-add')) return; open(); });
+    c.addEventListener('keydown', e=>{ if(e.key==='Enter' && e.target===c){ e.preventDefault(); open(); } });
+  });
+}
+async function musicAddRequest(body){
+  const r=await fetch('/api/music/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok || !d.ok) throw new Error(d.message || ('HTTP '+r.status));
+  try{ refreshMe(); }catch(_){}
+  return d;
+}
+async function addMusic(it, btn){
+  const orig=btn.textContent; btn.disabled=true; btn.textContent='Adding…';
+  try{
+    const d=await musicAddRequest({ kind:it.kind, foreignArtistId:it.foreignArtistId, foreignAlbumId:it.foreignAlbumId });
+    it.inLibrary=true;
+    if(it.kind==='artist') (musicState.items||[]).forEach(x=>{ if(x.kind==='album' && x.foreignArtistId===it.foreignArtistId) x.artistInLibrary=true; });
+    btn.classList.remove('lidarr'); btn.classList.add('added'); btn.textContent=d.alreadyInLibrary?'✓ Already in library':'✓ Added';
+  }catch(e){ btn.textContent='⚠ '+e.message; setTimeout(()=>{ btn.textContent=orig; btn.disabled=false; }, 3500); }
+}
+async function openMusicArtist(q){
+  q=q||{};
+  detailBody.innerHTML='<div class="state"><div class="spinner"></div>Loading artist…</div>';
+  detailOverlay.classList.add('show');
+  detailCtx={ mediaType:'artist', imdbId:null, tmdbId:null, mbid:q.foreignArtistId||'' };
+  if(window.MEDIARRNav) MEDIARRNav.refreshUrl();
+  try{
+    const qs = q.id ? 'id='+encodeURIComponent(q.id) : 'foreignArtistId='+encodeURIComponent(q.foreignArtistId||'');
+    const d=await (await fetch('/api/music/artist?'+qs)).json();
+    if(!d.configured) throw new Error('Lidarr isn’t set up.');
+    if(!d.found) throw new Error('Lidarr couldn’t find this artist.');
+    detailCtx.mbid=d.artist.foreignArtistId||detailCtx.mbid;
+    if(window.MEDIARRNav) MEDIARRNav.refreshUrl();
+    renderMusicArtist(d, q.focusAlbum||'');
+  }catch(e){ detailBody.innerHTML='<div class="state"><div class="big">Couldn’t open this artist</div>'+esc(e.message)+'</div>'; }
+}
+function renderMusicArtist(d, focus){
+  const a=d.artist, st=a.statistics||{}, admin=!!(currentUser && currentUser.role==='admin');
+  const img = a.poster ? `<img src="${esc(a.poster)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'ph',textContent:'🎵'}))">` : '<div class="ph">🎵</div>';
+  const sub=[a.type, a.disambiguation, (a.genres||[]).join(', ')].filter(Boolean).join(' · ');
+  const stats = d.inLibrary ? `<div class="music-stats"><span><b>${st.albumCount||0}</b> albums</span><span><b>${st.trackFileCount||0}</b> of ${st.totalTrackCount||0} tracks on disk</span>${st.sizeOnDisk?`<span>${dlSize(st.sizeOnDisk)}</span>`:''}${a.monitored?'':'<span>Not monitored</span>'}</div>` : '';
+  const links=(a.links||[]).map(l=>`<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.name||'Link')}</a>`).join(' · ');
+  let actions='';
+  if(!d.inLibrary) actions=`<button class="btn btn-gold" type="button" id="maAddArtist">＋ Add artist to Lidarr</button>`;
+  else if(admin) actions=`<button class="btn btn-ghost" type="button" id="maSearchAll">Search for monitored albums</button>`;
+  const albums=(d.albums||[]).map(al=>{
+    const s2=al.statistics||{}, have=s2.trackFileCount||0, total=s2.totalTrackCount||s2.trackCount||0;
+    const cover = al.cover ? `<img src="${esc(al.cover)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'ph',textContent:'💿'}))">` : '<div class="ph">💿</div>';
+    const meta=[String(al.releaseDate||'').slice(0,4), al.albumType, total?`${have}/${total} tracks`:''].filter(Boolean).join(' · ');
+    let acts='';
+    if(admin){
+      acts=`<label title="Monitored albums are searched for and downloaded"><input type="checkbox" data-amon="${al.id}" ${al.monitored?'checked':''}> Monitored</label>
+            <button class="btn btn-ghost" type="button" data-asearch="${al.id}" style="padding:6px 10px;font-size:12px">Search</button>`;
+    } else if(!al.monitored && !(have && have>=total)){
+      acts=`<button class="btn btn-ghost" type="button" data-areq="${esc(al.foreignAlbumId)}" style="padding:6px 10px;font-size:12px">Request</button>`;
+    } else {
+      acts=`<span class="cbadge ${have&&have>=total?'have':'music'}">${have&&have>=total?'In library':'Wanted'}</span>`;
+    }
+    return `<div class="album-row${al.foreignAlbumId===focus?' focus':''}" data-fa="${esc(al.foreignAlbumId)}">${cover}<div class="grow"><div class="t">${esc(al.title)}</div><div class="m">${esc(meta)}</div></div><div class="acts">${acts}</div></div>`;
+  }).join('');
+  detailBody.innerHTML=`<div class="music-head">${img}<div style="min-width:0">
+      <h3>${esc(a.name)}</h3><div class="music-sub">${esc(sub)}</div>${stats}
+      ${a.overview?`<p style="margin:8px 0 0;max-width:70ch;line-height:1.5">${esc(a.overview)}</p>`:''}
+      ${links?`<div class="music-sub" style="margin-top:8px">${links}</div>`:''}
+      <div class="music-actions">${actions}<span class="test-status" id="maMsg"></span></div></div></div>
+    ${d.inLibrary ? `<div class="music-sec">Albums</div><div class="album-list">${albums||'<div class="state">Lidarr hasn’t listed any albums for this artist yet.</div>'}</div>`
+                  : '<div class="note">Add this artist to see their albums and choose what to download.</div>'}`;
+  const msg=document.getElementById('maMsg');
+  const say=(t,cls)=>{ if(msg){ msg.className='test-status '+(cls||'ok'); msg.textContent=t; } };
+  const addBtn=document.getElementById('maAddArtist');
+  if(addBtn) addBtn.onclick=async()=>{ addBtn.disabled=true; say('Adding…','load');
+    try{ await musicAddRequest({ kind:'artist', foreignArtistId:a.foreignArtistId }); say('✓ Added to Lidarr'); setTimeout(()=>openMusicArtist({ foreignArtistId:a.foreignArtistId }), 900); }
+    catch(e){ say('✕ '+e.message,'err'); addBtn.disabled=false; } };
+  const sa=document.getElementById('maSearchAll');
+  if(sa) sa.onclick=async()=>{ sa.disabled=true; try{ await postJSON('/api/command',{svc:'lidarr',cmd:{name:'ArtistSearch', artistId:a.id}}); say('✓ Search started'); }catch(e){ say('✕ '+e.message,'err'); } setTimeout(()=>{ sa.disabled=false; }, 3000); };
+  detailBody.querySelectorAll('[data-amon]').forEach(cb=>cb.onchange=async()=>{
+    cb.disabled=true;
+    try{ await arr('lidarr','/api/v1/album/monitor',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({ albumIds:[Number(cb.dataset.amon)], monitored:cb.checked })}); say(cb.checked?'✓ Album monitored':'✓ Album no longer monitored'); }
+    catch(e){ cb.checked=!cb.checked; say('✕ '+e.message,'err'); }
+    cb.disabled=false; });
+  detailBody.querySelectorAll('[data-asearch]').forEach(b=>b.onclick=async()=>{
+    b.disabled=true; try{ await postJSON('/api/command',{svc:'lidarr',cmd:{name:'AlbumSearch', albumIds:[Number(b.dataset.asearch)]}}); b.textContent='✓ Searching'; }catch(e){ b.textContent='⚠'; } });
+  detailBody.querySelectorAll('[data-areq]').forEach(b=>b.onclick=async()=>{
+    b.disabled=true; b.textContent='Requesting…';
+    try{ await musicAddRequest({ kind:'album', foreignAlbumId:b.dataset.areq }); b.outerHTML='<span class="cbadge music">Wanted</span>'; }
+    catch(e){ b.textContent='⚠ '+e.message; setTimeout(()=>{ b.textContent='Request'; b.disabled=false; }, 3500); } });
+  if(focus){ const row=detailBody.querySelector('.album-row.focus'); if(row){ row.style.borderColor='var(--lidarr)'; setTimeout(()=>row.scrollIntoView({ block:'center', behavior:'smooth' }), 60); } }
 }
 
 /* ---------- go home (header logo / drawer "Home") ----------
@@ -3068,7 +3297,7 @@ document.getElementById('brandHome').addEventListener('click', e=>{
 });
 document.getElementById('navHome').onclick=()=>goHome();
 
-const NAV_MODES = ['title','person','year','genre','studio'];
+const NAV_MODES = ['title','person','year','genre','studio','music'];
 function currentView(){ return { mode, q: qInput.value.trim() }; }
 function viewParams(v){ const o={}; if(v && v.mode && v.mode!=='title') o.mode=v.mode; if(v && v.q) o.q=v.q; return o; }
 function navUrl(params){
@@ -3078,6 +3307,7 @@ function navUrl(params){
   return u.pathname + u.search;
 }
 function detailLinkParam(){
+  if(detailOverlay.classList.contains('show') && detailCtx.mediaType==='artist' && detailCtx.mbid) return 'artist:'+detailCtx.mbid;
   if(!detailOverlay.classList.contains('show') || !(detailCtx.imdbId || detailCtx.tmdbId)) return '';
   return (detailCtx.mediaType==='movie' ? 'movie' : 'series') + ':' + (detailCtx.imdbId || ('tmdb:'+detailCtx.tmdbId));
 }
@@ -3121,11 +3351,13 @@ function applyStartUrl(){
   const i = t.indexOf(':');
   if(i>0){
     const type = t.slice(0,i), id = t.slice(i+1);
-    if(id.startsWith('tmdb:')) openDetailFromTmdb(type==='movie'?'movie':'tv', id.slice(5));
+    if(type==='artist') openMusicArtist({ foreignArtistId:id });
+    else if(id.startsWith('tmdb:')) openDetailFromTmdb(type==='movie'?'movie':'tv', id.slice(5));
     else if(id) openDetail(type==='movie'?'movie':'series', id);
   }
 }
 function triggerSearch(q){
+  if(mode==='music') return searchMusic(q);
   if(mode==='year') return /^\d{4}$/.test(q) ? discoverByYear(q) : undefined;
   if(mode==='studio') return searchStudio(q);
   if(mode==='genre') return showGenres(q);
@@ -4544,6 +4776,7 @@ async function postAddRefresh(){
   rerenderCurrentView();
 }
 function rerenderCurrentView(){
+  if(mode==='music'){ if(musicState.items) renderMusic(); return; }
   if(mode==='year' && yearState.year) renderYearResults();
   else if(mode==='studio' && studioState.query) renderStudioResults();
   else if(mode==='genre' && genreState.name) renderGenreResults();

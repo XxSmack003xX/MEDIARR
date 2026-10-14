@@ -99,6 +99,7 @@ const MAX_ADDS_LOG = 3000;
 const DEFAULT_CONFIG = {
   radarr: { url: '', apiKey: '', qualityProfileId: '', rootFolderPath: '' },
   sonarr: { url: '', apiKey: '', qualityProfileId: '', rootFolderPath: '' },
+  lidarr: { url: '', apiKey: '', qualityProfileId: '', metadataProfileId: '', rootFolderPath: '', monitor: 'all' },
   tmdb:   { apiKey: '' },
   plex:   { url: '', token: '', clientId: '' },
   webdav: { source: 'webdav', localPath: '', url: '', username: '', password: '', folder: '', mode: 'redirect', transcode: false, encSpeed: 'balanced', hwAccel: 'auto' },   // source: 'webdav' | 'local'   // encSpeed: balanced|faster|fastest|quality; hwAccel: auto|off
@@ -118,6 +119,15 @@ const DEFAULT_CONFIG = {
   plexBlock: { enabled: false, ips: [], message: 'This device is not permitted to stream. Please contact the server owner.' }   // background library scan; minimum 60 minutes  // minutes between each add; minRuntime = skip titles shorter than this (0 = off)
 };
 const LOGIN_THEMES = ['tron', 'earth', 'rain', 'random'];
+/* The *arr services MEDIARR talks to. Lidarr (music) uses API v1 and adds artists. */
+const ARR_SERVICES = ['radarr', 'sonarr', 'lidarr'];
+const ARR_META = {
+  radarr: { label: 'Radarr', api: '/api/v3', list: 'movie',  kind: 'movie'  },
+  sonarr: { label: 'Sonarr', api: '/api/v3', list: 'series', kind: 'series' },
+  lidarr: { label: 'Lidarr', api: '/api/v1', list: 'artist', kind: 'artist' }
+};
+function svcParam (v, allowed) { v = String(v || '').toLowerCase(); return (allowed || ARR_SERVICES).includes(v) ? v : 'radarr'; }
+function arrConfigured (svc) { const c = readConfig()[svc]; return !!(c && c.url && c.apiKey); }
 
 /* ---------- config persistence ---------- */
 let _cfgCache = null, _cfgMtime = 0;
@@ -130,6 +140,7 @@ function readConfig () {
     _cfgMtime = st.mtimeMs;
     return (_cfgCache = {
       radarr: Object.assign({}, DEFAULT_CONFIG.radarr, c.radarr),
+      lidarr: Object.assign({}, DEFAULT_CONFIG.lidarr, c.lidarr),
       sonarr: Object.assign({}, DEFAULT_CONFIG.sonarr, c.sonarr),
       tmdb:   Object.assign({}, DEFAULT_CONFIG.tmdb, c.tmdb),
       plex:   Object.assign({}, DEFAULT_CONFIG.plex, c.plex),
@@ -196,6 +207,7 @@ function sanitize (c) {
       rootFolderPath: c[svc].rootFolderPath
     };
   }
+  out.lidarr = { url: c.lidarr.url, hasKey: !!c.lidarr.apiKey, qualityProfileId: c.lidarr.qualityProfileId, metadataProfileId: c.lidarr.metadataProfileId, rootFolderPath: c.lidarr.rootFolderPath, monitor: c.lidarr.monitor || 'all' };
   out.tmdb = { hasKey: !!c.tmdb.apiKey };
   out.plex = { url: c.plex.url, hasKey: !!c.plex.token };
   out.webdav = { source: (c.webdav.source === 'local' ? 'local' : 'webdav'), localPath: c.webdav.localPath || '', url: c.webdav.url, username: c.webdav.username, folder: c.webdav.folder, mode: wmode(c.webdav.mode), transcode: !!c.webdav.transcode, ffmpeg: !!FFMPEG, ffprobe: !!FFPROBE, hasAuth: !!(c.webdav.username && c.webdav.password), encSpeed: c.webdav.encSpeed || 'balanced', hwAccel: c.webdav.hwAccel || 'auto', hwEncoder: HWENC || '' };
@@ -694,7 +706,7 @@ function realtimeSnapshot () {
     now: Date.now(),
     clients: realtimeClients.size,
     services: healthState && healthState.services ? healthState.services : {},
-    libraries: { radarr: one('radarr'), sonarr: one('sonarr') },
+    libraries: { radarr: one('radarr'), sonarr: one('sonarr'), lidarr: one('lidarr') },
     transcodes: transcodes.slice(0, 20),
     recent: realtimeEvents.slice(0, 30)
   };
@@ -734,13 +746,14 @@ function webhookInfo (req) {
   return {
     token,
     radarrUrl: base + '/api/webhooks/radarr?token=' + encodeURIComponent(token),
-    sonarrUrl: base + '/api/webhooks/sonarr?token=' + encodeURIComponent(token)
+    sonarrUrl: base + '/api/webhooks/sonarr?token=' + encodeURIComponent(token),
+    lidarrUrl: base + '/api/webhooks/lidarr?token=' + encodeURIComponent(token)
   };
 }
 function setupWizardNeeded () {
   const c = readConfig();
   if (c.realtime && c.realtime.setupComplete) return false;
-  return !(c.radarr.url || c.sonarr.url || c.tmdb.apiKey || c.plex.url || c.sab.url || c.webdav.url || c.webdav.localPath);
+  return !(c.radarr.url || c.sonarr.url || c.lidarr.url || c.tmdb.apiKey || c.plex.url || c.sab.url || c.webdav.url || c.webdav.localPath);
 }
 function priorAddForDownload (svc, title) {
   const wanted = normTitle(title);
@@ -753,6 +766,10 @@ function priorAddForDownload (svc, title) {
 }
 function arrDownloadLabel (svc, body, item) {
   const base = String((item && item.title) || '').trim();
+  if (svc === 'lidarr') {
+    const albums = [].concat(body.album ? [body.album] : [], Array.isArray(body.albums) ? body.albums : []).map(a => a && a.title).filter(Boolean);
+    return base + (albums.length ? ' — ' + Array.from(new Set(albums)).slice(0, 3).join(', ') : '');
+  }
   if (svc !== 'sonarr') return base || 'Movie';
   const eps = [];
   if (body.episode) eps.push(body.episode);
@@ -781,11 +798,11 @@ function notifyArrDownload (svc, eventType, body, item) {
     const who = prior.username && prior.username !== 'RSS' ? (' by ' + prior.username) : (prior.username === 'RSS' ? ' from RSS automation' : '');
     notify('pastDownloaded', '⬇ ' + label,
       (upgraded ? 'Upgrade downloaded for a previously added ' : 'Downloaded a previously added ') +
-      (svc === 'radarr' ? 'movie' : 'TV item') + who + '.', 'good');
+      (svc === 'radarr' ? 'movie' : svc === 'lidarr' ? 'music item' : 'TV item') + who + '.', 'good');
   } else {
     notify('downloaded', '⬇ ' + label,
       (upgraded ? 'Upgrade downloaded and imported into ' : 'Downloaded and imported into ') +
-      (svc === 'radarr' ? 'Radarr' : 'Sonarr') + '.', 'good');
+      ARR_META[svc].label + '.', 'good');
   }
 }
 async function handleArrWebhook (svc, req, res, urlObj) {
@@ -795,9 +812,17 @@ async function handleArrWebhook (svc, req, res, urlObj) {
   let body = {};
   try { body = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
   const eventType = String(body.eventType || body.eventtype || body.type || 'Unknown');
-  const item = svc === 'sonarr' ? (body.series || null) : (body.movie || null);
-  const title = String((item && item.title) || (body.episode && body.episode.title) || '').slice(0, 200);
-  if (item && item.id) {
+  let item, title;
+  if (svc === 'lidarr') {
+    // Lidarr Connect: { eventType, artist:{id,name,…}, album:{title} | albums:[…] }
+    const a = body.artist || null, alb = body.album || (Array.isArray(body.albums) && body.albums[0]) || null;
+    item = a ? { id: a.id, title: String(a.name || a.artistName || '') } : null;
+    title = [a && (a.name || a.artistName), alb && alb.title].filter(Boolean).join(' — ').slice(0, 200);
+  } else {
+    item = svc === 'sonarr' ? (body.series || null) : (body.movie || null);
+    title = String((item && item.title) || (body.episode && body.episode.title) || '').slice(0, 200);
+  }
+  if (item && item.id && svc !== 'lidarr') {
     try { upsertLibCacheItem(svc, item); } catch (_) {}
   }
   invalidateLive(svc);
@@ -1110,13 +1135,15 @@ function arrQueueActivitySlim (svc, raw) {
     const pct = total > 0 ? Math.max(0, Math.min(100, Math.round(((total - left) / total) * 1000) / 10)) : 0;
     const series = x.series && x.series.title ? String(x.series.title) : '';
     const movie = x.movie && x.movie.title ? String(x.movie.title) : '';
+    const artist = x.artist && x.artist.artistName ? String(x.artist.artistName) : '';
+    const album = x.album && x.album.title ? String(x.album.title) : '';
     const ep = x.episode || (Array.isArray(x.episodes) && x.episodes[0]) || null;
     const se = ep && ep.seasonNumber != null && ep.episodeNumber != null
       ? 'S' + String(ep.seasonNumber).padStart(2, '0') + 'E' + String(ep.episodeNumber).padStart(2, '0') : '';
     const epTitle = ep && ep.title ? String(ep.title) : '';
     const fallback = svc === 'sonarr'
       ? [series, [se, epTitle].filter(Boolean).join(' ')].filter(Boolean).join(' — ')
-      : movie;
+      : svc === 'lidarr' ? [artist, album].filter(Boolean).join(' — ') : movie;
     const statusMessages = [];
     for (const group of (Array.isArray(x.statusMessages) ? x.statusMessages : [])) {
       const head = group && group.title ? String(group.title) : '';
@@ -1148,9 +1175,11 @@ async function arrQueueActivity (svc) {
   if (!cfg.url || !cfg.apiKey) return { configured: false, items: [], total: 0, error: '' };
   const sub = svc === 'sonarr'
     ? '/api/v3/queue?page=1&pageSize=150&sortDirection=ascending&sortKey=timeleft&includeUnknownSeriesItems=true&includeSeries=true&includeEpisode=true'
+    : svc === 'lidarr'
+    ? '/api/v1/queue?page=1&pageSize=150&sortDirection=ascending&sortKey=timeleft&includeUnknownArtistItems=true&includeArtist=true&includeAlbum=true'
     : '/api/v3/queue?page=1&pageSize=150&sortDirection=ascending&sortKey=timeleft&includeUnknownMovieItems=true&includeMovie=true';
   const raw = await arrJson(svc, sub);
-  if (!raw) return { configured: true, items: [], total: 0, error: 'Could not read the ' + (svc === 'sonarr' ? 'Sonarr' : 'Radarr') + ' activity queue' };
+  if (!raw) return { configured: true, items: [], total: 0, error: 'Could not read the ' + ARR_META[svc].label + ' activity queue' };
   const items = arrQueueActivitySlim(svc, raw);
   return { configured: true, items, total: Number(raw.totalRecords) || items.length, error: '' };
 }
@@ -1170,11 +1199,12 @@ async function downloadActivitySnapshot (me, historyLimit) {
   const limit = Math.max(10, Math.min(100, Number(historyLimit) || 60));
   // Every open Activity view polls every 5s; share upstream results for 2.5s so
   // several viewers cost one set of SABnzbd/Radarr/Sonarr calls instead of one each.
-  const [q, h, radarr, sonarr] = await Promise.all([
+  const [q, h, radarr, sonarr, lidarr] = await Promise.all([
     sabConfigured ? memo('activity:sab:queue', ACTIVITY_TTL_MS, () => sabCall('queue')) : Promise.resolve({ ok: false, message: '' }),
     sabConfigured ? memo('activity:sab:history:' + limit, ACTIVITY_TTL_MS, () => sabCall('history', '&limit=' + limit)) : Promise.resolve({ ok: false, message: '' }),
     memo('activity:radarr', ACTIVITY_TTL_MS, () => arrQueueActivity('radarr')),
-    memo('activity:sonarr', ACTIVITY_TTL_MS, () => arrQueueActivity('sonarr'))
+    memo('activity:sonarr', ACTIVITY_TTL_MS, () => arrQueueActivity('sonarr')),
+    memo('activity:lidarr', ACTIVITY_TTL_MS, () => arrQueueActivity('lidarr'))
   ]);
   let sab = { configured: sabConfigured, paused: false, speed: '0 B/s', speedBps: 0, sizeLeft: '', timeLeft: '', diskFreeGB: null, queue: [], history: [], historyTotal: 0 };
   if (sabConfigured) {
@@ -1184,7 +1214,7 @@ async function downloadActivitySnapshot (me, historyLimit) {
   const nowSec = Math.floor(Date.now() / 1000);
   const completed24h = sab.history.filter(x => x.completed && x.completed >= nowSec - 86400 && !/fail/i.test(x.status)).length;
   const sabFailures = sab.history.filter(x => /fail/i.test(x.status) && (!x.completed || x.completed >= nowSec - 86400)).length;
-  const arrItems = radarr.items.concat(sonarr.items);
+  const arrItems = radarr.items.concat(sonarr.items, lidarr.items);
   const arrProblems = arrItems.filter(x => /warning|error|failed/i.test(x.trackedStatus + ' ' + x.trackedState + ' ' + x.status) || x.messages.length).length;
   const sabIds = new Set(sab.queue.map(x => String(x.id || '')).filter(Boolean));
   const arrOutsideSab = arrItems.filter(x => !x.downloadId || !sabIds.has(String(x.downloadId))).length;
@@ -1194,7 +1224,7 @@ async function downloadActivitySnapshot (me, historyLimit) {
     .map(x => ({ name: path.basename(String(x.path || '')) || 'Browser download', secondsAgo: x.secondsAgo }));
   return {
     serverTime: Date.now(),
-    sab, radarr, sonarr,
+    sab, radarr, sonarr, lidarr,
     recent: recentArrDownloadEvents(),
     mediarrTransfers: myTransfers,
     summary: {
@@ -1891,22 +1921,25 @@ async function homeUpcoming (username) {
 function homeRequests (username, limit) {
   const cache = readLibCache();
   const rows = readAdds().adds.filter(e =>
-    e.username === username && (e.service === 'radarr' || e.service === 'sonarr') &&
-    (e.type === 'movie' || e.type === 'series'));
+    e.username === username && ARR_SERVICES.includes(e.service) &&
+    (e.type === 'movie' || e.type === 'series' || e.type === 'artist' || e.type === 'album'));
   const seen = new Set(), out = [];
   for (const e of rows) {
-    const svc = e.service === 'sonarr' ? 'sonarr' : 'radarr';
+    const svc = svcParam(e.service);
     const k = svc + '|' + normTitle(e.title) + '|' + String(e.year || '');
     if (seen.has(k)) continue; seen.add(k);
     const items = cache[svc] && Array.isArray(cache[svc].items) ? cache[svc].items : [];
-    const hit = items.find(x => normTitle(x.title) === normTitle(e.title) && (!e.year || !x.year || String(x.year) === String(e.year)));
+    // music requests are logged as "Artist" or "Artist — Album"; match the artist
+    const wantTitle = svc === 'lidarr' ? String(e.title || '').split(' — ')[0] : e.title;
+    const hit = items.find(x => normTitle(x.title) === normTitle(wantTitle) && (svc === 'lidarr' || !e.year || !x.year || String(x.year) === String(e.year)));
     let ready = false;
     if (hit) {
       ready = svc === 'radarr' ? !!hit.hasFile
+        : svc === 'lidarr' ? !!(hit.statistics && Number(hit.statistics.trackFileCount) > 0)
         : !!(hit.statistics && Number(hit.statistics.episodeFileCount) > 0);
     }
     out.push({
-      ts: e.ts, type: svc === 'sonarr' ? 'series' : 'movie', service: svc, title: e.title || '', year: e.year || '',
+      ts: e.ts, type: svc === 'lidarr' ? (e.type || 'artist') : svc === 'sonarr' ? 'series' : 'movie', service: svc, title: e.title || '', year: e.year || '',
       inLibrary: !!hit, ready, status: ready ? 'Available' : hit ? 'In library' : 'Requested',
       arrId: hit && hit.id || null, imdbId: hit && hit.imdbId || '',
       tmdbId: hit && hit.tmdbId || null, tvdbId: hit && hit.tvdbId || null,
@@ -2168,23 +2201,30 @@ async function testService (svc, url, key) {
   const apiKey = key || stored.apiKey;
   if (!base || !apiKey) throw new Error('Missing URL or API key');
   const headers = { 'X-Api-Key': apiKey };
+  const api = ARR_META[svc].api;
 
-  const status  = await upstream(base + '/api/v3/system/status', { headers });
+  const status  = await upstream(base + api + '/system/status', { headers });
   if (status.status === 401) throw new Error('Unauthorized — check the API key');
   if (status.status >= 400)  throw new Error('Server returned HTTP ' + status.status);
   const sys = JSON.parse(status.body.toString() || '{}');
 
-  const prof = await upstream(base + '/api/v3/qualityprofile', { headers });
-  const fold = await upstream(base + '/api/v3/rootfolder', { headers });
+  const prof = await upstream(base + api + '/qualityprofile', { headers });
+  const fold = await upstream(base + api + '/rootfolder', { headers });
   const profiles = JSON.parse(prof.body.toString() || '[]');
   const folders  = JSON.parse(fold.body.toString() || '[]');
-
-  return {
+  const out = {
     name: sys.instanceName || sys.appName || svc,
     version: sys.version || '',
     profiles: profiles.map(p => ({ id: p.id, name: p.name })),
-    folders:  folders.map(f => ({ path: f.path, freeSpace: f.freeSpace || 0 }))
+    folders:  folders.map(f => ({ path: f.path, freeSpace: f.freeSpace || 0, defaultQualityProfileId: f.defaultQualityProfileId || null, defaultMetadataProfileId: f.defaultMetadataProfileId || null }))
   };
+  if (svc === 'lidarr') {
+    // Lidarr also needs a metadata profile (which release types to track)
+    const meta = await upstream(base + api + '/metadataprofile', { headers });
+    let mp = []; try { mp = JSON.parse(meta.body.toString() || '[]'); } catch (_) {}
+    out.metadataProfiles = (Array.isArray(mp) ? mp : []).map(p => ({ id: p.id, name: p.name }));
+  }
+  return out;
 }
 
 async function testTmdb (key) {
@@ -2420,6 +2460,7 @@ function monitoredTargets () {
   if (c.plex.url && c.plex.token)     t.push({ name: 'plex',   url: normUrl(c.plex.url) + '/identity',          headers: { 'X-Plex-Token': c.plex.token, 'Accept': 'application/json' } });
   if (c.radarr.url && c.radarr.apiKey) t.push({ name: 'radarr', url: normUrl(c.radarr.url) + '/api/v3/system/status', headers: { 'X-Api-Key': c.radarr.apiKey } });
   if (c.sonarr.url && c.sonarr.apiKey) t.push({ name: 'sonarr', url: normUrl(c.sonarr.url) + '/api/v3/system/status', headers: { 'X-Api-Key': c.sonarr.apiKey } });
+  if (c.lidarr.url && c.lidarr.apiKey) t.push({ name: 'lidarr', url: normUrl(c.lidarr.url) + '/api/v1/system/status', headers: { 'X-Api-Key': c.lidarr.apiKey } });
   return t;
 }
 function recordStatus (name, up, meta) {
@@ -2482,7 +2523,7 @@ const ADMIN_ONLY_ROUTES = new Set([
 ]);
 /* Read-only Radarr/Sonarr endpoints a regular user's UI needs. Anything else (host
    config with the Arr API key, download clients, indexers, backups, logs…) is admin-only. */
-const ARR_USER_READ_PATHS = /^\/api\/v[13]\/(?:(?:movie|series)(?:\/\d+|\/lookup)?|calendar|rootfolder|qualityprofile|languageprofile|tag|episode(?:\/\d+)?|queue)$/;
+const ARR_USER_READ_PATHS = /^\/api\/v[13]\/(?:(?:movie|series|artist|album)(?:\/\d+|\/lookup)?|calendar|rootfolder|qualityprofile|languageprofile|metadataprofile|tag|episode(?:\/\d+)?|queue)$/;
 async function proxyArr (svc, subPath, req, res) {
   const cfg = readConfig()[svc];
   if (!cfg.url || !cfg.apiKey) return sendJSON(res, 400, { message: svc + ' is not configured yet' });
@@ -2491,7 +2532,8 @@ async function proxyArr (svc, subPath, req, res) {
   // An "add" is a POST to the movie/series collection endpoint.
   const cleanPath = subPath.split('?')[0];
   const isAdd = req.method === 'POST' &&
-    ((svc === 'radarr' && cleanPath === '/api/v3/movie') || (svc === 'sonarr' && cleanPath === '/api/v3/series'));
+    ((svc === 'radarr' && cleanPath === '/api/v3/movie') || (svc === 'sonarr' && cleanPath === '/api/v3/series') ||
+     (svc === 'lidarr' && (cleanPath === '/api/v1/artist' || cleanPath === '/api/v1/album')));
 
   const user = currentUser(req);
   // Regular users may only read (GET) and add (POST to the collection). No edits, monitor changes, commands, or deletes.
@@ -2520,9 +2562,11 @@ async function proxyArr (svc, subPath, req, res) {
       let title = '', year = '', createdItem = null;
       try { const b = JSON.parse(body || '{}'); title = b.title || ''; year = b.year || ''; } catch (e) {}
       try { createdItem = JSON.parse(up.body.toString('utf8') || '{}'); } catch (e) {}
-      logAdd({ ts: Date.now(), username: user.username, role: user.role, service: svc, type: svc === 'radarr' ? 'movie' : 'series', title, year, ip: clientIp(req) });
-      notify('added', (svc === 'radarr' ? '🎬 ' : '📺 ') + title + (year ? ' (' + year + ')' : ''), 'Added to ' + (svc === 'radarr' ? 'Radarr' : 'Sonarr') + ' by ' + user.username, 'good');
-      if (createdItem && createdItem.id) upsertLibCacheItem(svc, createdItem);
+      if (svc === 'lidarr') { try { const b = JSON.parse(body || '{}'); title = b.artistName || b.title || title; } catch (e) {} }
+      logAdd({ ts: Date.now(), username: user.username, role: user.role, service: svc, type: svc === 'lidarr' ? (cleanPath.endsWith('/album') ? 'album' : 'artist') : (svc === 'radarr' ? 'movie' : 'series'), title, year, ip: clientIp(req) });
+      notify('added', (svc === 'radarr' ? '🎬 ' : svc === 'lidarr' ? '🎵 ' : '📺 ') + title + (year ? ' (' + year + ')' : ''), 'Added to ' + ARR_META[svc].label + ' by ' + user.username, 'good');
+      if (createdItem && createdItem.id && !(svc === 'lidarr' && cleanPath.endsWith('/album'))) upsertLibCacheItem(svc, createdItem);
+      if (svc === 'lidarr') scheduleLibraryReconcile('lidarr', 1500);
       if (svc === 'sonarr') scheduleLibraryReconcile('sonarr', 1500);
       invalidateLive(svc);
       realtimePush('arr.added', { service: svc, title, year, user: user.username, id: createdItem && createdItem.id || null });   // force a fresh "already added?" check next time
@@ -3627,6 +3671,7 @@ async function arrRaw (svc, subPath, timeoutMs) {
   } catch (e) { return { path: subPath, status: 0, ms: Date.now() - t0, error: e.message }; }
 }
 function libPaths (svc) {
+  if (svc === 'lidarr') return ['/api/v1/artist'];
   const n = svc === 'radarr' ? 'movie' : 'series';
   return ['/api/v3/' + n, '/api/v3/' + n + '?page=1&pageSize=1000', '/api/v1/' + n, '/api/' + n];
 }
@@ -3731,7 +3776,8 @@ async function arrProbe (svc) {
 // Fire a Radarr/Sonarr command on whichever API route exists.
 async function arrCommand (svc, cmd) {
   let last = null;
-  for (const base of ['/api/v3/command', '/api/v1/command', '/api/command']) {
+  const bases = svc === 'lidarr' ? ['/api/v1/command'] : ['/api/v3/command', '/api/v1/command', '/api/command'];
+  for (const base of bases) {
     const r = await arrPost(svc, base, cmd);
     if (r.ok) return { ok: true, data: r.data };
     last = r;
@@ -4940,7 +4986,7 @@ function warmExtMapFromLibrary (items, type) {
    search results reflect reality, while the disk cache above keeps the browsers fast. */
 const LIVE_IDS_TTL = 60000;
 const SONARR_LIVE_IDS_TTL = 15000;
-let liveIdx = { radarr: { ts: 0, ids: null }, sonarr: { ts: 0, ids: null } };
+let liveIdx = { radarr: { ts: 0, ids: null }, sonarr: { ts: 0, ids: null }, lidarr: { ts: 0, ids: null } };
 // Library changed (add, edit, webhook, wizard): drop every cached view of that service.
 function invalidateLive (svc) {
   liveIdx[svc] = { ts: 0, ids: null };
@@ -5189,6 +5235,171 @@ function v2InboxFor (username) {
 function v2MarkInbox (username, ids, all) {
   try { store.inbox.markRead(username, ids, all); } catch (e) { logError('v2-inbox', e.message, 'mark read'); }
 }
+/* ---------- music (Lidarr) ----------
+   Search uses Lidarr's own lookup (MusicBrainz), since TMDB/Cinemeta don't cover music.
+   Adding runs server-side so the configured profiles, daily request limits, request
+   history and notifications apply exactly as they do for movies and TV. */
+const LIDARR_MONITOR = ['all', 'future', 'missing', 'existing', 'latest', 'first', 'none'];
+const _musicLookup = new Map();   // 'artist:<mbid>' | 'album:<mbid>' -> { at, obj }
+function rememberLookup (kind, id, obj) {
+  if (!id || !obj) return;
+  _musicLookup.set(kind + ':' + id, { at: Date.now(), obj });
+  if (_musicLookup.size > 2000) { const cut = Date.now() - 3600000; for (const [k, v] of _musicLookup) if (v.at < cut) _musicLookup.delete(k); }
+}
+function recallLookup (kind, id) { const v = _musicLookup.get(kind + ':' + id); return v && Date.now() - v.at < 3600000 ? v.obj : null; }
+function lidarrImage (images, types) {
+  for (const t of types) { const i = (images || []).find(x => x && x.coverType === t); if (i && i.remoteUrl) return i.remoteUrl; }
+  return '';
+}
+const lidarrArrayOrFail = x => Array.isArray(x) ? x : Object.assign([], { ok: false });
+function lidarrLibArtists () { return memo('arrlist:lidarr:artist', V2_LIST_TTL_MS, () => arrJson('lidarr', '/api/v1/artist').then(lidarrArrayOrFail)); }
+function lidarrLibAlbums () { return memo('arrlist:lidarr:album', V2_LIST_TTL_MS, () => arrJson('lidarr', '/api/v1/album').then(lidarrArrayOrFail)); }
+async function lidarrLookupOne (kind, id) {
+  const hit = recallLookup(kind, id); if (hit) return hit;
+  const key = kind === 'artist' ? 'foreignArtistId' : 'foreignAlbumId';
+  const list = await arrJson('lidarr', '/api/v1/' + kind + '/lookup?term=' + encodeURIComponent('lidarr:' + id));
+  const o = Array.isArray(list) ? list.find(x => String(x[key]) === String(id)) || null : null;
+  if (o) rememberLookup(kind, id, o);
+  return o;
+}
+async function lidarrDefaults () {
+  const cfg = readConfig().lidarr;
+  let q = cfg.qualityProfileId, m = cfg.metadataProfileId, root = cfg.rootFolderPath;
+  if (!q || !m || !root) {
+    // fall back to the root folder's own defaults, then the first profiles
+    const folders = (await arrJson('lidarr', '/api/v1/rootfolder')) || [];
+    const f = folders.find(x => x.path === root) || folders[0] || {};
+    root = root || f.path || '';
+    if (!q) q = f.defaultQualityProfileId || (((await arrJson('lidarr', '/api/v1/qualityprofile')) || [])[0] || {}).id || '';
+    if (!m) m = f.defaultMetadataProfileId || (((await arrJson('lidarr', '/api/v1/metadataprofile')) || [])[0] || {}).id || '';
+  }
+  return { qualityProfileId: Number(q) || q, metadataProfileId: Number(m) || m, rootFolderPath: root, monitor: LIDARR_MONITOR.includes(cfg.monitor) ? cfg.monitor : 'all' };
+}
+async function musicSearch (q) {
+  if (!arrConfigured('lidarr')) return { configured: false, items: [] };
+  q = String(q || '').trim();
+  if (q.length < 2) return { configured: true, items: [] };
+  const t = encodeURIComponent(q);
+  const [artists, albums, libA, libB] = await Promise.all([
+    arrJson('lidarr', '/api/v1/artist/lookup?term=' + t), arrJson('lidarr', '/api/v1/album/lookup?term=' + t),
+    lidarrLibArtists().catch(() => []), lidarrLibAlbums().catch(() => [])
+  ]);
+  if (!Array.isArray(artists) && !Array.isArray(albums)) return { configured: true, error: 'Lidarr couldn’t be reached or returned an error.', items: [] };
+  const haveArtist = new Map((libA || []).map(a => [String(a.foreignArtistId || ''), a]));
+  const haveAlbum = new Map((libB || []).map(a => [String(a.foreignAlbumId || ''), a]));
+  const items = [];
+  for (const a of (artists || []).slice(0, 12)) {
+    const id = String(a.foreignArtistId || ''); if (!id) continue;
+    rememberLookup('artist', id, a);
+    const lib = haveArtist.get(id);
+    items.push({ kind: 'artist', foreignArtistId: id, title: a.artistName || '', disambiguation: a.disambiguation || '', artistType: a.artistType || '',
+      overview: String(a.overview || '').slice(0, 400), genres: (a.genres || []).slice(0, 3), poster: a.remotePoster || lidarrImage(a.images, ['poster', 'fanart']),
+      inLibrary: !!lib, libraryId: lib ? lib.id : null });
+  }
+  for (const al of (albums || []).slice(0, 24)) {
+    const id = String(al.foreignAlbumId || ''); if (!id) continue;
+    rememberLookup('album', id, al);
+    const art = al.artist || {}, lib = haveAlbum.get(id), libArt = haveArtist.get(String(art.foreignArtistId || ''));
+    const hasFiles = !!(lib && lib.statistics && lib.statistics.trackFileCount > 0);
+    items.push({ kind: 'album', foreignAlbumId: id, foreignArtistId: String(art.foreignArtistId || ''), title: al.title || '', artistName: art.artistName || '',
+      year: String(al.releaseDate || '').slice(0, 4), albumType: al.albumType || '', poster: al.remoteCover || lidarrImage(al.images, ['cover', 'disc']),
+      inLibrary: !!(lib && (lib.monitored || hasFiles)), hasFiles, libraryId: lib ? lib.id : null,
+      artistInLibrary: !!libArt, artistLibraryId: libArt ? libArt.id : null });
+  }
+  return { configured: true, items };
+}
+async function musicAdd (b, me, req) {
+  if (!arrConfigured('lidarr')) return { status: 400, body: { ok: false, message: 'Lidarr is not configured' } };
+  const kind = b.kind === 'album' ? 'album' : 'artist';
+  if (me.role !== 'admin' && me.dailyLimit > 0 && addsTodayCount(me.username) >= me.dailyLimit)
+    return { status: 429, body: { ok: false, message: 'Daily add limit reached (' + me.dailyLimit + ')' } };
+  const d = await lidarrDefaults();
+  if (!d.qualityProfileId || !d.metadataProfileId || !d.rootFolderPath)
+    return { status: 400, body: { ok: false, message: 'Choose a quality profile, metadata profile and root folder for Lidarr in Settings first.' } };
+  const search = b.search !== false;
+  const monitor = LIDARR_MONITOR.includes(b.monitor) ? b.monitor : d.monitor;
+  const [libA, libB] = await Promise.all([lidarrLibArtists().catch(() => []), lidarrLibAlbums().catch(() => [])]);
+  const profileFields = { qualityProfileId: d.qualityProfileId, metadataProfileId: d.metadataProfileId, rootFolderPath: d.rootFolderPath };
+  let result, title = '', year = '';
+  if (kind === 'artist') {
+    const id = String(b.foreignArtistId || '');
+    if (!id) return { status: 400, body: { ok: false, message: 'Missing artist' } };
+    const have = (libA || []).find(a => String(a.foreignArtistId) === id);
+    if (have) return { status: 200, body: { ok: true, alreadyInLibrary: true, id: have.id, message: 'Already in Lidarr' } };
+    const a = await lidarrLookupOne('artist', id);
+    if (!a) return { status: 404, body: { ok: false, message: 'Lidarr couldn’t find that artist' } };
+    title = a.artistName || '';
+    const payload = Object.assign({}, a, profileFields, { monitored: true, monitorNewItems: monitor === 'none' ? 'none' : 'all',
+      addOptions: { monitor, searchForMissingAlbums: search } });
+    delete payload.id;
+    result = await arrPost('lidarr', '/api/v1/artist', payload);
+  } else {
+    const id = String(b.foreignAlbumId || '');
+    if (!id) return { status: 400, body: { ok: false, message: 'Missing album' } };
+    const inDb = (libB || []).find(x => String(x.foreignAlbumId) === id);
+    if (inDb) {
+      // The artist is already in Lidarr: monitor this album (and search for it)
+      title = ((inDb.artist && inDb.artist.artistName) || '') + ' — ' + (inDb.title || ''); year = String(inDb.releaseDate || '').slice(0, 4);
+      if (inDb.monitored) return { status: 200, body: { ok: true, alreadyInLibrary: true, id: inDb.id, message: 'Already in Lidarr' } };
+      const r = await arrPut('lidarr', '/api/v1/album/monitor', { albumIds: [inDb.id], monitored: true });
+      if (!r.ok) return { status: r.status || 502, body: { ok: false, message: 'Lidarr: ' + (r.message || 'could not monitor the album') } };
+      if (search) await arrCommand('lidarr', { name: 'AlbumSearch', albumIds: [inDb.id] });
+      result = { ok: true, data: inDb };
+    } else {
+      const al = await lidarrLookupOne('album', id);
+      if (!al) return { status: 404, body: { ok: false, message: 'Lidarr couldn’t find that album' } };
+      const art = Object.assign({}, al.artist || {});
+      const libArt = (libA || []).find(a => String(a.foreignArtistId) === String(art.foreignArtistId));
+      // A new artist is added unmonitored so only this album is wanted
+      const artistPayload = libArt ? libArt : Object.assign(art, profileFields, { monitored: true, monitorNewItems: 'none', addOptions: { monitor: 'none', searchForMissingAlbums: false } });
+      if (!libArt) delete artistPayload.id;
+      const payload = Object.assign({}, al, { monitored: true, artist: artistPayload, addOptions: { searchForNewAlbum: search } });
+      delete payload.id;
+      title = (art.artistName || '') + ' — ' + (al.title || ''); year = String(al.releaseDate || '').slice(0, 4);
+      result = await arrPost('lidarr', '/api/v1/album', payload);
+    }
+  }
+  if (!result.ok) {
+    if (/already/i.test(result.message || '')) return { status: 200, body: { ok: true, alreadyInLibrary: true, message: 'Already in Lidarr' } };
+    return { status: result.status || 502, body: { ok: false, message: 'Lidarr: ' + (result.message || 'add failed') } };
+  }
+  logAdd({ ts: Date.now(), username: me.username, role: me.role, service: 'lidarr', type: kind, title, year, ip: clientIp(req) });
+  notify('added', '🎵 ' + title + (year ? ' (' + year + ')' : ''), 'Added to Lidarr by ' + me.username, 'good');
+  invalidateLive('lidarr');
+  if (kind === 'artist' && result.data && result.data.id) upsertLibCacheItem('lidarr', result.data);
+  scheduleLibraryReconcile('lidarr', 1500);
+  try { realtimePush('arr.added', { service: 'lidarr', title, year, user: me.username, id: (result.data && result.data.id) || null }); } catch (_) {}
+  return { status: 200, body: { ok: true, title, id: (result.data && result.data.id) || null } };
+}
+function slimArtistDetail (a) {
+  const st = a.statistics || {};
+  return { id: a.id || null, foreignArtistId: a.foreignArtistId || '', name: a.artistName || '', disambiguation: a.disambiguation || '',
+    overview: String(a.overview || '').slice(0, 1500), genres: (a.genres || []).slice(0, 6), type: a.artistType || '', status: a.status || '',
+    poster: a.remotePoster || lidarrImage(a.images, ['poster']), fanart: lidarrImage(a.images, ['fanart', 'banner']), monitored: !!a.monitored,
+    statistics: { albumCount: st.albumCount || 0, trackFileCount: st.trackFileCount || 0, totalTrackCount: st.totalTrackCount || 0, percentOfTracks: st.percentOfTracks || 0, sizeOnDisk: st.sizeOnDisk || 0 },
+    links: (a.links || []).filter(l => l && /^https?:/i.test(l.url || '')).slice(0, 5).map(l => ({ name: l.name || '', url: l.url })) };
+}
+function slimAlbumDetail (al) {
+  const st = al.statistics || {};
+  return { id: al.id, foreignAlbumId: al.foreignAlbumId || '', title: al.title || '', albumType: al.albumType || '', secondaryTypes: al.secondaryTypes || [],
+    releaseDate: al.releaseDate || '', monitored: !!al.monitored, cover: al.remoteCover || lidarrImage(al.images, ['cover']),
+    statistics: { trackFileCount: st.trackFileCount || 0, totalTrackCount: st.totalTrackCount || 0, trackCount: st.trackCount || 0, percentOfTracks: st.percentOfTracks || 0, sizeOnDisk: st.sizeOnDisk || 0 } };
+}
+async function musicArtist (q) {
+  if (!arrConfigured('lidarr')) return { configured: false };
+  let artist = null;
+  if (q.id) artist = await arrJson('lidarr', '/api/v1/artist/' + Number(q.id));
+  else if (q.foreignArtistId) artist = ((await lidarrLibArtists().catch(() => [])) || []).find(a => String(a.foreignArtistId) === String(q.foreignArtistId)) || null;
+  if (!artist || !artist.id) {
+    const look = q.foreignArtistId ? await lidarrLookupOne('artist', String(q.foreignArtistId)) : null;
+    if (!look) return { configured: true, found: false };
+    return { configured: true, found: true, inLibrary: false, artist: slimArtistDetail(look), albums: [] };
+  }
+  const albums = (await arrJson('lidarr', '/api/v1/album?artistId=' + Number(artist.id))) || [];
+  return { configured: true, found: true, inLibrary: true, artist: slimArtistDetail(artist),
+    albums: albums.map(slimAlbumDetail).sort((a, b) => String(b.releaseDate).localeCompare(String(a.releaseDate))) };
+}
+
 // Full Radarr/Sonarr lists for the 2.0 hub and Universal Search. Cached for 90s and
 // dropped immediately by invalidateLive() on adds/edits/webhooks, so typing in search
 // no longer re-downloads the whole library on every keystroke.
@@ -5255,7 +5466,7 @@ async function v2UniversalSearch (q) {
   return {items:items.slice(0,50)};
 }
 function v2Requests (me) {
-  let list=(readAdds().adds||[]).filter(a=>['radarr','sonarr'].includes(a.service));
+  let list=(readAdds().adds||[]).filter(a=>ARR_SERVICES.includes(a.service));
   if(me.role!=='admin')list=list.filter(a=>String(a.username||'')===me.username);
   return list.slice(0,300).map(a=>({ts:a.ts||0,title:a.title||'',year:a.year||'',service:a.service||'',type:a.type||'',username:a.username||'',role:a.role||''}));
 }
@@ -5837,6 +6048,15 @@ function slimPoster (images) {
 }
 // Keep only what the library browsers actually render — the raw payload is many MB.
 function slimItem (it, svc) {
+  if (svc === 'lidarr') {
+    const st = it.statistics || {};
+    return {
+      id: it.id, title: it.artistName || it.name || it.title || '', sortTitle: it.sortName || it.artistName || it.name || '', year: '',
+      monitored: !!it.monitored, images: slimPoster(it.images), foreignArtistId: it.foreignArtistId || it.mbId || '',
+      genres: Array.isArray(it.genres) ? it.genres.slice(0, 4) : [], added: it.added || '',
+      statistics: { albumCount: st.albumCount || 0, trackFileCount: st.trackFileCount || 0, trackCount: st.trackCount || 0, totalTrackCount: st.totalTrackCount || 0, sizeOnDisk: st.sizeOnDisk || 0, percentOfTracks: st.percentOfTracks || 0 }
+    };
+  }
   const base = {
     id: it.id, title: it.title, sortTitle: it.sortTitle || it.title, year: it.year || '',
     monitored: !!it.monitored, images: slimPoster(it.images), imdbId: it.imdbId || '',
@@ -5850,7 +6070,7 @@ function slimItem (it, svc) {
   }
   return base;
 }
-let libScanErr = { radarr: '', sonarr: '' };
+let libScanErr = { radarr: '', sonarr: '', lidarr: '' };
 const SONARR_LIBRARY_MAX_AGE_MS = 15000;
 function upsertLibCacheItem (svc, raw) {
   if (!raw || (!raw.id && !raw.title)) return false;
@@ -5860,7 +6080,8 @@ function upsertLibCacheItem (svc, raw) {
   const match = x => (item.id && Number(x.id) === Number(item.id)) ||
     (item.imdbId && x.imdbId && String(x.imdbId).toLowerCase() === String(item.imdbId).toLowerCase()) ||
     (svc === 'radarr' && item.tmdbId && String(x.tmdbId || '') === String(item.tmdbId)) ||
-    (svc === 'sonarr' && item.tvdbId && String(x.tvdbId || '') === String(item.tvdbId));
+    (svc === 'sonarr' && item.tvdbId && String(x.tvdbId || '') === String(item.tvdbId)) ||
+    (svc === 'lidarr' && item.foreignArtistId && String(x.foreignArtistId || '') === String(item.foreignArtistId));
   const idx = cur.findIndex(match);
   if (idx >= 0) cur[idx] = item; else cur.push(item);
   cur.sort((a, b) => String(a.sortTitle || a.title || '').localeCompare(String(b.sortTitle || b.title || '')));
@@ -5875,7 +6096,7 @@ function scheduleLibraryReconcile (svc, delayMs) {
 async function scanLibrary (svc) {
   const cfg = readConfig()[svc];
   if (!cfg.url || !cfg.apiKey) { libScanErr[svc] = svc + ' is not configured'; return { ok: false, message: libScanErr[svc] }; }
-  const res = await arrListAll(svc, svc === 'radarr' ? '/api/v3/movie' : '/api/v3/series');
+  const res = await arrListAll(svc, ARR_META[svc].api + '/' + ARR_META[svc].list);
   if (!res.ok) {
     const probe = await arrProbe(svc);
     libScanErr[svc] = probe.message || ('Could not read ' + svc);
@@ -5895,12 +6116,13 @@ async function scanAllLibraries (reason) {
   if (libScanning) return;
   libScanning = true;
   const out = {};
-  for (const svc of ['radarr', 'sonarr']) {
+  for (const svc of ARR_SERVICES) {
+    if (svc === 'lidarr' && !arrConfigured('lidarr')) continue;   // optional: don't log "not configured" for music
     try { out[svc] = await scanLibrary(svc); } catch (e) { out[svc] = { ok: false, message: e.message }; }
   }
   libScanning = false;
   try {
-    const bits = ['radarr', 'sonarr'].filter(s => out[s] && out[s].ok).map(s => s + ':' + out[s].count);
+    const bits = ARR_SERVICES.filter(s => out[s] && out[s].ok).map(s => s + ':' + out[s].count);
     if (bits.length) console.log('[mediarr] library scan (' + (reason || 'scheduled') + ') → ' + bits.join(' '));
   } catch (e) {}
   return out;
@@ -5917,7 +6139,7 @@ function libCacheStatus () {
   const c = readLibCache(), cfg = readConfig().libraryCache;
   const mins = Math.max(60, Number(cfg.intervalMinutes) || 360);
   const one = svc => c[svc] ? { count: c[svc].count, ts: c[svc].ts, ageMinutes: Math.round((Date.now() - c[svc].ts) / 60000) } : null;
-  return { enabled: !!cfg.enabled, intervalMinutes: mins, scanning: libScanning, radarr: one('radarr'), sonarr: one('sonarr'), errors: libScanErr };
+  return { enabled: !!cfg.enabled, intervalMinutes: mins, scanning: libScanning, radarr: one('radarr'), sonarr: one('sonarr'), lidarr: one('lidarr'), errors: libScanErr };
 }
 // First scan shortly after boot so the browsers are fast straight away.
 setTimeout(() => { const cfg = readConfig().libraryCache; if (cfg.enabled) scanAllLibraries('startup').then(scheduleLibScan); else scheduleLibScan(); }, 4000).unref?.();
@@ -6131,6 +6353,7 @@ const server = http.createServer(async (req, res) => {
     // Radarr/Sonarr Connect webhooks authenticate with their own generated token.
     if (p === '/api/webhooks/radarr' && req.method === 'POST') return handleArrWebhook('radarr', req, res, u);
     if (p === '/api/webhooks/sonarr' && req.method === 'POST') return handleArrWebhook('sonarr', req, res, u);
+    if (p === '/api/webhooks/lidarr' && req.method === 'POST') return handleArrWebhook('lidarr', req, res, u);
 
     // ---- everything else under /api requires a session ----
     if (p.startsWith('/api/v1/')) {
@@ -6161,6 +6384,7 @@ const server = http.createServer(async (req, res) => {
           configured: {
             radarr: !!(cfg.radarr.url && cfg.radarr.apiKey),
             sonarr: !!(cfg.sonarr.url && cfg.sonarr.apiKey),
+            lidarr: !!(cfg.lidarr.url && cfg.lidarr.apiKey),
             tmdb: !!cfg.tmdb.apiKey
           },
           config: sanitize(cfg),
@@ -6185,11 +6409,17 @@ const server = http.createServer(async (req, res) => {
           if (v.qualityProfileId != null && String(v.qualityProfileId).trim() !== '') cfg[svc].qualityProfileId = v.qualityProfileId;
           if (v.rootFolderPath != null && String(v.rootFolderPath).trim() !== '') cfg[svc].rootFolderPath = String(v.rootFolderPath);
         }
+        if (body.lidarr) {
+          const v = body.lidarr; cfg.lidarr = Object.assign({}, DEFAULT_CONFIG.lidarr, cfg.lidarr || {});
+          if (v.url != null) cfg.lidarr.url = normUrl(v.url);
+          if (v.apiKey) cfg.lidarr.apiKey = String(v.apiKey).trim();
+          for (const k of ['qualityProfileId', 'metadataProfileId', 'rootFolderPath']) if (v[k] != null && String(v[k]).trim() !== '') cfg.lidarr[k] = v[k];
+        }
         if (body.tmdb && body.tmdb.apiKey) cfg.tmdb.apiKey = String(body.tmdb.apiKey).trim();
         cfg.realtime = Object.assign({}, DEFAULT_CONFIG.realtime, cfg.realtime || {}, { setupComplete: true });
         if (!cfg.realtime.webhookToken) cfg.realtime.webhookToken = crypto.randomBytes(18).toString('hex');
         writeConfig(cfg);
-        invalidateLive('radarr'); invalidateLive('sonarr');
+        invalidateLive('radarr'); invalidateLive('sonarr'); invalidateLive('lidarr');
         setTimeout(() => scanAllLibraries('setup-wizard').catch(() => {}), 100);
         realtimePush('setup.completed', { user: me.username, skipped: false });
         return sendJSON(res, 200, { ok: true, config: sanitize(cfg), webhooks: webhookInfo(req) });
@@ -6243,6 +6473,15 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/download-activity' && req.method === 'GET') {
         try { return sendJSON(res, 200, await downloadActivitySnapshot(me, u.searchParams.get('history'))); }
         catch (e) { logError('download-activity', e.message, me.username); return sendJSON(res, 502, { message: 'Could not build download activity: ' + e.message }); }
+      }
+
+      // ---- music (Lidarr) ----
+      if (p === '/api/music/search' && req.method === 'GET') return sendJSON(res, 200, await musicSearch(u.searchParams.get('q') || ''));
+      if (p === '/api/music/artist' && req.method === 'GET') return sendJSON(res, 200, await musicArtist({ id: u.searchParams.get('id'), foreignArtistId: u.searchParams.get('foreignArtistId') }));
+      if (p === '/api/music/add' && req.method === 'POST') {
+        let b = {}; try { b = JSON.parse((await readBody(req)) || '{}'); } catch (_) {}
+        const r = await musicAdd(b, me, req);
+        return sendJSON(res, r.status, r.body);
       }
 
       // ---- Media Resolver / path mappings / per-user watch progress ----
@@ -6590,7 +6829,7 @@ const server = http.createServer(async (req, res) => {
 
       if (p === '/api/command' && req.method === 'POST') {
         let b = {}; try { b = JSON.parse((await readBody(req)) || '{}'); } catch (e) {}
-        const svc = b.svc === 'sonarr' ? 'sonarr' : 'radarr';
+        const svc = svcParam(b.svc);
         if (!b.cmd || !b.cmd.name) return sendJSON(res, 400, { ok: false, message: 'Missing command' });
         const r = await arrCommand(svc, b.cmd);
         return sendJSON(res, r.ok ? 200 : 502, r.ok ? { ok: true, data: r.data } : { ok: false, message: r.message });
@@ -6741,7 +6980,7 @@ const server = http.createServer(async (req, res) => {
 
       // ---- cached library (fast Movies / Shows browsers) ----
       if (p === '/api/library/list' && req.method === 'GET') {
-        const svc = u.searchParams.get('svc') === 'sonarr' ? 'sonarr' : 'radarr';
+        const svc = svcParam(u.searchParams.get('svc'));
         const cfg = readConfig()[svc];
         if (!cfg.url || !cfg.apiKey) return sendJSON(res, 200, { items: [], configured: false });
         const c = readLibCache()[svc];
@@ -6751,21 +6990,21 @@ const server = http.createServer(async (req, res) => {
         if (!fresh && c && c.items && sonarrCacheStillHot) {
           return sendJSON(res, 200, { items: c.items, cached: true, ts: c.ts, ageMinutes: Math.round(ageMs / 60000), ageSeconds: Math.round(ageMs / 1000), configured: true });
         }
-        const r = await arrListAll(svc, svc === 'radarr' ? '/api/v3/movie' : '/api/v3/series');
+        const r = await arrListAll(svc, ARR_META[svc].api + '/' + ARR_META[svc].list);
         if (!r.ok) return sendJSON(res, 200, { items: [], configured: true, error: 'Could not read ' + svc + ' (' + (r.shape || 'no data') + ')' });
         const items = r.items.map(x => slimItem(x, svc)).sort((a, b) => String(a.sortTitle || '').localeCompare(String(b.sortTitle || '')));
         const cc = readLibCache(); cc[svc] = { items, ts: Date.now(), count: items.length }; writeLibCache();
         return sendJSON(res, 200, { items, cached: false, ts: Date.now(), ageMinutes: 0, configured: true });
       }
       if (p === '/api/library/cached' && req.method === 'GET') {
-        const svc = u.searchParams.get('svc') === 'sonarr' ? 'sonarr' : 'radarr';
+        const svc = svcParam(u.searchParams.get('svc'));
         const c = readLibCache()[svc];
         if (!c) return sendJSON(res, 200, { items: [], ts: null, cached: false, scanning: libScanning });
         return sendJSON(res, 200, { items: c.items, ts: c.ts, count: c.count, cached: true, ageMinutes: Math.round((Date.now() - c.ts) / 60000), scanning: libScanning });
       }
       if (p === '/api/library/status' && req.method === 'GET') return sendJSON(res, 200, libCacheStatus());
       if (p === '/api/admin/library/diag' && req.method === 'GET') {
-        return sendJSON(res, 200, { radarr: await arrProbe('radarr'), sonarr: await arrProbe('sonarr') });
+        return sendJSON(res, 200, { radarr: await arrProbe('radarr'), sonarr: await arrProbe('sonarr'), lidarr: arrConfigured('lidarr') ? await arrProbe('lidarr') : null });
       }
       if (p === '/api/admin/library/scan' && req.method === 'POST') {
         if (libScanning) return sendJSON(res, 200, Object.assign({ started: false, alreadyRunning: true }, libCacheStatus()));
@@ -7105,6 +7344,17 @@ const server = http.createServer(async (req, res) => {
         if (s.qualityProfileId != null) cur[svc].qualityProfileId = s.qualityProfileId;
         if (s.rootFolderPath != null)   cur[svc].rootFolderPath = s.rootFolderPath;
       }
+      if (incoming.lidarr) {
+        const s = incoming.lidarr;
+        cur.lidarr = Object.assign({}, DEFAULT_CONFIG.lidarr, cur.lidarr || {});
+        if (s.url != null)               cur.lidarr.url = normUrl(s.url);
+        if (s.apiKey)                    cur.lidarr.apiKey = String(s.apiKey).trim();   // only overwrite when non-empty
+        if (s.qualityProfileId != null)  cur.lidarr.qualityProfileId = s.qualityProfileId;
+        if (s.metadataProfileId != null) cur.lidarr.metadataProfileId = s.metadataProfileId;
+        if (s.rootFolderPath != null)    cur.lidarr.rootFolderPath = s.rootFolderPath;
+        if (s.monitor != null && LIDARR_MONITOR.includes(s.monitor)) cur.lidarr.monitor = s.monitor;
+        invalidateLive('lidarr');
+      }
       if (incoming.tmdb && incoming.tmdb.apiKey) cur.tmdb.apiKey = incoming.tmdb.apiKey;
       if (incoming.plex) {
         if (incoming.plex.url != null) cur.plex.url = normUrl(incoming.plex.url);
@@ -7226,7 +7476,7 @@ const server = http.createServer(async (req, res) => {
           return sendJSON(res, 200, { name: 'SABnzbd', version: Q.version || '', queued: (Q.slots || []).length, speed: Q.speed ? Q.speed + 'B/s' : '0 B/s' });
         }
         if (svc === 'webdav') return sendJSON(res, 200, await testWebdav(url, body.username, body.password, body.folder, body.source, body.localPath));
-        if (['radarr', 'sonarr'].includes(svc)) return sendJSON(res, 200, await testService(svc, url, key));
+        if (ARR_SERVICES.includes(svc)) return sendJSON(res, 200, await testService(svc, url, key));
         return sendJSON(res, 400, { message: 'bad service' });
       } catch (e) {
         const hint = /ECONNREFUSED|timed out|ENOTFOUND|EHOSTUNREACH/.test(e.message) ? ' (is the URL/port correct and the server running?)' : '';
@@ -7259,6 +7509,7 @@ const server = http.createServer(async (req, res) => {
     // proxies
     if (p.startsWith('/api/radarr/'))   return proxyArr('radarr', p.slice('/api/radarr'.length) + u.search, req, res);
     if (p.startsWith('/api/sonarr/'))   return proxyArr('sonarr', p.slice('/api/sonarr'.length) + u.search, req, res);
+    if (p.startsWith('/api/lidarr/'))   return proxyArr('lidarr', p.slice('/api/lidarr'.length) + u.search, req, res);
     if (p.startsWith('/api/cinemeta/')) return proxyCinemeta(p.slice('/api/cinemeta'.length) + u.search, res);
     if (p.startsWith('/api/tmdb/'))     return proxyTmdb(p.slice('/api/tmdb'.length) + u.search, res);
     if (p.startsWith('/api/plex/')) {

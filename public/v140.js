@@ -100,8 +100,9 @@ function renderWebhooks(w){
   q('rtWebhookBox').innerHTML=
     '<div class="rt140-row"><div class="rt140-code">'+esc(w.radarrUrl||'')+'</div><button class="rt140-btn" data-copy="'+esc(w.radarrUrl||'')+'">Copy Radarr</button></div>'+
     '<div class="rt140-row"><div class="rt140-code">'+esc(w.sonarrUrl||'')+'</div><button class="rt140-btn" data-copy="'+esc(w.sonarrUrl||'')+'">Copy Sonarr</button></div>'+
-    '<div class="rt140-note">In Radarr/Sonarr: Settings → Connect → + → Webhook. Use the URL above and enable the events you want MEDIARR to receive.</div>';
-  q('rtWebhookBox').querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(b.getAttribute('data-copy'));b.textContent='Copied';setTimeout(function(){b.textContent=b.getAttribute('data-copy').indexOf('/radarr?')>=0?'Copy Radarr':'Copy Sonarr';},1200);};});
+    (w.lidarrUrl?'<div class="rt140-row"><div class="rt140-code">'+esc(w.lidarrUrl)+'</div><button class="rt140-btn" data-copy="'+esc(w.lidarrUrl)+'">Copy Lidarr</button></div>':'')+
+    '<div class="rt140-note">In Radarr, Sonarr or Lidarr: Settings → Connect → + → Webhook. Use the matching URL and enable the events you want MEDIARR to receive.</div>';
+  q('rtWebhookBox').querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(b.getAttribute('data-copy'));b.textContent='Copied';setTimeout(function(){var u=b.getAttribute('data-copy');b.textContent=u.indexOf('/radarr?')>=0?'Copy Radarr':u.indexOf('/lidarr?')>=0?'Copy Lidarr':'Copy Sonarr';},1200);};});
 }
 async function openDashboard(){
   ensureDashboard(); q('rtDashboard').classList.add('show');
@@ -166,7 +167,7 @@ function wizardNav(back,next,finish){
 }
 function drawDots(){
   if(!q('wizDots'))return;
-  var h='';for(var i=0;i<5;i++)h+='<div class="rt140-stepdot '+(i<=RT.wizardStep?'on':'')+'"></div>';q('wizDots').innerHTML=h;
+  var h='';for(var i=0;i<6;i++)h+='<div class="rt140-stepdot '+(i<=RT.wizardStep?'on':'')+'"></div>';q('wizDots').innerHTML=h;
 }
 function selectOptions(items,value,kind){
   var h='<option value="">Choose '+kind+'</option>';
@@ -188,55 +189,76 @@ function renderWizard(){
     h='<h3>Sonarr</h3><div class="rt140-form">'+field('wizSonUrl','Server URL','text','http://sonarr:8989',true)+field('wizSonKey','API key','password','Sonarr API key',true)+
       '<div class="rt140-field"><label>Quality profile</label><select id="wizSonProfile">'+selectOptions((RT.tested.sonarr||{}).profiles,stored('sonarr','qualityProfileId'),'profile')+'</select></div>'+
       '<div class="rt140-field"><label>Root folder</label><select id="wizSonFolder">'+selectOptions((RT.tested.sonarr||{}).folders,stored('sonarr','rootFolderPath'),'folder')+'</select></div></div>'+
-      '<button class="rt140-btn" id="wizTest">Test & load options</button><span class="rt140-test" id="wizTestMsg"></span>'+wizardNav(true,'Next: TMDB',false);
+      '<button class="rt140-btn" id="wizTest">Test & load options</button><span class="rt140-test" id="wizTestMsg"></span>'+wizardNav(true,'Next: Lidarr',false);
   }else if(step===3){
+    h='<h3>Lidarr</h3><p class="rt140-note">Optional: connect Lidarr to search for and request music.</p><div class="rt140-form">'+field('wizLidUrl','Server URL','text','http://lidarr:8686',true)+field('wizLidKey','API key','password','Lidarr API key',true)+
+      '<div class="rt140-field"><label>Quality profile</label><select id="wizLidProfile">'+selectOptions((RT.tested.lidarr||{}).profiles,stored('lidarr','qualityProfileId'),'profile')+'</select></div>'+
+      '<div class="rt140-field"><label>Metadata profile</label><select id="wizLidMeta">'+selectOptions((RT.tested.lidarr||{}).metadataProfiles,stored('lidarr','metadataProfileId'),'profile')+'</select></div>'+
+      '<div class="rt140-field"><label>Root folder</label><select id="wizLidFolder">'+selectOptions((RT.tested.lidarr||{}).folders,stored('lidarr','rootFolderPath'),'folder')+'</select></div></div>'+
+      '<button class="rt140-btn" id="wizTest">Test & load options</button><span class="rt140-test" id="wizTestMsg"></span>'+wizardNav(true,'Next: TMDB',false);
+  }else if(step===4){
     h='<h3>TMDB</h3><p class="rt140-note">Optional, but recommended for richer discovery, people, studio, year and recommendation views.</p><div class="rt140-form">'+field('wizTmdbKey','TMDB API key','password','TMDB v3 API key',true)+'</div><button class="rt140-btn" id="wizTest">Test TMDB</button><span class="rt140-test" id="wizTestMsg"></span>'+wizardNav(true,'Next: Real-time events',false);
   }else{
     var w=RT.setup&&RT.setup.webhooks||{};
-    h='<h3>Real-time Radarr / Sonarr events</h3><p class="rt140-note">Add these as Webhook connections in Radarr and Sonarr. MEDIARR will immediately learn about imports, downloads, deletes, renames and tests, and push them live to the dashboard.</p>'+
+    h='<h3>Real-time events</h3><p class="rt140-note">Add these as Webhook connections in Radarr, Sonarr and (if you use it) Lidarr. MEDIARR will immediately learn about imports, downloads, deletes, renames and tests, and push them live to the dashboard.</p>'+
       '<div class="rt140-row"><div class="rt140-code">'+esc(w.radarrUrl||'')+'</div><button class="rt140-btn" data-wcopy="'+esc(w.radarrUrl||'')+'">Copy</button></div>'+
       '<div class="rt140-row"><div class="rt140-code">'+esc(w.sonarrUrl||'')+'</div><button class="rt140-btn" data-wcopy="'+esc(w.sonarrUrl||'')+'">Copy</button></div>'+
-      '<p class="rt140-note">Radarr/Sonarr → Settings → Connect → + → Webhook. Paste the matching URL. The secret token is already included in the URL.</p>'+wizardNav(true,'',true);
+      (w.lidarrUrl?'<div class="rt140-row"><div class="rt140-code">'+esc(w.lidarrUrl)+'</div><button class="rt140-btn" data-wcopy="'+esc(w.lidarrUrl)+'">Copy</button></div>':'')+
+      '<p class="rt140-note">Radarr/Sonarr/Lidarr → Settings → Connect → + → Webhook. Paste the matching URL. The secret token is already included in the URL.</p>'+wizardNav(true,'',true);
   }
   b.innerHTML=h;
-  if(step===1){q('wizRadUrl').value=stored('radarr','url');}
-  if(step===2){q('wizSonUrl').value=stored('sonarr','url');}
+  if(step===1){q('wizRadUrl').value=stored('radarr','url');q('wizRadKey').value=stored('radarr','apiKey');}
+  if(step===2){q('wizSonUrl').value=stored('sonarr','url');q('wizSonKey').value=stored('sonarr','apiKey');}
+  if(step===3){q('wizLidUrl').value=stored('lidarr','url');q('wizLidKey').value=stored('lidarr','apiKey');}
+  if(step===4&&q('wizTmdbKey')){q('wizTmdbKey').value=stored('tmdb','apiKey');}
   b.querySelectorAll('[data-wcopy]').forEach(function(x){x.onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(x.getAttribute('data-wcopy'));x.textContent='Copied';};});
   if(q('wizBack'))q('wizBack').onclick=function(){saveStepFields();RT.wizardStep--;renderWizard();};
   if(q('wizSkip'))q('wizSkip').onclick=skipWizard;
   if(q('wizTest'))q('wizTest').onclick=testWizardStep;
-  if(q('wizNext'))q('wizNext').onclick=function(){saveStepFields();if(RT.wizardStep<4){RT.wizardStep++;renderWizard();}else finishWizard();};
+  if(q('wizNext'))q('wizNext').onclick=function(){saveStepFields();if(RT.wizardStep<5){RT.wizardStep++;renderWizard();}else finishWizard();};
 }
+// A key typed earlier in the wizard survives Back/Next: a blank field never wipes it.
+function keyField(id,svc){var v=q(id)?q(id).value.trim():'';return v||stored(svc,'apiKey')||'';}
 function saveStepFields(){
   RT.setup=RT.setup||{config:{}};
   RT.setup.config=RT.setup.config||{};
   if(RT.wizardStep===1){
     RT.setup.config.radarr=Object.assign({},RT.setup.config.radarr||{},{
       url:q('wizRadUrl')?q('wizRadUrl').value.trim():'',
-      apiKey:q('wizRadKey')?q('wizRadKey').value.trim():'',
+      apiKey:keyField('wizRadKey','radarr'),
       qualityProfileId:q('wizRadProfile')?q('wizRadProfile').value:'',
       rootFolderPath:q('wizRadFolder')?q('wizRadFolder').value:''
     });
   }else if(RT.wizardStep===2){
     RT.setup.config.sonarr=Object.assign({},RT.setup.config.sonarr||{},{
       url:q('wizSonUrl')?q('wizSonUrl').value.trim():'',
-      apiKey:q('wizSonKey')?q('wizSonKey').value.trim():'',
+      apiKey:keyField('wizSonKey','sonarr'),
       qualityProfileId:q('wizSonProfile')?q('wizSonProfile').value:'',
       rootFolderPath:q('wizSonFolder')?q('wizSonFolder').value:''
     });
   }else if(RT.wizardStep===3){
-    RT.setup.config.tmdb=Object.assign({},RT.setup.config.tmdb||{}, {apiKey:q('wizTmdbKey')?q('wizTmdbKey').value.trim():''});
+    RT.setup.config.lidarr=Object.assign({},RT.setup.config.lidarr||{},{
+      url:q('wizLidUrl')?q('wizLidUrl').value.trim():'',
+      apiKey:keyField('wizLidKey','lidarr'),
+      qualityProfileId:q('wizLidProfile')?q('wizLidProfile').value:'',
+      metadataProfileId:q('wizLidMeta')?q('wizLidMeta').value:'',
+      rootFolderPath:q('wizLidFolder')?q('wizLidFolder').value:''
+    });
+  }else if(RT.wizardStep===4){
+    RT.setup.config.tmdb=Object.assign({},RT.setup.config.tmdb||{}, {apiKey:keyField('wizTmdbKey','tmdb')});
   }
 }
 async function testWizardStep(){
   var msg=q('wizTestMsg');if(msg){msg.className='rt140-test';msg.textContent=' Testing…';}
   try{
-    if(RT.wizardStep===1||RT.wizardStep===2){
-      var svc=RT.wizardStep===1?'radarr':'sonarr', pre=svc==='radarr'?'wizRad':'wizSon';
+    if(RT.wizardStep>=1&&RT.wizardStep<=3){
+      var svc=['','radarr','sonarr','lidarr'][RT.wizardStep], pre={radarr:'wizRad',sonarr:'wizSon',lidarr:'wizLid'}[svc];
       var d=await post('/api/test',{svc:svc,url:q(pre+'Url').value.trim(),key:q(pre+'Key').value.trim()});
       RT.tested[svc]=d;
       if(msg){msg.className='rt140-test rt140-ok';msg.textContent=' ✓ '+(d.name||svc)+' '+(d.version||'');}
-      var p=q(pre+'Profile'),f=q(pre+'Folder');if(p)p.innerHTML=selectOptions(d.profiles,stored(svc,'qualityProfileId'),'profile');if(f)f.innerHTML=selectOptions(d.folders,stored(svc,'rootFolderPath'),'folder');
+      var f0=(d.folders||[])[0]||{};
+      var p=q(pre+'Profile'),f=q(pre+'Folder');if(p)p.innerHTML=selectOptions(d.profiles,stored(svc,'qualityProfileId')||(svc==='lidarr'?f0.defaultQualityProfileId:''),'profile');if(f)f.innerHTML=selectOptions(d.folders,stored(svc,'rootFolderPath')||(svc==='lidarr'?f0.path:''),'folder');
+      var mp=q(pre+'Meta');if(mp)mp.innerHTML=selectOptions(d.metadataProfiles,stored(svc,'metadataProfileId')||f0.defaultMetadataProfileId,'profile');
     }else{
       var tm=await post('/api/test',{svc:'tmdb',key:q('wizTmdbKey').value.trim()});RT.tested.tmdb=tm;
       if(msg){msg.className='rt140-test rt140-ok';msg.textContent=' ✓ TMDB connected';}
@@ -246,7 +268,7 @@ async function testWizardStep(){
 async function finishWizard(){
   saveStepFields();
   try{
-    var body={radarr:RT.setup.config.radarr||{},sonarr:RT.setup.config.sonarr||{},tmdb:RT.setup.config.tmdb||{}};
+    var body={radarr:RT.setup.config.radarr||{},sonarr:RT.setup.config.sonarr||{},lidarr:RT.setup.config.lidarr||{},tmdb:RT.setup.config.tmdb||{}};
     var d=await post('/api/admin/setup/complete',body);RT.setup.webhooks=d.webhooks||RT.setup.webhooks;
     q('rtWizard').classList.remove('show');
     location.reload();

@@ -2,6 +2,19 @@
 
 # MEDIARR
 
+## MEDIARR 2.4
+
+MEDIARR 2.4 adds **Lidarr** so music sits beside movies and TV.
+
+- **Music search** — a new **🎵 Music** search mode finds artists and albums through Lidarr and marks what's already in your library. It appears once Lidarr is connected.
+- **Request music** — add a whole artist, or ask for one album. Requesting a single album by a new artist adds the artist with only that album monitored, so nothing else downloads. Daily request limits count music too.
+- **Artist pages** — albums with release year and tracks on disk. Users request albums from here; admins turn album monitoring on or off and search for an album or the whole artist.
+- **Music everywhere else** — a Music library for admins, album releases on the calendar (with a Music filter), a Lidarr tab in Download Activity, Lidarr in Health, music in request history and on home pages, and download notifications such as "Radiohead — Kid A".
+- **Setup** — Lidarr has its own step in the setup wizard and its own Settings block (quality profile, metadata profile, root folder, and which albums to monitor). Lidarr's webhook URL is listed with Radarr's and Sonarr's.
+- **Setup wizard fix** — going Back and then Next no longer clears an API key you typed earlier.
+
+Music search and requests are on the desktop page and the installed app; the separate mobile page gets them in a later release.
+
 ## MEDIARR 2.3
 
 MEDIARR 2.3 is a usability release for desktop, mobile and the installed app.
@@ -58,9 +71,9 @@ MEDIARR 2.0 adds a shared responsive **Media Intelligence Hub** on desktop, mobi
 The hub is opened from the menu's **Insights** section and the header bell on both desktop and mobile (since 2.3 there is no floating launcher button).
 
 
-**A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
+**A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.3.1-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.4.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -79,7 +92,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.3.1 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.4.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -103,6 +116,7 @@ This README is written against the **v2.3.1 source in this repository**. Feature
 - [Playback intelligence and path mapping](#playback-intelligence-and-path-mapping)
 - [Movie and TV discovery](#movie-and-tv-discovery)
 - [Radarr and Sonarr integration](#radarr-and-sonarr-integration)
+- [Lidarr and music](#lidarr-and-music)
 - [Unified media detail](#unified-media-detail)
 - [Real-time events and Live Dashboard](#real-time-events-and-live-dashboard)
 - [Manual release search](#manual-release-search)
@@ -224,6 +238,7 @@ This README is written against the **v2.3.1 source in this repository**. Feature
 | --- | --- | --- |
 | **Radarr** | Movie library, add/edit, searches, manual releases, calendar, health | Recommended |
 | **Sonarr** | TV library, add/edit, episode monitoring, searches, manual releases, calendar, health | Recommended |
+| **Lidarr** | Music search and requests, artist pages, album monitoring and searches, music library, calendar, download queue, health | Optional |
 | **TMDB** | Rich discovery, person/year/studio search, metadata and recommendations | Optional but strongly recommended |
 | **Plex** | Health, sessions, watchlists, history, watched state, account linking | Optional |
 | **SABnzbd** | Download Activity Center, queue/history visibility | Optional |
@@ -233,7 +248,7 @@ This README is written against the **v2.3.1 source in this repository**. Feature
 | **RSS/Atom feeds** | Automated movie/series discovery and additions | Optional |
 | **Discord / Slack / Telegram / ntfy / Gotify / Pushover / Pushbullet / generic webhook** | Notifications | Optional |
 
-MEDIARR is not affiliated with Radarr, Sonarr, Plex, TMDB, SABnzbd, Stremio, Docker, or GitHub.
+MEDIARR is not affiliated with Radarr, Sonarr, Lidarr, Plex, TMDB, SABnzbd, Stremio, Docker, or GitHub.
 
 ---
 
@@ -419,8 +434,9 @@ After that account is created, MEDIARR v1.4.0 opens a guided **first-run setup w
 
 1. Radarr URL/API key, connection test, quality profile, and root folder.
 2. Sonarr URL/API key, connection test, quality profile, and root folder.
-3. An optional TMDB API key test.
-4. Copy-ready Radarr and Sonarr webhook URLs for MEDIARR's real-time event system.
+3. Optional Lidarr URL/API key, connection test, quality profile, metadata profile, and root folder.
+4. An optional TMDB API key test.
+5. Copy-ready Radarr, Sonarr and Lidarr webhook URLs for MEDIARR's real-time event system.
 
 Every service step is optional. You can skip the wizard and configure the same services later in **Settings**. Existing installations that already have services configured are not forced back through the wizard.
 
@@ -455,6 +471,23 @@ You need:
 - API key.
 - Quality profile.
 - Root folder.
+
+### Lidarr
+
+Typical URL:
+
+```text
+http://192.168.1.50:8686
+```
+
+You need:
+
+- Lidarr URL.
+- API key (**Settings → General → Security** in Lidarr).
+- Quality profile, metadata profile and root folder. **Test & load options** pre-selects the root folder's own defaults.
+- Which albums to monitor when an artist is added: all, future, missing, existing, latest, first, or none.
+
+Lidarr is optional. The **🎵 Music** search mode appears only after it is connected.
 
 ### TMDB
 
@@ -814,6 +847,35 @@ MEDIARR can trigger Radarr/Sonarr commands to search for an existing movie, seri
 
 ---
 
+## Lidarr and music
+
+When Lidarr is connected, the desktop page and installed app get a **🎵 Music** search mode. Results are grouped into **Artists** and **Albums**, and each shows whether it is already in Lidarr.
+
+### Adding music
+
+- **Add artist** sends the artist to Lidarr with your saved quality profile, metadata profile, root folder and monitor choice, and starts a search for missing albums.
+- **Request album** for an artist already in Lidarr monitors that album and searches for it.
+- **Request album** for an artist not yet in Lidarr adds the artist with only that album monitored, so the rest of the discography doesn't download.
+
+Music requests count toward each person's daily limit and appear in request history, home pages, the admin activity log and notifications. Lidarr's API key never reaches the browser.
+
+### Artist pages
+
+Selecting an artist opens a page with its albums (newest first), release years and tracks on disk. Regular users can add the artist or request albums. Admins can also switch monitoring per album, search for one album, or search for every monitored album.
+
+Artist pages can be shared: the address bar shows `?title=artist:<MusicBrainz id>`.
+
+### Library, calendar and downloads
+
+- **Music** in the admin menu opens the Lidarr library with tracks on disk per artist and a per-artist search button.
+- Upcoming album releases appear on the calendar with a **Music** filter.
+- Download Activity has a **Lidarr** tab, and Health monitors Lidarr.
+- Lidarr's webhook (below) refreshes the music library right after imports and sends download notifications.
+
+Music playback is not part of MEDIARR yet.
+
+---
+
 ## Unified media detail
 
 MEDIARR v1.5.0 adds one shared status panel to movie and TV detail views on both desktop and mobile. It is designed to answer the questions that previously required jumping between discovery, Radarr/Sonarr, Plex, file information, and release tools.
@@ -886,18 +948,19 @@ The existing title controls remain immediately below the unified panel. This mea
 
 MEDIARR v1.4.0 adds a push-based event path for Radarr and Sonarr plus an administrator-only **Live Dashboard**.
 
-### Radarr and Sonarr webhooks
+### Radarr, Sonarr and Lidarr webhooks
 
-MEDIARR exposes two webhook endpoints:
+MEDIARR exposes three webhook endpoints:
 
 ```text
 /api/webhooks/radarr?token=<generated-secret>
 /api/webhooks/sonarr?token=<generated-secret>
+/api/webhooks/lidarr?token=<generated-secret>
 ```
 
 The first-run wizard and the Live Dashboard show complete copy-ready URLs based on the address you used to reach MEDIARR.
 
-In Radarr or Sonarr:
+In Radarr, Sonarr or Lidarr:
 
 1. Open **Settings → Connect**.
 2. Add a **Webhook** connection.
