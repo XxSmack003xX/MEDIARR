@@ -388,6 +388,10 @@
   .card-add.err{background:rgba(244,96,122,.16);color:var(--red);border:1px solid rgba(244,96,122,.4)}
   .card-add:hover:not(:disabled){filter:brightness(1.07)}
   .card-add:disabled{cursor:default}
+  .card-add.off{background:transparent;color:var(--muted);border:1px dashed var(--line);font-weight:600}
+  .perm-checks{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+  .perm-checks label{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;cursor:pointer;min-height:32px}
+  .perm-checks input{width:16px;height:16px;accent-color:var(--gold,#e8b04b);margin:0}
   .svc-head h3{font-size:15px;font-weight:700}
   .field{margin-bottom:13px}
   .field label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;letter-spacing:.3px}
@@ -544,7 +548,8 @@
   .urow .c-role{width:64px;flex:none}
   .urow .c-lim{width:118px;flex:none;display:flex;align-items:center;gap:5px}
   .urow .c-used{width:64px;flex:none;color:var(--muted)}
-  .urow .c-act{flex:none;display:flex;gap:6px}
+  .urow .c-perm{width:214px;flex:none}
+  .urow .c-act{flex:none;display:flex;gap:6px;width:190px;justify-content:flex-end}
   .rolebadge{font-size:10px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;padding:3px 8px;border-radius:20px}
   .rolebadge.admin{background:rgba(232,176,75,.18);color:var(--gold)} .rolebadge.user{background:rgba(53,197,240,.16);color:var(--sonarr)}
   .lim-input{width:50px;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--txt);padding:5px 6px;font-family:inherit;font-size:13px;text-align:center}
@@ -1379,7 +1384,13 @@ let genreList = null;
 let yearState = { year:null, movie:{page:0,total:1,done:false}, tv:{page:0,total:1,done:false}, items:[], keys:new Set() };
 let studioState = { query:null, companyIds:[], companyNames:[], items:[], page:0, total:1, done:false, keys:new Set() };
 let hideAdded = false;         // when true, hide titles already in the library
-let currentUser = null;        // { username, role, dailyLimit, addedToday }
+let currentUser = null;        // { username, role, dailyLimit, addedToday, canAdd:{movies,tv,music} }
+/* Per-user add permissions (admins can always add). The server enforces these too. */
+const ADD_KIND_OF = { radarr:'movies', sonarr:'tv', lidarr:'music' };
+const ADD_KIND_TEXT = { movies:'movies', tv:'TV shows', music:'music' };
+function canAddSvc(svc){ const c=currentUser&&currentUser.canAdd; return !c || c[ADD_KIND_OF[svc]]!==false; }
+function addOffText(svc){ return "Adding "+ADD_KIND_TEXT[ADD_KIND_OF[svc]]+" isn't enabled for your account"; }
+function addOffBtn(svc){ return `<button class="card-add off" type="button" disabled title="${addOffText(svc)}">Adding off</button>`; }
 
 // Sonarr monitor schemes (value -> label)
 const MONITOR_OPTIONS = [
@@ -2146,6 +2157,10 @@ async function pollAuto(){
   }catch(e){}
 }
 async function startAutoAdd(label, items){
+  // Leave out kinds this account isn't allowed to add (the server would skip them anyway).
+  const allowed = items.filter(i=>canAddSvc(i.kind==='series'?'sonarr':'radarr'));
+  if(items.length && !allowed.length){ alert("Your account isn't allowed to add "+(items.every(i=>i.kind==='series')?'TV shows':items.every(i=>i.kind!=='series')?'movies':'these titles')+'. Ask an admin if you need it.'); return; }
+  items = allowed;
   if(!items.length){ alert('Nothing new to add — everything here is already in your library.'); return; }
   const mins = (config.autoAdd&&config.autoAdd.intervalMinutes!=null)?config.autoAdd.intervalMinutes:5;
   const minRt=(config.autoAdd&&config.autoAdd.minRuntime)||0;
@@ -2213,6 +2228,8 @@ async function autoAddCurrent(btn){
     }
     btn.disabled=false; btn.textContent=orig;
     if(!items.length){ alert('Nothing new to add — everything here is already in your library.'); return; }
+    if(!items.some(i=>canAddSvc(i.kind==='series'?'sonarr':'radarr'))) return startAutoAdd(label, items);   // explains why
+    items = items.filter(i=>canAddSvc(i.kind==='series'?'sonarr':'radarr'));
     const scope = await askAddScope(items);
     if(!scope) return;
     const picked = scope==='all' ? items : items.filter(i=> scope==='series' ? i.kind==='series' : i.kind!=='series');
@@ -3162,6 +3179,7 @@ function musicCard(it, i){
     : `<div class="poster placeholder">🎵</div>`;
   const sub = it.kind==='artist' ? [it.artistType, it.disambiguation].filter(Boolean).join(' · ') : [it.artistName, it.year].filter(Boolean).join(' · ');
   const btn = it.inLibrary ? `<button class="card-add added" disabled>✓ In library</button>`
+    : !canAddSvc('lidarr') ? addOffBtn('lidarr')
     : `<button class="card-add lidarr" type="button" data-madd="${i}">＋ ${it.kind==='artist'?'Add artist':'Add album'}</button>`;
   return `<div class="card${it.inLibrary?' added':''}" data-mopen="${i}" role="button" tabindex="0" aria-label="${esc(it.title)}">${poster}
     <span class="badge ${it.kind}">${it.kind==='artist'?'Artist':'Album'}</span>${it.inLibrary?'<span class="check" title="In your library">✓</span>':''}
@@ -3230,7 +3248,8 @@ function renderMusicArtist(d, focus){
   const stats = d.inLibrary ? `<div class="music-stats"><span><b>${st.albumCount||0}</b> albums</span><span><b>${st.trackFileCount||0}</b> of ${st.totalTrackCount||0} tracks on disk</span>${st.sizeOnDisk?`<span>${dlSize(st.sizeOnDisk)}</span>`:''}${a.monitored?'':'<span>Not monitored</span>'}</div>` : '';
   const links=(a.links||[]).map(l=>`<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.name||'Link')}</a>`).join(' · ');
   let actions='';
-  if(!d.inLibrary) actions=`<button class="btn btn-gold" type="button" id="maAddArtist">＋ Add artist to Lidarr</button>`;
+  const mayAdd=canAddSvc('lidarr');
+  if(!d.inLibrary) actions=mayAdd?`<button class="btn btn-gold" type="button" id="maAddArtist">＋ Add artist to Lidarr</button>`:`<div class="music-stats">${addOffText('lidarr')}.</div>`;
   else if(admin) actions=`<button class="btn btn-ghost" type="button" id="maSearchAll">Search for monitored albums</button>`;
   const albums=(d.albums||[]).map(al=>{
     const s2=al.statistics||{}, have=s2.trackFileCount||0, total=s2.totalTrackCount||s2.trackCount||0;
@@ -3241,7 +3260,7 @@ function renderMusicArtist(d, focus){
       acts=`<label title="Monitored albums are searched for and downloaded"><input type="checkbox" data-amon="${al.id}" ${al.monitored?'checked':''}> Monitored</label>
             <button class="btn btn-ghost" type="button" data-asearch="${al.id}" style="padding:6px 10px;font-size:12px">Search</button>`;
     } else if(!al.monitored && !(have && have>=total)){
-      acts=`<button class="btn btn-ghost" type="button" data-areq="${esc(al.foreignAlbumId)}" style="padding:6px 10px;font-size:12px">Request</button>`;
+      acts=mayAdd?`<button class="btn btn-ghost" type="button" data-areq="${esc(al.foreignAlbumId)}" style="padding:6px 10px;font-size:12px">Request</button>`:'';
     } else {
       acts=`<span class="cbadge ${have&&have>=total?'have':'music'}">${have&&have>=total?'In library':'Wanted'}</span>`;
     }
@@ -3446,15 +3465,17 @@ function renderResults(metas){
       ? `<img class="poster" src="${m.poster}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'poster placeholder',textContent:'No image'}))">`
       : `<div class="poster placeholder">No image</div>`;
     const isMovieC = m.type!=='series';
+    const mayAddC = canAddSvc(isMovieC?'radarr':'sonarr');
     const addBtnC = inLib
       ? `<button class="card-add added" disabled>✓ In library</button>`
+      : !mayAddC ? addOffBtn(isMovieC?'radarr':'sonarr')
       : `<button class="card-add ${isMovieC?'radarr':'sonarr'}">＋ Add to ${isMovieC?'Radarr':'Sonarr'}</button>`;
     card.innerHTML = `${poster}<span class="badge ${m.type}">${m.type==='movie'?'Movie':'TV'}</span>
       ${inLib?'<span class="check" title="In your library">✓</span>':''}
       <div class="card-meta"><div class="card-title">${esc(m.name)}</div><div class="card-year">${m.releaseInfo||''}</div></div>
       <div class="addrow">${addBtnC}</div>`;
     card.addEventListener('click', e=>{ if(e.target.closest('.card-add')) return; openDetail(m.type, m.id, m); });
-    { const ab=card.querySelector('.card-add'); if(ab && !inLib) ab.onclick=()=>quickAddCin(ab, m); }
+    { const ab=card.querySelector('.card-add'); if(ab && !inLib && mayAddC) ab.onclick=()=>quickAddCin(ab, m); }
     if(m.type==='series') decorateTvCard(card, { title:m.name, imdbId:(String(m.id||'').startsWith('tt')?m.id:''), tmdbId:(String(m.id||'').startsWith('tmdb:')?Number(String(m.id).slice(5)):null), poster:m.poster||'' });
     decorateWatchlist(card, { title:m.name, year:(m.releaseInfo||'').slice(0,4), type:m.type==='series'?'series':'movie' });
     if(m.type==='series' && String(m.id||'').startsWith('tmdb:')) card.dataset.tmdbkey='series:'+String(m.id).slice(5);
@@ -3575,8 +3596,10 @@ function tmdbCard(item, roleTag){
     ? `<img class="poster" src="${TMDB_IMG}${item.poster_path}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'poster placeholder',textContent:'No image'}))">`
     : `<div class="poster placeholder">No image</div>`;
   const svcClass = isMovie ? 'radarr' : 'sonarr';
+  const mayAdd = canAddSvc(svcClass);
   const addBtn = inLib
     ? `<button class="card-add added" disabled>✓ In library</button>`
+    : !mayAdd ? addOffBtn(svcClass)
     : `<button class="card-add ${svcClass}">＋ Add to ${isMovie?'Radarr':'Sonarr'}</button>`;
   card.innerHTML = `${poster}<span class="badge ${isMovie?'movie':'series'}">${isMovie?'Movie':'TV'}</span>
     ${inLib?'<span class="check" title="In your library">✓</span>':''}
@@ -3587,7 +3610,7 @@ function tmdbCard(item, roleTag){
   if(tmdbAdded.get(card.dataset.tmdbkey)) setTimeout(()=>markTmdbCard(card,true),0);
   card.addEventListener('click', e=>{ if(e.target.closest('.card-add')) return; openDetailFromTmdb(item.media_type, item.id, item); });
   const ab = card.querySelector('.card-add');
-  if(ab && !inLib) ab.onclick = ()=> cardAdd(ab, { type:item.media_type==='tv'?'series':'movie', tmdbId:item.id, title, year }, item.media_type==='tv'?'sonarr':'radarr');
+  if(ab && !inLib && mayAdd) ab.onclick = ()=> cardAdd(ab, { type:item.media_type==='tv'?'series':'movie', tmdbId:item.id, title, year }, item.media_type==='tv'?'sonarr':'radarr');
   if(item.media_type==='tv') decorateTvCard(card, { title, tmdbId:item.id, poster:item.poster_path?TMDB_IMG+item.poster_path:'' });
   decorateWatchlist(card, { title, year, type:item.media_type==='tv'?'series':'movie' });
   return card;
@@ -4228,6 +4251,8 @@ function renderDetail(m, limited){
       actionHtml = `<div class="inlib"><span class="tick">✓</span> Already in the library.</div>${isMovie?'<div id="fileInfoMount"></div>':''}`;
       if(isMovie && lib && lib.id) setTimeout(()=>loadMovieFileInfo(lib.id), 0);
     }
+  } else if(!isAdmin && !canAddSvc(isMovie?'radarr':'sonarr')){
+    actionHtml = `<div class="inlib" style="color:var(--muted);border-color:var(--line);background:var(--panel)">${addOffText(isMovie?'radarr':'sonarr')}. Ask an admin if you need it.</div>`;
   } else if(!isAdmin){
     // Regular users: a single plain Add button (server applies sensible defaults)
     actionHtml = `<button class="btn ${btnClass}" id="addBtn">${btnLabel}</button>`;
@@ -5608,6 +5633,7 @@ async function loadAdmin(){
         <div class="field"><label>Role</label><select id="nu_role"><option value="user">Regular user</option><option value="admin">Admin</option></select></div>
         <div class="field"><label>Daily add limit (0 = unlimited)</label><input id="nu_limit" type="number" min="0" value="10"></div>
       </div>
+      <div class="field"><label>Can add</label>${permChecks({}, 'nu_can_')}</div>
       <button class="btn btn-gold" id="nu_add">Create user</button>
       <div class="auth-err" id="nu_err" style="margin-top:10px"></div>
     </div>
@@ -5790,16 +5816,22 @@ function wirePlaybackAdmin(){
   };
   const dash=document.getElementById('playDashOpen'); if(dash) dash.onclick=()=>{ adminOverlay.classList.remove('show'); openTranscodeDashboard(); };
 }
+function permChecks(c, idPrefix){
+  c=c||{};
+  return '<div class="perm-checks" role="group" aria-label="Can add">'+[['movies','Movies'],['tv','TV'],['music','Music']].map(([k,l])=>
+    `<label><input type="checkbox" ${idPrefix?`id="${idPrefix+k}"`:`data-perm="${k}"`} ${c[k]!==false?'checked':''}> ${l}</label>`).join('')+'</div>';
+}
 function renderAdminUsers(users){
   const t = document.getElementById('utable'), pendingCount=users.filter(u=>u.approved===false).length;
   let html = pendingCount?'<div class="note" style="margin-bottom:12px"><b>'+pendingCount+' pending access '+(pendingCount===1?'request':'requests')+'.</b> Approve an account before that person can sign in.</div>':'';
-  html += `<div class="urow head"><div class="c-user">User</div><div class="c-role">Role</div><div class="c-lim">Daily limit</div><div class="c-used">Today</div><div class="c-act">Actions</div></div>`;
+  html += `<div class="urow head"><div class="c-user">User</div><div class="c-role">Role</div><div class="c-perm">Can add</div><div class="c-lim">Daily limit</div><div class="c-used">Today</div><div class="c-act">Actions</div></div>`;
   users.forEach(u=>{
     const isAdmin = u.role==='admin', pending=u.approved===false;
     const provider=u.registrationMethod==='plex'?'Plex':u.registrationMethod==='password'?'Username/password':u.registrationMethod==='admin'?'Admin-created':'Local';
     html += `<div class="urow" data-u="${esc(u.username)}">
       <div class="c-user">${esc(u.username)}${u.username===currentUser.username?' (you)':''}<div style="font-size:10px;color:var(--muted);margin-top:3px">${esc(provider)}${u.plexUsername?' · '+esc(u.plexUsername):''}</div></div>
       <div class="c-role"><span class="rolebadge ${pending?'user':u.role}">${pending?'pending':u.role}</span></div>
+      <div class="c-perm">${isAdmin?'<span style="color:var(--muted)">Everything</span>':permChecks(u.canAdd)}</div>
       <div class="c-lim">${pending?'—':isAdmin?'<span style="color:var(--muted)">∞</span>':`<input class="lim-input" type="number" min="0" value="${u.dailyLimit}"> <button class="mini ghost" data-act="setlim">Set</button>`}</div>
       <div class="c-used">${pending?'—':isAdmin?'—':(u.addedToday||0)}</div>
       <div class="c-act">
@@ -5810,6 +5842,7 @@ function renderAdminUsers(users){
   t.innerHTML = html;
   t.querySelectorAll('.urow[data-u]').forEach(row=>{
     const uname = row.dataset.u;
+    row.querySelectorAll('[data-perm]').forEach(cb=>cb.onchange=()=>patchUser(uname,{canAdd:{[cb.dataset.perm]:cb.checked}}));
     const setBtn = row.querySelector('[data-act="setlim"]');
     if(setBtn) setBtn.onclick = ()=> patchUser(uname, { dailyLimit: Number(row.querySelector('.lim-input').value) });
     const roleBtn=row.querySelector('[data-act="role"]');
@@ -6673,7 +6706,8 @@ async function createUser(){
     username: document.getElementById('nu_user').value.trim(),
     password: document.getElementById('nu_pass').value,
     role: document.getElementById('nu_role').value,
-    dailyLimit: Number(document.getElementById('nu_limit').value)
+    dailyLimit: Number(document.getElementById('nu_limit').value),
+    canAdd: { movies: document.getElementById('nu_can_movies').checked, tv: document.getElementById('nu_can_tv').checked, music: document.getElementById('nu_can_music').checked }
   };
   if(!body.username || !body.password){ err.textContent='Username and password required.'; return; }
   try{

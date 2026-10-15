@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.5.0
+
+### What each user can add
+
+- User management has **Can add** checkboxes for **Movies**, **TV** and **Music** on every regular user, on desktop and mobile. The Add-a-user form has them too, all ticked by default.
+- Unticking one stops that person adding that kind of media. They can still search, browse and play it.
+- Add buttons they can't use read **Adding off**. Title pages and Lidarr artist pages say adding isn't enabled for their account instead of showing Add or Request. The hub's Universal Search does the same.
+- **Auto add all** leaves out kinds the person can't add, and a queue that is already running skips them if an admin changes the setting mid-way.
+- The server enforces the setting on every add path: `/api/add`, music requests, the Radarr/Sonarr/Lidarr proxy, the auto-add queue and personal API keys. A refused add returns HTTP 403 with a plain explanation.
+- Changes apply immediately, without signing out.
+- `/api/me`, `/api/admin/users`, the home page data and `/api/v1/ping` now include `canAdd: { movies, tv, music }`. Admins can set it with `canAdd` on `POST`/`PATCH /api/admin/users`.
+- Existing accounts keep every permission after updating. Admins can always add everything.
+
+### Fixes
+
+- User management on desktop: the columns now line up from row to row.
+
 ## 2.4.0
 
 ### Lidarr (music)

@@ -2,6 +2,15 @@
 
 # MEDIARR
 
+## MEDIARR 2.5
+
+MEDIARR 2.5 lets admins choose what each person can add.
+
+- **Can add: Movies, TV, Music** — three checkboxes per user in User management (desktop and mobile) and on the Add-a-user form. Untick one and that person can still search and browse it, but can't add it.
+- **Clear on screen** — buttons they can't use read **Adding off**, and title and artist pages say adding isn't enabled for their account instead of showing an Add or Request button.
+- **Enforced everywhere** — the server checks the setting on every add: search cards, title pages, the hub, music requests, Auto add all and personal API keys. Changes apply straight away, without signing out.
+- Existing accounts keep every permission after the update, and admins can always add everything.
+
 ## MEDIARR 2.4
 
 MEDIARR 2.4 adds **Lidarr** so music sits beside movies and TV.
@@ -73,7 +82,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.4.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.5.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -92,7 +101,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.4.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.5.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -662,6 +671,18 @@ Regular users can discover and add media while being constrained by a configurab
 The default daily add limit is **10**. Admins can change the limit for each user.
 
 Downloads through MEDIARR can count against the same daily quota. Playback does not consume the quota.
+
+### What each user can add
+
+Each regular user has three **Can add** checkboxes in User management: **Movies** (Radarr), **TV** (Sonarr) and **Music** (Lidarr). All three are ticked for new and existing accounts. The Add-a-user form has the same checkboxes, and pending access requests can be adjusted before you approve them.
+
+With a box unticked, the person can still search, browse and play that kind of media, but:
+
+- its Add buttons read **Adding off**, and title and artist pages explain that adding isn't enabled for their account;
+- **Auto add all** leaves those titles out;
+- MEDIARR refuses the add on the server (HTTP 403) wherever it comes from, including the hub, the Radarr/Sonarr/Lidarr proxy and personal API keys.
+
+Changes take effect immediately; the person doesn't need to sign in again. Admins can always add everything, so the checkboxes aren't shown for them. `/api/me` and the external API's `/api/v1/ping` report the current permissions as `canAdd: { movies, tv, music }`.
 
 ### Password storage
 

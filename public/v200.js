@@ -1,12 +1,14 @@
 /* MEDIARR 2.0 — shared responsive Intelligence Hub for desktop, mobile and installed PWA. */
 (function(){
 'use strict';
-const V='2.4.0';
+const V='2.5.0';
 let root=null,tab='overview',snap=null,notifyTimer=null,deferredInstall=null;
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtBytes=n=>{n=Number(n)||0;if(!n)return '0 B';const u=['B','KB','MB','GB','TB','PB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++;}return (i<2?n.toFixed(0):n.toFixed(1))+' '+u[i];};
 const age=t=>{const s=Math.max(0,Math.floor((Date.now()-Number(t||0))/1000));if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';};
 async function api(url,opt){const r=await fetch(url,opt);let j={};try{j=await r.json();}catch(_){}const d=j&&j.data!==undefined?j.data:j;if(!r.ok)throw new Error((d&&d.message)||('HTTP '+r.status));return d;}
+/* per-user add permissions (2.5); admins and older servers without canAdd allow everything */
+function mayAdd(t){const c=user()&&user().canAdd;return !c||c[t==='movie'?'movies':t==='artist'||t==='album'?'music':'tv']!==false;}
 function user(){try{if(typeof currentUser!=='undefined'&&currentUser)return currentUser;if(typeof me!=='undefined'&&me)return me;return null;}catch(_){return null;}}   /* desktop: currentUser, mobile: me */
 function css(){
  const s=document.createElement('style');s.id='v2Style';s.textContent=`
@@ -69,7 +71,7 @@ async function storage(){
 async function search(){
  body(`<div class="v2hero"><h2>Universal Search</h2><p>Search your Radarr/Sonarr library and TMDB at the same time.</p></div><input class="v2search" id="v2Q" placeholder="Search movies and TV shows…" autocomplete="off"><section class="v2panel"><div id="v2SearchResults" class="v2empty">Type at least 2 characters.</div></section>`);
  const q=root.querySelector('#v2Q'),out=root.querySelector('#v2SearchResults');let timer;
- q.oninput=()=>{clearTimeout(timer);timer=setTimeout(async()=>{const v=q.value.trim();if(v.length<2){out.className='v2empty';out.innerHTML='Type at least 2 characters.';return;}out.className='v2empty';out.textContent='Searching…';try{const d=await api('/api/v2/search?q='+encodeURIComponent(v));out.className='v2list';out.innerHTML=(d.items||[]).map((x,i)=>`<div class="v2row"><div class="grow"><div class="title">${esc(x.title)} ${x.year?'('+esc(x.year)+')':''}</div><div class="v2meta">${esc(x.source)} · ${esc(x.state||'')}</div></div><span class="v2pill">${esc(x.type)}</span>${x.source==='tmdb'?'<button class="v2btn good" data-add="'+i+'">+ Add</button>':''}</div>`).join('')||'<div class="v2empty">No matches.</div>';out.querySelectorAll('[data-add]').forEach(b=>b.onclick=async()=>{const x=d.items[Number(b.dataset.add)];b.disabled=true;b.textContent='Adding…';try{const r=await api('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:x.type,title:x.title,year:x.year,tmdbId:x.tmdbId,search:true})});b.textContent=r.alreadyInLibrary?'Already added':'✓ Added';snap=null;}catch(e){b.textContent='⚠ '+e.message;}});}catch(e){out.className='v2empty';out.textContent=e.message;}},300);};
+ q.oninput=()=>{clearTimeout(timer);timer=setTimeout(async()=>{const v=q.value.trim();if(v.length<2){out.className='v2empty';out.innerHTML='Type at least 2 characters.';return;}out.className='v2empty';out.textContent='Searching…';try{const d=await api('/api/v2/search?q='+encodeURIComponent(v));out.className='v2list';out.innerHTML=(d.items||[]).map((x,i)=>`<div class="v2row"><div class="grow"><div class="title">${esc(x.title)} ${x.year?'('+esc(x.year)+')':''}</div><div class="v2meta">${esc(x.source)} · ${esc(x.state||'')}</div></div><span class="v2pill">${esc(x.type)}</span>${x.source==='tmdb'?(mayAdd(x.type)?'<button class="v2btn good" data-add="'+i+'">+ Add</button>':'<span class="v2meta" title="Ask an admin if you need it">Adding off</span>'):''}</div>`).join('')||'<div class="v2empty">No matches.</div>';out.querySelectorAll('[data-add]').forEach(b=>b.onclick=async()=>{const x=d.items[Number(b.dataset.add)];b.disabled=true;b.textContent='Adding…';try{const r=await api('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:x.type,title:x.title,year:x.year,tmdbId:x.tmdbId,search:true})});b.textContent=r.alreadyInLibrary?'Already added':'✓ Added';snap=null;}catch(e){b.textContent='⚠ '+e.message;}});}catch(e){out.className='v2empty';out.textContent=e.message;}},300);};
  setTimeout(()=>q.focus(),50);
 }
 async function automation(){

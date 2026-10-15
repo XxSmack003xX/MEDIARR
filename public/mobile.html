@@ -303,6 +303,14 @@ const $=id=>document.getElementById(id);
   paint();
 })();
 let me=null, config=null, mode='title', q='', searchTimer=null, homeItems=null;
+/* Per-user add permissions (admins can always add). The server enforces these too. */
+function canAddKind(kind){ const c=me&&me.canAdd; return !c || c[kind==='movie'?'movies':'tv']!==false; }
+function addOffText(kind){ return "Adding "+(kind==='movie'?'movies':'TV shows')+" isn't enabled for your account"; }
+function permChecksM(c, idPrefix){
+  c=c||{};
+  return '<div class="d-flex flex-wrap align-items-center gap-3 mt-2 small" role="group" aria-label="Can add"><span class="text-secondary">Can add</span>'+[['movies','Movies'],['tv','TV'],['music','Music']].map(([k,l])=>
+    '<label class="form-check mb-0"><input class="form-check-input" type="checkbox" '+(idPrefix?'id="'+idPrefix+k+'"':'data-perm="'+k+'"')+(c[k]!==false?' checked':'')+'> <span class="form-check-label">'+l+'</span></label>').join('')+'</div>';
+}
 let hideAdded=false, lastItems=[], lastLabel='';
 let lib={ movieImdb:new Set(), movieTmdb:new Set(), seriesImdb:new Set(), seriesTvdb:new Set() };
 let yearState=null, studioState=null, personState=null, homeState=null;
@@ -1069,6 +1077,7 @@ function cardHtml(it){
   const wl= plexMeM.linked ? '<button class="wl-btn" data-wl title="Add to Plex watchlist">☆</button>' : '';
   const seen= (it.kind==='series' && seenLatestM(it.title)) ? '<span class="seen-dot" title="Latest episode watched on Plex">✓</span>' : '';
   const addBtn= have ? `<button class="btn btn-success btn-sm add-sm" disabled>✓ In library</button>`
+    : !canAddKind(it.kind) ? `<button class="btn btn-outline-secondary btn-sm add-sm" disabled title="${addOffText(it.kind)}">Adding off</button>`
     : `<button class="btn ${it.kind==='movie'?'btn-gold':'btn-outline-gold'} btn-sm add-sm" data-add>＋ Add</button>`;
   return `<div class="col-6 col-md-4 col-lg-3"><div class="mcard" data-key="${esc(it.kind+':'+(it.imdb||it.tmdb))}">
     ${poster}${badge}${chk}${fav}${seen}${wl}
@@ -1113,6 +1122,7 @@ async function openDetail(it){
   }
   const action = have ? `<button class="btn btn-success w-100 mt-3" disabled>✓ In your library</button>${libItem?`<button id="dManual" class="btn btn-gold w-100 mt-2">⚡ ${it.kind==='movie'?'Browse releases':'Episodes & releases'}</button>`:''}`
     : !cfg ? `<div class="alert alert-secondary small mt-3 mb-0">${svc[0].toUpperCase()+svc.slice(1)} isn't set up. Open Settings to configure it.</div>`
+    : !canAddKind(it.kind) ? `<div class="alert alert-secondary small mt-3 mb-0">${addOffText(it.kind)}. Ask an admin if you need it.</div>`
     : `${opts}<button id="dAdd" class="btn ${it.kind==='movie'?'btn-gold':'btn-outline-gold'} w-100 mt-3">＋ Add to ${it.kind==='movie'?'Radarr':'Sonarr'}</button>`;
   const pos= poster?`<img class="detail-poster" src="${esc(poster)}" onerror="this.style.display='none'">`:'';
   $('detailBody').innerHTML = `<div class="d-flex gap-3">${pos}<div><div class="fw-bold">${esc(title)}</div><div class="text-secondary small">${esc(year||'')} · ${it.kind==='movie'?'Movie':'TV'}</div></div></div>
@@ -1916,6 +1926,7 @@ function renderAdmin(users,adds){
     html+='<div class="card mb-2" style="background:var(--bg)" data-u="'+esc(u.username)+'"><div class="card-body py-2">'
       +'<div class="d-flex justify-content-between align-items-center"><div><div class="fw-bold">'+esc(u.username)+(u.username===(me&&me.username)?' (you)':'')+'</div><div class="small text-secondary">'+esc(provider)+(u.plexUsername?' · '+esc(u.plexUsername):'')+'</div></div><span class="badge text-bg-'+(pending?'danger':isAdmin?'warning':'secondary')+'">'+(pending?'pending':u.role)+'</span></div>'
       +(pending?'':isAdmin?'':'<div class="d-flex align-items-center gap-2 mt-2"><span class="small text-secondary">Daily limit</span><input type="number" min="0" value="'+u.dailyLimit+'" class="form-control form-control-sm lim" style="width:78px"><button class="btn btn-outline-gold btn-sm" data-act="lim">Set</button><span class="small text-secondary ms-auto">Today: '+(u.addedToday||0)+'</span></div>')
+      +(isAdmin?'':permChecksM(u.canAdd))
       +'<div class="d-flex gap-2 mt-2">'+(pending?'<button class="btn btn-outline-success btn-sm" data-act="approve">Approve</button><button class="btn btn-outline-danger btn-sm" data-act="del">Reject</button>':'<button class="btn btn-outline-secondary btn-sm" data-act="role">'+(isAdmin?'Make user':'Make admin')+'</button><button class="btn btn-outline-danger btn-sm" data-act="del">Remove</button>')+'</div>'
       +'</div></div>';
   });
@@ -1925,6 +1936,7 @@ function renderAdmin(users,adds){
     +'<input id="nuPass" type="password" class="form-control form-control-sm mb-2" placeholder="password">'
     +'<div class="row g-2"><div class="col-6"><select id="nuRole" class="form-select form-select-sm"><option value="user">user</option><option value="admin">admin</option></select></div>'
     +'<div class="col-6"><input id="nuLimit" type="number" min="0" value="0" class="form-control form-control-sm" placeholder="daily limit (0 = ∞)"></div></div>'
+    +permChecksM({}, 'nuCan_')
     +'<button id="nuAdd" class="btn btn-gold btn-sm mt-2 w-100">Create user</button></div></div>';
   html+='<div class="fw-bold mb-2">Recent activity</div>';
   html+='<div class="input-group input-group-sm mb-2"><input id="mActQuery" class="form-control" type="search" placeholder="Search title, user, or IP…" autocomplete="off"><button id="mActSearch" class="btn btn-gold">Search</button></div>';
@@ -1957,6 +1969,7 @@ function renderAdmin(users,adds){
   html+='<div id="mImOptions" class="mt-2" style="display:none"></div>';
   $('panelBody').innerHTML=html;
   $('panelBody').querySelectorAll('[data-u]').forEach(c=>{ const uname=c.dataset.u;
+    c.querySelectorAll('[data-perm]').forEach(cb=>cb.onchange=()=>patchUser(uname,{canAdd:{[cb.dataset.perm]:cb.checked}}));
     const lb=c.querySelector('[data-act="lim"]'); if(lb) lb.onclick=()=>patchUser(uname,{dailyLimit:Number(c.querySelector('.lim').value)});
     const rb=c.querySelector('[data-act="role"]'); if(rb) rb.onclick=()=>{ const isA=c.querySelector('.badge').textContent==='admin'; patchUser(uname,{role:isA?'user':'admin'}); };
     const ab=c.querySelector('[data-act="approve"]'); if(ab) ab.onclick=()=>patchUser(uname,{approved:true});
@@ -2192,7 +2205,8 @@ async function mFetchActivity(){
   catch(e){ log.innerHTML='<div class="small text-danger">Search failed.</div>'; }
 }
 async function createUser(){ const err=$('nuErr'); err.textContent='';
-  const body={username:$('nuUser').value.trim(),password:$('nuPass').value,role:$('nuRole').value,dailyLimit:Number($('nuLimit').value)};
+  const body={username:$('nuUser').value.trim(),password:$('nuPass').value,role:$('nuRole').value,dailyLimit:Number($('nuLimit').value),
+    canAdd:{movies:$('nuCan_movies').checked,tv:$('nuCan_tv').checked,music:$('nuCan_music').checked}};
   if(!body.username||!body.password){ err.textContent='Username and password required.'; return; }
   try{ const r=await fetch('/api/admin/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const j=await readJson(r); if(!r.ok)throw new Error((j.data&&j.data.message)||'Failed'); loadAdmin(); }
   catch(e){ err.textContent=e.message; }

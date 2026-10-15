@@ -1653,12 +1653,31 @@ function clearSession (req, res) {
   const secure = isSecureRequest(req) ? ' Secure;' : '';
   res.setHeader('Set-Cookie', `mediarr_session=; HttpOnly;${secure} SameSite=Lax; Path=/; Max-Age=0`);
 }
+/* What a user may add. Stored as u.canAdd = { movies, tv, music }; anything not set to false is allowed,
+   so accounts from before 2.5 keep every permission. Admins can always add everything. */
+const ADD_KINDS = ['movies', 'tv', 'music'];
+const SVC_ADD_KIND = { radarr: 'movies', sonarr: 'tv', lidarr: 'music' };
+const ADD_KIND_LABEL = { movies: 'movies', tv: 'TV shows', music: 'music' };
+function userCanAdd (u) {
+  const c = (u && u.canAdd) || {}, o = {};
+  for (const k of ADD_KINDS) o[k] = !u || u.role === 'admin' || c[k] !== false;
+  return o;
+}
+function addAllowed (u, svc) { return userCanAdd(u)[SVC_ADD_KIND[svc]] !== false; }
+function addDeniedMessage (svc) { return "Your account isn't allowed to add " + ADD_KIND_LABEL[SVC_ADD_KIND[svc]] + '. Ask an admin if you need this.'; }
+function parseCanAdd (v) {
+  if (!v || typeof v !== 'object') return null;
+  const o = {};
+  for (const k of ADD_KINDS) if (typeof v[k] === 'boolean') o[k] = v[k];
+  return o;
+}
 function publicUser (u, withCounts) {
   const o = {
     username: u.username, role: u.role, dailyLimit: u.dailyLimit, createdAt: u.createdAt,
     approved: userApproved(u), registrationMethod: u.registrationMethod || 'local',
     requestedAt: u.requestedAt || null, approvedAt: u.approvedAt || null,
-    hasPassword: !!u.hash, plexUsername: (u.plex && u.plex.username) || ''
+    hasPassword: !!u.hash, plexUsername: (u.plex && u.plex.username) || '',
+    canAdd: userCanAdd(u)
   };
   if (withCounts) o.addedToday = addsTodayCount(u.username);
   return o;
@@ -2144,7 +2163,7 @@ async function userHomeData (me) {
   const recs = await homeRecommendations(me.username, history.items || [], favorites).catch(()=>[]);
   return {
     ok:true, generatedAt:Date.now(),
-    user:{ username:me.username, role:me.role, dailyLimit:me.dailyLimit||0, addedToday:me.addedToday||addsTodayCount(me.username) },
+    user:{ username:me.username, role:me.role, dailyLimit:me.dailyLimit||0, addedToday:me.addedToday||addsTodayCount(me.username), canAdd:userCanAdd(me) },
     plex:{
       linked:!!(history.linked || cont.linked || watchlist.linked),
       configured:!!readConfig().plex.url,
@@ -2543,6 +2562,7 @@ async function proxyArr (svc, subPath, req, res) {
   if (user && user.role !== 'admin' && req.method === 'GET' && !ARR_USER_READ_PATHS.test(cleanPath)) {
     return sendJSON(res, 403, { message: 'That ' + svc + ' endpoint is restricted to admins.' });
   }
+  if (isAdd && user && !addAllowed(user, svc)) return sendJSON(res, 403, { message: addDeniedMessage(svc) });
   if (isAdd && user && user.role !== 'admin' && user.dailyLimit > 0) {
     const used = addsTodayCount(user.username);
     if (used >= user.dailyLimit) {
@@ -3482,7 +3502,9 @@ async function autoStep () {
   const svc = isMovie ? 'radarr' : 'sonarr';
   const cfg = readConfig()[svc];
   try {
+    const owner = autoJob.role === 'admin' ? null : readUsers().users.find(x => x.username === autoJob.username);
     if (!cfg.url || !cfg.apiKey) { autoJob.failed++; autoLog('⚠', it.title, svc + ' not configured'); }
+    else if (owner && !addAllowed(owner, svc)) { autoJob.skipped++; autoLog('⏭', it.title, 'adding ' + ADD_KIND_LABEL[SVC_ADD_KIND[svc]] + ' is turned off for ' + autoJob.username); }
     else if (autoJob.role !== 'admin' && autoJob.dailyLimit > 0 && addsTodayCount(autoJob.username) >= autoJob.dailyLimit) {
       autoLog('⏹', it.title, 'daily add limit reached — stopping'); autoFinish('stopped'); saveAutoJob(); return;
     } else {
@@ -3560,7 +3582,7 @@ async function autoStep () {
 async function apiV1 (sub, req, res, u, me) {
   const method = req.method;
   if (sub === '/ping' && method === 'GET') {
-    return sendJSON(res, 200, { ok: true, user: me.username, role: me.role, dailyLimit: me.dailyLimit || 0, addedToday: addsTodayCount(me.username) });
+    return sendJSON(res, 200, { ok: true, user: me.username, role: me.role, dailyLimit: me.dailyLimit || 0, addedToday: addsTodayCount(me.username), canAdd: userCanAdd(me) });
   }
   if (sub === '/search' && method === 'GET') {
     const q = (u.searchParams.get('q') || u.searchParams.get('query') || '').trim();
@@ -4180,6 +4202,7 @@ async function addToArr (b, me, req, opts) {
   const svc = isMovie ? 'radarr' : 'sonarr';
   const cfg = readConfig()[svc];
   if (!cfg.url || !cfg.apiKey) return { status: 400, body: { ok: false, message: (isMovie ? 'Radarr' : 'Sonarr') + ' is not configured in Settings' } };
+  if (me && !addAllowed(me, svc)) return { status: 403, body: { ok: false, message: addDeniedMessage(svc) } };
   if (me && me.role !== 'admin' && me.dailyLimit > 0 && addsTodayCount(me.username) >= me.dailyLimit) {
     return { status: 429, body: { ok: false, message: 'Daily add limit reached (' + me.dailyLimit + ')' } };
   }
@@ -5311,6 +5334,7 @@ async function musicSearch (q) {
 async function musicAdd (b, me, req) {
   if (!arrConfigured('lidarr')) return { status: 400, body: { ok: false, message: 'Lidarr is not configured' } };
   const kind = b.kind === 'album' ? 'album' : 'artist';
+  if (!addAllowed(me, 'lidarr')) return { status: 403, body: { ok: false, message: addDeniedMessage('lidarr') } };
   if (me.role !== 'admin' && me.dailyLimit > 0 && addsTodayCount(me.username) >= me.dailyLimit)
     return { status: 429, body: { ok: false, message: 'Daily add limit reached (' + me.dailyLimit + ')' } };
   const d = await lidarrDefaults();
@@ -7259,22 +7283,24 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { users: users.map(u => publicUser(u, true)), pending: users.filter(u => !userApproved(u)).length });
       }
       if (p === '/api/admin/users' && req.method === 'POST') {
-        const { username, password, role, dailyLimit } = JSON.parse(await readBody(req) || '{}');
+        const { username, password, role, dailyLimit, canAdd } = JSON.parse(await readBody(req) || '{}');
         if (!username || !password) return sendJSON(res, 400, { message: 'Username and password required' });
         const data = readUsers();
         if (data.users.find(u => u.username.toLowerCase() === String(username).toLowerCase())) return sendJSON(res, 400, { message: 'That username already exists' });
         const { salt, hash } = (await hashPassword(password));
         const now = Date.now();
         const u = { username: String(username).trim(), role: role === 'admin' ? 'admin' : 'user', dailyLimit: Number(dailyLimit) >= 0 ? Number(dailyLimit) : 10, salt, hash, approved: true, registrationMethod: 'admin', createdAt: now, approvedAt: now, approvedBy: me.username };
+        const ca = parseCanAdd(canAdd); if (ca && Object.keys(ca).length) u.canAdd = ca;
         data.users.push(u); writeUsers(data);
         return sendJSON(res, 200, publicUser(u, true));
       }
       if (p === '/api/admin/users' && req.method === 'PATCH') {
-        const { username, dailyLimit, role, password, approved } = JSON.parse(await readBody(req) || '{}');
+        const { username, dailyLimit, role, password, approved, canAdd } = JSON.parse(await readBody(req) || '{}');
         const data = readUsers();
         const u = data.users.find(x => x.username.toLowerCase() === String(username).toLowerCase());
         if (!u) return sendJSON(res, 404, { message: 'User not found' });
         if (dailyLimit != null && Number(dailyLimit) >= 0) u.dailyLimit = Number(dailyLimit);
+        const ca = parseCanAdd(canAdd); if (ca) u.canAdd = Object.assign({}, u.canAdd || {}, ca);
         if (role === 'admin' || role === 'user') {
           if (u.role === 'admin' && role === 'user' && data.users.filter(x => x.role === 'admin').length <= 1)
             return sendJSON(res, 400, { message: "Can't demote the last admin" });
