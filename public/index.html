@@ -210,7 +210,7 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   .overlay{position:fixed;inset:0;background:rgba(6,5,8,.78);backdrop-filter:blur(6px);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:40px 18px;overflow-y:auto}
   .overlay.show{display:flex}
-  .modal{width:100%;max-width:560px;background:var(--bg2);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);animation:rise .25s ease}
+  .modal{width:100%;min-width:0;max-width:560px;background:var(--bg2);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);animation:rise .25s ease}
   .modal.wide{max-width:900px}
   @keyframes rise{from{opacity:0;transform:translateY(18px)}}
   .modal-head{display:flex;align-items:center;justify-content:space-between;padding:22px 24px;border-bottom:1px solid var(--line)}
@@ -265,7 +265,10 @@
   .tl-svc{font-weight:800;text-transform:capitalize}
   .tl-time{color:var(--muted);font-size:12px;margin-top:2px}
   .tl-dur{font-weight:700;color:var(--gold);font-size:12px;white-space:nowrap}
-  .modeswitch button{font-size:13px}
+  .modeswitch button{font-size:13px;flex:none;white-space:nowrap}
+  /* six search modes don't fit a phone: scroll them sideways instead of widening the page */
+  .modeswitch{max-width:100%;min-width:0;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .modeswitch::-webkit-scrollbar{display:none}
   .modeswitch button.active{background:var(--sonarr);color:#012230}
   .backlink{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted);font-weight:700;font-size:13px;margin-bottom:14px}
   .backlink:hover{color:var(--gold)}
@@ -409,6 +412,28 @@
   .btn-gold{background:linear-gradient(180deg,var(--gold),var(--gold-dim));color:#1a1209}
   .btn-success{background:var(--green);color:#062313}
   .btn-plex{background:#e5a00d;color:#1a1206;border:none}
+  .btn-spotify{background:#1ed760;color:#06210f;border:none}
+  .pill.spotify{background:rgba(30,215,96,.14);color:#1ed760}
+  .sp-steps{margin:6px 0 0;padding-left:20px}
+  .sp-steps li{margin:2px 0}
+  .sp-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;font-size:13px;color:var(--muted)}
+  .sp-top b{color:var(--txt)}
+  .sp-tabs button.on{background:#1ed760;color:#06210f;border-color:#1ed760}
+  .sp-note{font-size:13px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+  .sp-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,380px),1fr));gap:8px}
+  .sp-row{display:flex;align-items:center;gap:12px;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:var(--panel);min-width:0}
+  .sp-row img,.sp-row .ph{width:52px;height:52px;flex:none;object-fit:cover;border-radius:8px;background:var(--panel2);display:grid;place-items:center;font-size:20px}
+  .sp-row.artist img,.sp-row.artist .ph{border-radius:50%}
+  .sp-row .grow{flex:1;min-width:0}
+  .sp-row .t{font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sp-row .t button{all:unset;cursor:pointer;display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sp-row .t button:hover{text-decoration:underline}
+  .sp-row .m{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sp-row .acts{flex:none;display:flex;align-items:center;gap:6px}
+  .sp-row .acts .btn{padding:6px 12px;font-size:12px;min-height:36px}
+  .sp-paste{margin-top:18px;text-align:left;font-size:13px}
+  .sp-paste summary{cursor:pointer;color:var(--muted);font-weight:700}
+  .sp-paste input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--txt);padding:9px 10px;font:inherit}
   .btn-plex:hover{background:#f2ad19}
   .btn-gold:hover:not(:disabled){filter:brightness(1.08);transform:translateY(-1px)}
   .btn-radarr{background:linear-gradient(180deg,#ffce5a,#e0a019);color:#231600;width:100%;font-size:16px;padding:15px}
@@ -703,6 +728,10 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/><path d="m10 8 4 2.5-4 2.5z"/></svg>
       My Plex
       </div>
+      <div class="settings-btn" id="openSpotify" style="display:none" title="Your Spotify artists and albums">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M7 9.5c3.5-1 7.2-.7 10 1"/><path d="M7.8 12.8c2.8-.8 5.6-.5 8 .8"/><path d="M8.5 15.9c2.1-.5 4.2-.3 6 .6"/></svg>
+      My Spotify
+      </div>
       <div class="settings-btn" id="openStreams" title="Who's streaming on Plex right now">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/></svg>
       Now streaming <span id="streamCount" class="stream-count nav-count" hidden>0</span>
@@ -883,6 +912,21 @@
         <div class="svc-head"><span class="pill tmdb">TMDB</span><h3>Actor / Director search <span style="font-weight:500;color:var(--muted);font-size:12px">— optional</span></h3></div>
         <div class="field"><label>API Key (v3 auth)</label><input type="password" id="tmdbKey" placeholder="paste TMDB API key"><div class="small" id="tmdbKeyNote">Free from <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org → Settings → API</a>. Needed for searching by person, year, or studio, and for recommendations.</div></div>
         <div class="test-row"><button class="btn btn-ghost" data-test="tmdb">Test key</button><span class="test-status" id="tmdbStatus"></span></div>
+      </div>
+
+      <div class="svc" data-svc="spotify">
+        <div class="svc-head"><span class="pill spotify">Spotify</span><h3>Spotify linking <span style="font-weight:500;color:var(--muted);font-size:12px">— optional</span></h3></div>
+        <div class="small" style="margin-bottom:12px;font-size:12.5px;line-height:1.5;color:var(--muted)">Lets each person link their own Spotify account to see their top artists, followed artists and saved albums, and request them through Lidarr.
+          <ol class="sp-steps">
+            <li>Create an app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> and tick <b>Web API</b>.</li>
+            <li>Add the redirect URI below to the app, exactly as shown.</li>
+            <li>Copy the app's Client ID and Client secret here, then save.</li>
+            <li>In the app's <b>User Management</b>, add the Spotify email of each person who will link. Development-mode apps allow 5 people, and the app owner needs Spotify Premium.</li>
+          </ol></div>
+        <div class="field"><label>Client ID</label><input type="text" id="spotifyClientId" autocomplete="off" spellcheck="false" placeholder="from your Spotify app"></div>
+        <div class="field"><label>Client secret</label><input type="password" id="spotifySecret" autocomplete="off" placeholder="from your Spotify app"><div class="small" id="spotifySecretNote"></div></div>
+        <div class="field"><label>Redirect URI</label><div style="display:flex;gap:8px"><input type="text" id="spotifyRedirect" spellcheck="false" style="flex:1;min-width:0"><button class="btn btn-ghost" type="button" id="spotifyCopyRedirect">Copy</button></div><div class="small" id="spotifyRedirectNote"></div></div>
+        <div class="test-row"><button class="btn btn-ghost" type="button" id="spotifyTest">Test</button><span class="test-status" id="spotifyStatus"></span></div>
       </div>
 
       <div class="svc" data-svc="plex">
@@ -1204,6 +1248,15 @@
   </div>
 </div>
 
+<div class="overlay" id="spotifyOverlay">
+  <div class="modal" style="max-width:920px">
+    <div class="modal-head">
+      <h2>My Spotify</h2>
+      <button class="x" id="closeSpotify">&times;</button>
+    </div>
+    <div class="modal-body" id="spotifyBody"></div>
+  </div>
+</div>
 <div class="overlay" id="plexMeOverlay">
   <div class="modal" style="max-width:1000px">
     <div class="modal-head">
@@ -1594,6 +1647,7 @@ function openSettings(firstRun){
   if(isConfigured('sonarr')) loadOptions('sonarr', true);
   if(isConfigured('lidarr')) loadOptions('lidarr', true);
   { const lm=document.getElementById('lidarrMonitor'); if(lm) lm.value=(config.lidarr&&config.lidarr.monitor)||'all'; }
+  fillSpotifySettings();
   document.getElementById('tmdbKey').value = '';
   document.getElementById('tmdbKeyNote').innerHTML = config.tmdb && config.tmdb.hasKey
     ? 'A key is already saved — leave blank to keep it.'
@@ -1785,6 +1839,9 @@ document.getElementById('saveSettings').onclick = async ()=>{
     };
   }
   payload.tmdb = { apiKey: document.getElementById('tmdbKey').value.trim() };  // blank = keep existing
+  { const sr=document.getElementById('spotifyRedirect').value.trim();
+    if(sr && !spotifyRedirectOk(sr)){ alert('Spotify needs an https:// redirect URI, or http://127.0.0.1:PORT/api/spotify/callback (localhost isn\'t allowed).'); return; }
+    payload.spotify = { clientId: document.getElementById('spotifyClientId').value.trim(), clientSecret: document.getElementById('spotifySecret').value.trim(), redirectUri: sr }; }
   payload.plex = { url: document.getElementById('plexUrl').value.trim(), token: document.getElementById('plexKey').value.trim() };
   payload.sab = { url: document.getElementById('sabUrl').value.trim(), apiKey: document.getElementById('sabKey').value.trim() };
   payload.webdav = { source: (document.getElementById('webdavSource')?document.getElementById('webdavSource').value:'webdav'),
@@ -1795,7 +1852,8 @@ document.getElementById('saveSettings').onclick = async ()=>{
   { const du=document.getElementById('donateUrl'), dlb=document.getElementById('donateLabel'); if(du) payload.donate = { url: du.value.trim(), label: (dlb?dlb.value.trim():'') }; }
   { const am=document.getElementById('autoAddMins'), ar=document.getElementById('autoAddMinRt');
     if(am||ar) payload.autoAdd = { intervalMinutes: Number(am?am.value:5)||0, minRuntime: Number(ar?ar.value:0)||0 }; }
-  await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  { const sres = await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!sres.ok){ let m='Could not save settings'; try{ m=(await sres.json()).message||m; }catch(e){} alert(m); return; } }
   await getConfig();
   await refreshLibrary();
   rerenderCurrentView();
@@ -2862,6 +2920,7 @@ function updateLibraryButtons(){
   { const mm=document.querySelector('.modeswitch button[data-mode="music"]'); if(mm) mm.style.display=isConfigured('lidarr')?'':'none';
     if(!isConfigured('lidarr') && mode==='music'){ const t=document.querySelector('.modeswitch button[data-mode="title"]'); if(t) t.click(); } }
   const sp=document.getElementById('scanPlex'); if(sp) sp.style.display=(admin && isConfigured('plex'))?'':'none';
+  const os=document.getElementById('openSpotify'); if(os) os.style.display=(config && config.spotify && config.spotify.configured)?'':'none';
   const dl=document.getElementById('openDownloads'); if(dl) dl.style.display=isConfigured('webdav')?'':'none';
   // Queue button appears for every signed-in user once SABnzbd is configured
   const qb=document.getElementById('openQueue');
@@ -3295,6 +3354,185 @@ function renderMusicArtist(d, focus){
   if(focus){ const row=detailBody.querySelector('.album-row.focus'); if(row){ row.style.borderColor='var(--lidarr)'; setTimeout(()=>row.scrollIntoView({ block:'center', behavior:'smooth' }), 60); } }
 }
 
+/* ---------- My Spotify ----------
+   Each person links their own Spotify account. The server keeps the tokens; this page only
+   sees names, pictures and whether Lidarr already has each artist or album. */
+const spState = { tab:'top', hideHave:false, data:null, status:null };
+function spotifySuggestedRedirect(){
+  return (location.protocol==='https:' ? location.origin : 'http://127.0.0.1:'+(location.port||'80')) + '/api/spotify/callback';
+}
+function spotifyRedirectOk(r){ return /^https:\/\/\S+$/.test(r) || /^http:\/\/(127\.0\.0\.1|\[::1\])(:\d+)?\/\S*$/.test(r); }
+function spotifyRedirectNote(){
+  const r=(document.getElementById('spotifyRedirect').value||'').trim(), n=document.getElementById('spotifyRedirectNote');
+  if(!r){ n.textContent=''; return; }
+  n.textContent = !spotifyRedirectOk(r) ? 'Spotify only accepts https:// addresses, or http://127.0.0.1 (not localhost or a network IP).'
+    : /^http:\/\/(127\.0\.0\.1|\[::1\])/.test(r) ? 'Because MEDIARR isn’t on https, Spotify returns to 127.0.0.1. On other devices that page won’t load. People copy its address and paste it into My Spotify to finish, which takes a few seconds.'
+    : 'Spotify returns people straight to MEDIARR after they approve.';
+}
+function fillSpotifySettings(){
+  const c=(config&&config.spotify)||{};
+  document.getElementById('spotifyClientId').value=c.clientId||'';
+  document.getElementById('spotifySecret').value='';
+  document.getElementById('spotifySecretNote').textContent=c.hasSecret?'A secret is already saved — leave blank to keep it.':'';
+  document.getElementById('spotifyRedirect').value=c.redirectUri||spotifySuggestedRedirect();
+  const st=document.getElementById('spotifyStatus'); st.className='test-status ok'; st.textContent=c.configured?'✓ saved':'';
+  spotifyRedirectNote();
+}
+{ const r=document.getElementById('spotifyRedirect'); if(r) r.addEventListener('input', spotifyRedirectNote);
+  const cp=document.getElementById('spotifyCopyRedirect'); if(cp) cp.onclick=()=>{ const v=document.getElementById('spotifyRedirect').value.trim(); try{ navigator.clipboard.writeText(v); cp.textContent='Copied'; setTimeout(()=>cp.textContent='Copy',1500); }catch(e){} };
+  const tb=document.getElementById('spotifyTest'); if(tb) tb.onclick=async()=>{
+    const st=document.getElementById('spotifyStatus'); st.className='test-status load'; st.textContent='Testing…';
+    try{
+      const r=await fetch('/api/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({svc:'spotify',clientId:document.getElementById('spotifyClientId').value.trim(),key:document.getElementById('spotifySecret').value.trim()})});
+      const d=await r.json(); if(!r.ok) throw new Error(d.message||'Failed');
+      st.className='test-status ok'; st.textContent='✓ Spotify accepted the Client ID and secret';
+    }catch(e){ st.className='test-status err'; st.textContent='✕ '+e.message; }
+  };
+  const os=document.getElementById('openSpotify'); if(os) os.onclick=openSpotify;
+  const cs=document.getElementById('closeSpotify'); if(cs) cs.onclick=()=>document.getElementById('spotifyOverlay').classList.remove('show'); }
+async function openSpotify(){
+  document.getElementById('spotifyOverlay').classList.add('show');
+  spState.data=null;
+  await renderSpotify(false);
+}
+async function renderSpotify(refresh){
+  const b=document.getElementById('spotifyBody');
+  if(!spState.data || refresh) b.innerHTML='<div class="state"><div class="spinner"></div>Loading your Spotify…</div>';
+  let st;
+  try{ const r=await fetch('/api/spotify/status'); st=await r.json(); if(!r.ok) throw new Error(st.message||'Failed'); }
+  catch(e){ b.innerHTML='<div class="state">'+esc(e.message)+'</div>'; return; }
+  spState.status=st;
+  if(!st.configured){
+    const admin=currentUser&&currentUser.role==='admin';
+    b.innerHTML='<div class="state"><div class="big">Spotify isn’t set up yet</div>'+(admin?'Add your Spotify app in Settings to let people link their accounts.<div style="margin-top:16px"><button class="btn btn-gold" type="button" id="spGoSettings">Open Settings</button></div>':'Ask your MEDIARR admin to set up Spotify linking.')+'</div>';
+    const g=document.getElementById('spGoSettings'); if(g) g.onclick=()=>{ document.getElementById('spotifyOverlay').classList.remove('show'); openSettings(false); setTimeout(()=>document.querySelector('.svc[data-svc="spotify"]')?.scrollIntoView({block:'center'}),200); };
+    return;
+  }
+  if(!st.linked) return renderSpotifyConnect(b);
+  if(!spState.data || refresh){
+    try{
+      const r=await fetch('/api/spotify/library'+(refresh?'?refresh=1':'')); const d=await r.json();
+      if(!r.ok){ if(d.code==='not_linked') return renderSpotify(false); throw new Error(d.message||'Failed'); }
+      spState.data=d;
+    }catch(e){
+      b.innerHTML=spotifyTopHtml(st)+'<div class="state"><div class="big">Couldn’t load your Spotify</div>'+esc(e.message)+'<div style="margin-top:16px"><button class="btn btn-ghost" type="button" id="spRetry">Try again</button></div></div>';
+      wireSpotifyTop(); const rt=document.getElementById('spRetry'); if(rt) rt.onclick=()=>renderSpotify(true); return;
+    }
+  }
+  drawSpotify();
+}
+function spotifyTopHtml(st){
+  return `<div class="sp-top"><span>Linked as <b>${esc(st.name||'Spotify')}</b></span><span style="flex:1"></span>
+    <button class="btn btn-ghost" type="button" data-sp="refresh" style="padding:6px 12px;font-size:12px">↻ Refresh</button>
+    <button class="btn btn-ghost" type="button" data-sp="unlink" style="padding:6px 12px;font-size:12px">Unlink Spotify</button></div>`;
+}
+function wireSpotifyTop(){
+  document.querySelectorAll('#spotifyBody [data-sp]').forEach(x=>x.onclick=async()=>{
+    if(x.dataset.sp==='refresh') return renderSpotify(true);
+    if(!confirm('Unlink your Spotify account from MEDIARR?')) return;
+    try{ await fetch('/api/spotify/unlink',{method:'POST'}); }catch(e){}
+    spState.data=null; renderSpotify(false);
+  });
+}
+let spLinkPoll=null;
+function stopSpotifyPoll(){ if(spLinkPoll){ clearInterval(spLinkPoll); spLinkPoll=null; } }
+function renderSpotifyConnect(b){
+  stopSpotifyPoll();
+  b.innerHTML=`<div class="state"><div class="big">Link your Spotify account</div>
+    See your top artists, the artists you follow and your saved albums, and request any of them for the music library.
+    <div style="margin-top:16px"><button class="btn btn-spotify" type="button" id="spLink">Connect Spotify</button> <span class="test-status" id="spLinkMsg"></span></div>
+    <details class="sp-paste" id="spPaste"><summary>Spotify sent you to a page that didn’t load?</summary>
+      <p class="small" style="margin:8px 0">Copy the whole address of that page from the address bar, paste it here and select <b>Finish linking</b>.</p>
+      <div style="display:flex;gap:8px"><input id="spPasteUrl" type="text" spellcheck="false" placeholder="http://127.0.0.1:…/api/spotify/callback?code=…"><button class="btn btn-ghost" type="button" id="spPasteGo">Finish linking</button></div>
+      <div class="test-status" id="spPasteMsg" style="margin-top:6px"></div></details></div>`;
+  document.getElementById('spLink').onclick=async()=>{
+    const msg=document.getElementById('spLinkMsg'); msg.className='test-status load'; msg.textContent='Opening Spotify…';
+    try{
+      const r=await fetch('/api/spotify/link',{method:'POST'}); const d=await r.json(); if(!r.ok) throw new Error(d.message||'Failed');
+      const back=new URL(d.redirectUri, location.href);
+      if(back.origin!==location.origin){
+        // Spotify will return to a different address (e.g. 127.0.0.1): keep this page open for the paste step.
+        document.getElementById('spPaste').open=true;
+        msg.className='test-status ok'; msg.textContent='Approve in the Spotify tab, then paste that tab’s address below.';
+        // If that page does load (e.g. on the MEDIARR server itself), pick the link up on our own.
+        stopSpotifyPoll(); let tries=0;
+        spLinkPoll=setInterval(async()=>{
+          if(++tries>200 || !document.getElementById('spotifyOverlay').classList.contains('show') || !document.getElementById('spLink')) return stopSpotifyPoll();
+          try{ const s2=await (await fetch('/api/spotify/status')).json(); if(s2.linked){ stopSpotifyPoll(); spState.data=null; renderSpotify(false); } }catch(e){}
+        },3000);
+        const w=window.open(d.url,'_blank'); if(!w) location.href=d.url;
+      } else location.href=d.url;
+    }catch(e){ msg.className='test-status err'; msg.textContent='✕ '+e.message; }
+  };
+  document.getElementById('spPasteGo').onclick=async()=>{
+    const m=document.getElementById('spPasteMsg'); m.className='test-status load'; m.textContent='Linking…';
+    try{
+      const r=await fetch('/api/spotify/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:document.getElementById('spPasteUrl').value})});
+      const d=await r.json(); if(!r.ok) throw new Error(d.message||'Failed');
+      stopSpotifyPoll(); spState.data=null; renderSpotify(false);
+    }catch(e){ m.className='test-status err'; m.textContent='✕ '+e.message; }
+  };
+}
+function spotifyItems(){
+  const d=spState.data||{artists:[],albums:[]};
+  let list = spState.tab==='top' ? d.artists.filter(a=>a.top) : spState.tab==='followed' ? d.artists.filter(a=>a.followed) : d.albums;
+  if(spState.tab==='followed') list=list.slice().sort((x,y)=>x.name.localeCompare(y.name));
+  return spState.hideHave ? list.filter(x=>!x.inLibrary) : list;
+}
+function drawSpotify(){
+  const b=document.getElementById('spotifyBody'), d=spState.data, st=spState.status||d;
+  const n={ top:d.artists.filter(a=>a.top).length, followed:d.artists.filter(a=>a.followed).length, albums:d.albums.length };
+  const t=(id,label)=>`<button type="button" data-sptab="${id}" class="${spState.tab===id?'on':''}">${label} <span style="opacity:.7">${n[id]}</span></button>`;
+  let note='';
+  if(!d.lidarr) note='Lidarr isn’t set up, so music can’t be requested yet.';
+  else if(!d.canRequest) note=addOffText('lidarr')+'. You can still see what’s already in the library.';
+  const items=spotifyItems();
+  const empty={ top:'Spotify doesn’t have top artists for you yet. Listen for a while and check back.', followed:'You don’t follow any artists on Spotify yet.', albums:'You haven’t saved any albums on Spotify yet.' }[spState.tab];
+  b.innerHTML=spotifyTopHtml(st)+`<div class="plex-tabs sp-tabs">${t('top','Top artists')}${t('followed','Following')}${t('albums','Saved albums')}
+      <span style="flex:1"></span><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:700;color:var(--muted)"><input type="checkbox" id="spHideHave" ${spState.hideHave?'checked':''}> Hide what’s in the library</label></div>
+    ${note?'<div class="sp-note">'+esc(note)+'</div>':''}
+    <div class="sp-note" id="spMsg" style="display:none"></div>
+    ${items.length?'<div class="sp-list">'+items.map((x,i)=>spState.tab==='albums'?spAlbumRow(x,i,d):spArtistRow(x,i,d)).join('')+'</div>'
+      :'<div class="state">'+(spState.hideHave&&!spotifyItemsAll().length?empty:spState.hideHave?'Everything here is already in the library.':empty)+'</div>'}`;
+  wireSpotifyTop();
+  b.querySelectorAll('[data-sptab]').forEach(x=>x.onclick=()=>{ spState.tab=x.dataset.sptab; drawSpotify(); });
+  document.getElementById('spHideHave').onchange=e=>{ spState.hideHave=e.target.checked; drawSpotify(); };
+  b.querySelectorAll('[data-spopen]').forEach(x=>x.onclick=()=>{ document.getElementById('spotifyOverlay').classList.remove('show'); openMusicArtist({ id:Number(x.dataset.spopen) }); });
+  b.querySelectorAll('[data-spreq]').forEach(x=>x.onclick=()=>spotifyRequest(x, items[Number(x.dataset.spreq)]));
+}
+function spotifyItemsAll(){ const d=spState.data; return spState.tab==='top'?d.artists.filter(a=>a.top):spState.tab==='followed'?d.artists.filter(a=>a.followed):d.albums; }
+function spImg(x, ph){ return x.image?`<img src="${esc(x.image)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'ph',textContent:'${ph}'}))">`:`<div class="ph">${ph}</div>`; }
+function spArtistRow(a,i,d){
+  const sub=[a.top?'#'+a.top+' top artist':'', a.followed?'Following':'', (a.genres||[]).join(', ')].filter(Boolean).join(' · ');
+  const name=a.inLibrary&&a.libraryId?`<button type="button" data-spopen="${a.libraryId}" title="Open in MEDIARR">${esc(a.name)}</button>`:esc(a.name);
+  const act=a.inLibrary?'<span class="cbadge have">In library</span>':d.canRequest?`<button class="btn btn-spotify" type="button" data-spreq="${i}">Request artist</button>`:'';
+  return `<div class="sp-row artist">${spImg(a,'🎤')}<div class="grow"><div class="t">${name}</div><div class="m">${esc(sub)}</div></div><div class="acts">${act}</div></div>`;
+}
+function spAlbumRow(al,i,d){
+  const sub=[al.artist, al.year, al.type&&al.type!=='album'?al.type[0].toUpperCase()+al.type.slice(1):''].filter(Boolean).join(' · ');
+  const act=al.inLibrary?`<span class="cbadge ${al.hasFiles?'have':'music'}">${al.hasFiles?'In library':'Wanted'}</span>`:d.canRequest?`<button class="btn btn-spotify" type="button" data-spreq="${i}">Request album</button>`:'';
+  const title=al.artistInLibrary&&al.artistLibraryId?`<button type="button" data-spopen="${al.artistLibraryId}" title="Open the artist in MEDIARR">${esc(al.title)}</button>`:esc(al.title);
+  return `<div class="sp-row album">${spImg(al,'💿')}<div class="grow"><div class="t">${title}</div><div class="m">${esc(sub)}</div></div><div class="acts">${act}</div></div>`;
+}
+async function spotifyRequest(btn, it){
+  if(!it) return;
+  const msg=document.getElementById('spMsg'), album=spState.tab==='albums';
+  btn.disabled=true; const orig=btn.textContent; btn.textContent='Requesting…';
+  try{
+    const body=album?{kind:'album',artist:it.artist,title:it.title}:{kind:'artist',name:it.name};
+    const r=await fetch('/api/spotify/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json(); if(!r.ok||!d.ok) throw new Error(d.message||'Request failed');
+    it.inLibrary=true; if(album) it.hasFiles=false;
+    if(!album) (spState.data.albums||[]).forEach(al=>{ if(al.artist===it.name) al.artistInLibrary=true; });
+    btn.outerHTML='<span class="cbadge '+(album?'music':'have')+'">'+(d.alreadyInLibrary?'In library':'✓ Requested')+'</span>';
+    try{ refreshMe(); }catch(e){}
+    // reload the marks so the new artist links to its MEDIARR page
+    try{ const r2=await fetch('/api/spotify/library'); if(r2.ok){ spState.data=await r2.json(); if(document.getElementById('spotifyOverlay').classList.contains('show')) drawSpotify(); } }catch(e){}
+  }catch(e){
+    btn.disabled=false; btn.textContent=orig;
+    msg.style.display=''; msg.textContent=(album?it.title:it.name)+': '+e.message;
+  }
+}
 /* ---------- go home (header logo / drawer "Home") ----------
    Clears the search, returns to Title mode with the All filter, closes the drawer
    and the 2.0 hub, re-shows the signed-in user's home page and scrolls to the top.
@@ -3365,7 +3603,8 @@ function applyStartUrl(){
   const p = new URLSearchParams(location.search);
   const v = { mode: NAV_MODES.includes(p.get('mode')) ? p.get('mode') : 'title', q: (p.get('q')||'').trim() };
   const t = p.get('title') || '';
-  if(t){ try{ history.replaceState(history.state, '', navUrl(viewParams(v))); }catch(e){} }
+  if(t || p.get('spotify')){ try{ const clean=new URL(navUrl(viewParams(v)), location.href); clean.searchParams.delete('spotify'); history.replaceState(history.state, '', clean.pathname+clean.search); }catch(e){} }
+  if(p.get('spotify')) setTimeout(openSpotify, 0);   // back from Spotify sign-in
   if(v.mode!=='title' || v.q){ qInput.value = v.q; const b=document.querySelector('.modeswitch button[data-mode="'+v.mode+'"]'); if(b) b.click(); }
   const i = t.indexOf(':');
   if(i>0){

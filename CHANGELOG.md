@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.6.0
+
+### Spotify
+
+- People can link their own Spotify account from the new **My Spotify** menu item (desktop page and installed app). It shows their top artists, followed artists and saved albums, each marked **In library** or **Wanted** when Lidarr already has it.
+- **Request artist** and **Request album** send them to Lidarr through the same path as music search, so daily limits, **Can add: Music**, request history and notifications apply. Album names with edition suffixes such as “(Deluxe Edition)” still match.
+- Artists already in the library link to their MEDIARR artist page. **Hide what's in the library** narrows the list to what's missing.
+- Settings has a Spotify section for the admin's Spotify app: Client ID, Client secret (kept on the server), redirect URI with a suggested value, a **Test** button and step-by-step setup notes. Redirect URIs Spotify would refuse (plain http on a network address, `localhost`) are caught before saving.
+- Works without https: when Spotify returns to `http://127.0.0.1`, people paste that page's address into My Spotify to finish, and an open My Spotify window also notices a link finished elsewhere.
+- Spotify tokens stay on the server and refresh automatically. If someone removes MEDIARR's access in Spotify, My Spotify asks them to link again. A Spotify account not yet added under the app's User Management gets a plain explanation.
+- New endpoints: `GET /api/spotify/status`, `POST /api/spotify/link`, `GET /api/spotify/callback`, `POST /api/spotify/complete`, `GET /api/spotify/library`, `POST /api/spotify/request`, `POST /api/spotify/unlink`.
+
+### Fixes
+
+- Installed app on phones: since 2.4 added the Music search mode, the mode bar made the whole page wider than the screen, which pushed windows (My Plex, Details and others) past the right edge. The bar now scrolls sideways.
+- Settings: if saving fails, the reason is shown instead of the window closing as if it had saved.
+
 ## 2.5.0
 
 ### What each user can add

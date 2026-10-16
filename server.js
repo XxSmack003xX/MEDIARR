@@ -101,6 +101,7 @@ const DEFAULT_CONFIG = {
   sonarr: { url: '', apiKey: '', qualityProfileId: '', rootFolderPath: '' },
   lidarr: { url: '', apiKey: '', qualityProfileId: '', metadataProfileId: '', rootFolderPath: '', monitor: 'all' },
   tmdb:   { apiKey: '' },
+  spotify: { clientId: '', clientSecret: '', redirectUri: '' },   // the admin's Spotify app; people link their own accounts
   plex:   { url: '', token: '', clientId: '' },
   webdav: { source: 'webdav', localPath: '', url: '', username: '', password: '', folder: '', mode: 'redirect', transcode: false, encSpeed: 'balanced', hwAccel: 'auto' },   // source: 'webdav' | 'local'   // encSpeed: balanced|faster|fastest|quality; hwAccel: auto|off
   playback: { autoSelect: true, pathMappings: [] },   // automatic playback + Arr-root -> media-source path mappings
@@ -143,6 +144,7 @@ function readConfig () {
       lidarr: Object.assign({}, DEFAULT_CONFIG.lidarr, c.lidarr),
       sonarr: Object.assign({}, DEFAULT_CONFIG.sonarr, c.sonarr),
       tmdb:   Object.assign({}, DEFAULT_CONFIG.tmdb, c.tmdb),
+      spotify: Object.assign({}, DEFAULT_CONFIG.spotify, c.spotify),
       plex:   Object.assign({}, DEFAULT_CONFIG.plex, c.plex),
       webdav: Object.assign({}, DEFAULT_CONFIG.webdav, c.webdav),
       playback: Object.assign({}, DEFAULT_CONFIG.playback, c.playback),
@@ -209,6 +211,7 @@ function sanitize (c) {
   }
   out.lidarr = { url: c.lidarr.url, hasKey: !!c.lidarr.apiKey, qualityProfileId: c.lidarr.qualityProfileId, metadataProfileId: c.lidarr.metadataProfileId, rootFolderPath: c.lidarr.rootFolderPath, monitor: c.lidarr.monitor || 'all' };
   out.tmdb = { hasKey: !!c.tmdb.apiKey };
+  { const sp = c.spotify || {}; out.spotify = { clientId: sp.clientId || '', hasSecret: !!sp.clientSecret, redirectUri: sp.redirectUri || '', configured: !!(sp.clientId && sp.clientSecret) }; }
   out.plex = { url: c.plex.url, hasKey: !!c.plex.token };
   out.webdav = { source: (c.webdav.source === 'local' ? 'local' : 'webdav'), localPath: c.webdav.localPath || '', url: c.webdav.url, username: c.webdav.username, folder: c.webdav.folder, mode: wmode(c.webdav.mode), transcode: !!c.webdav.transcode, ffmpeg: !!FFMPEG, ffprobe: !!FFPROBE, hasAuth: !!(c.webdav.username && c.webdav.password), encSpeed: c.webdav.encSpeed || 'balanced', hwAccel: c.webdav.hwAccel || 'auto', hwEncoder: HWENC || '' };
   out.playback = { autoSelect: !(c.playback && c.playback.autoSelect === false), pathMappings: normalizePathMappings(c.playback && c.playback.pathMappings) };
@@ -5424,6 +5427,256 @@ async function musicArtist (q) {
     albums: albums.map(slimAlbumDetail).sort((a, b) => String(b.releaseDate).localeCompare(String(a.releaseDate))) };
 }
 
+/* ---------- Spotify (per-user link) ----------
+   Each person links their own Spotify account through the admin's Spotify app (OAuth
+   authorization-code flow). MEDIARR reads their top artists, followed artists and saved
+   albums, marks what Lidarr already has, and requests the rest through musicAdd, so request
+   limits, "Can add: Music" and history apply as usual. Tokens stay in users.json on the
+   server; the browser never sees them. */
+const SPOTIFY_ACCOUNTS = String(process.env.SPOTIFY_ACCOUNTS_URL || 'https://accounts.spotify.com').replace(/\/+$/, '');
+const SPOTIFY_API = String(process.env.SPOTIFY_API_URL || 'https://api.spotify.com/v1').replace(/\/+$/, '');
+const SPOTIFY_SCOPES = 'user-top-read user-follow-read user-library-read';
+const SPOTIFY_STATE_MS = 15 * 60 * 1000;
+const _spotifyStates = new Map();   // state -> { username, redirect, at }
+const _spotifyRefresh = new Map();  // username -> pending refresh promise
+function spotifyCfg () { return readConfig().spotify || {}; }
+function spotifyConfigured () { const c = spotifyCfg(); return !!(c.clientId && c.clientSecret); }
+function spotifySuggestedRedirect (req) {
+  const base = requestBaseUrl(req);
+  return (/^https:\/\//.test(base) ? base : 'http://127.0.0.1:' + PORT) + '/api/spotify/callback';
+}
+function spotifyRedirect (req) { return spotifyCfg().redirectUri || spotifySuggestedRedirect(req); }
+function spotifyError (msg, status, code) { const e = new Error(msg); e.status = status || 502; e.code = code || ''; return e; }
+async function spotifyTokenRequest (params, creds) {
+  const c = creds || spotifyCfg();
+  if (!c.clientId || !c.clientSecret) throw spotifyError('Spotify is not set up in Settings', 400);
+  const body = new URLSearchParams(params).toString();
+  const r = await upstream(SPOTIFY_ACCOUNTS + '/api/token', { method: 'POST', timeout: 15000, body, headers: {
+    'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body),
+    'Authorization': 'Basic ' + Buffer.from(c.clientId + ':' + c.clientSecret).toString('base64') } });
+  let j = {}; try { j = JSON.parse(r.body.toString('utf8') || '{}'); } catch (_) {}
+  if (r.status >= 400 || !j.access_token) {
+    const code = j.error || '';
+    const msg = code === 'invalid_client' ? 'Spotify rejected the Client ID or Client secret in Settings'
+      : (j.error_description || code || ('Spotify returned HTTP ' + r.status));
+    throw spotifyError(msg, r.status >= 500 ? 502 : 400, code);
+  }
+  return j;
+}
+async function testSpotify (clientId, secret) {
+  const cur = spotifyCfg();
+  const c = { clientId: String(clientId || cur.clientId || '').trim(), clientSecret: String(secret || cur.clientSecret || '').trim() };
+  if (!c.clientId) throw new Error('Enter the Spotify Client ID');
+  if (!c.clientSecret) throw new Error('Enter the Spotify Client secret');
+  await spotifyTokenRequest({ grant_type: 'client_credentials' }, c);
+  return { name: 'Spotify', ok: true };
+}
+function setUserSpotify (username, sp) {
+  const data = readUsers();
+  const u = data.users.find(x => x.username.toLowerCase() === String(username).toLowerCase());
+  if (!u) return false;
+  if (sp) u.spotify = sp; else delete u.spotify;
+  writeUsers(data);
+  memoClear('spotify:lib:' + u.username.toLowerCase());
+  return true;
+}
+function spotifyPublicStatus (me) {
+  const u = findUser(me.username) || me, sp = u.spotify;
+  return { configured: spotifyConfigured(), linked: !!(sp && sp.refreshToken), name: sp ? (sp.name || sp.id || '') : '', linkedAt: sp ? sp.linkedAt || null : null,
+    lidarr: arrConfigured('lidarr'), canRequest: arrConfigured('lidarr') && addAllowed(me, 'lidarr') };
+}
+async function spotifyAccessToken (username, force) {
+  const u = findUser(username), sp = u && u.spotify;
+  if (!sp || !sp.refreshToken) throw spotifyError('Spotify isn’t linked to your account', 409, 'not_linked');
+  if (!force && sp.accessToken && sp.expiresAt - 60000 > Date.now()) return sp.accessToken;
+  const key = u.username.toLowerCase();
+  if (_spotifyRefresh.has(key)) return _spotifyRefresh.get(key);
+  const job = (async () => {
+    try {
+      const j = await spotifyTokenRequest({ grant_type: 'refresh_token', refresh_token: sp.refreshToken });
+      const cur = (findUser(username) || {}).spotify || sp;
+      setUserSpotify(username, Object.assign({}, cur, { accessToken: j.access_token, expiresAt: Date.now() + (Number(j.expires_in) || 3600) * 1000,
+        refreshToken: j.refresh_token || cur.refreshToken }));
+      return j.access_token;
+    } catch (e) {
+      if (e.code === 'invalid_grant') {
+        setUserSpotify(username, null);
+        throw spotifyError('Your Spotify link has expired or was removed in Spotify. Link Spotify again.', 409, 'not_linked');
+      }
+      throw e;
+    } finally { _spotifyRefresh.delete(key); }
+  })();
+  _spotifyRefresh.set(key, job);
+  return job;
+}
+async function spotifyGet (username, pathAndQuery, token) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const tok = token || await spotifyAccessToken(username, attempt > 0);
+    const r = await upstream(SPOTIFY_API + pathAndQuery, { headers: { 'Authorization': 'Bearer ' + tok, 'Accept': 'application/json' }, timeout: 15000 });
+    const text = r.body.toString('utf8');
+    let j = null; try { j = JSON.parse(text || 'null'); } catch (_) {}
+    if (r.status === 401 && !token && attempt === 0) continue;   // stale token: refresh once
+    if (r.status === 403) {
+      const m = String((j && j.error && j.error.message) || text || '');
+      throw spotifyError(/not registered|developer dashboard/i.test(m)
+        ? 'This Spotify account isn’t allowed to use your MEDIARR Spotify app yet. Ask your MEDIARR admin to add your Spotify email under User Management in the Spotify developer dashboard.'
+        : 'Spotify refused the request (' + (m || 'HTTP 403') + ')', 403, 'forbidden');
+    }
+    if (r.status === 429) throw spotifyError('Spotify is busy. Try again in ' + (Number(r.headers['retry-after']) || 30) + ' seconds.', 429);
+    if (r.status >= 400) throw spotifyError('Spotify returned HTTP ' + r.status + ((j && j.error && j.error.message) ? ': ' + j.error.message : ''), 502);
+    return j;
+  }
+  throw spotifyError('Spotify sign-in expired', 401);
+}
+async function spotifyFinishLink (state, code, error, expectUser) {
+  const entry = _spotifyStates.get(String(state || ''));
+  if (!entry || Date.now() - entry.at > SPOTIFY_STATE_MS) throw spotifyError('This Spotify sign-in has expired or was already used. Start again from MEDIARR.', 400);
+  if (expectUser && entry.username.toLowerCase() !== String(expectUser).toLowerCase()) throw spotifyError('That Spotify sign-in was started by a different MEDIARR user.', 403);
+  _spotifyStates.delete(String(state));
+  if (error) throw spotifyError(error === 'access_denied' ? 'Spotify sign-in was cancelled.' : 'Spotify said: ' + error, 400);
+  if (!code) throw spotifyError('Spotify didn’t send a sign-in code.', 400);
+  const tok = await spotifyTokenRequest({ grant_type: 'authorization_code', code: String(code), redirect_uri: entry.redirect });
+  if (!tok.refresh_token) throw spotifyError('Spotify didn’t return a refresh token.', 502);
+  const prof = await spotifyGet(entry.username, '/me', tok.access_token);
+  setUserSpotify(entry.username, { id: String((prof && prof.id) || ''), name: String((prof && (prof.display_name || prof.id)) || ''),
+    accessToken: tok.access_token, refreshToken: tok.refresh_token, expiresAt: Date.now() + (Number(tok.expires_in) || 3600) * 1000,
+    scope: tok.scope || SPOTIFY_SCOPES, linkedAt: Date.now() });
+  return { username: entry.username, name: (prof && (prof.display_name || prof.id)) || '' };
+}
+function spotifyPage (ok, title, msg) {
+  const back = '/?spotify=' + (ok ? 'linked' : 'error');
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    (ok ? '<meta http-equiv="refresh" content="2;url=' + back + '">' : '') + '<title>' + htmlEsc(title) + ' · MEDIARR</title>' +
+    '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d0b10;color:#efe9f5;font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}' +
+    'main{max-width:440px;padding:32px 24px;text-align:center}h1{font-size:22px;margin:0 0 8px}p{color:#b8aec4;margin:0 0 20px}' +
+    'a{display:inline-block;padding:12px 20px;border-radius:10px;background:' + (ok ? '#1ed760' : '#e8b04b') + ';color:#0d0b10;font-weight:700;text-decoration:none}</style></head>' +
+    '<body><main><h1>' + (ok ? '✓ ' : '') + htmlEsc(title) + '</h1><p>' + htmlEsc(msg) + '</p><a href="' + back + '">Back to MEDIARR</a></main></body></html>';
+}
+function htmlEsc (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+async function spotifyCallback (req, u, res) {
+  const q = u.searchParams, who = currentUser(req);   // signed in here as someone else? refuse
+  let page;
+  try {
+    const r = await spotifyFinishLink(q.get('state'), q.get('code'), q.get('error'), who ? who.username : null);
+    page = spotifyPage(true, 'Spotify linked', 'Spotify' + (r.name ? ' (' + r.name + ')' : '') + ' is now linked to the MEDIARR account “' + r.username + '”.');
+  } catch (e) {
+    logError('spotify:link', e.message);
+    page = spotifyPage(false, 'Couldn’t link Spotify', e.message);
+  }
+  return sendBody(res, 200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }, page);
+}
+function spotifyImg (images) { const im = (images || []).slice().sort((a, b) => (a.width || 0) - (b.width || 0)); return ((im.find(i => (i.width || 0) >= 160) || im[im.length - 1]) || {}).url || ''; }
+async function spotifyPages (username, first, max) {
+  const out = []; let url = first, n = 0;
+  while (url && n++ < max) {
+    const j = await spotifyGet(username, url);
+    const box = j && j.artists ? j.artists : j;   // /me/following wraps its page in "artists"
+    out.push(...((box && box.items) || []));
+    const next = box && box.next;
+    url = next ? next.replace(SPOTIFY_API, '').replace(/^https?:\/\/[^/]+\/v1/, '') : null;
+  }
+  return out;
+}
+function spotifyLibraryRaw (username) {
+  return memo('spotify:lib:' + username.toLowerCase(), 10 * 60 * 1000, async () => {
+    const [top, followed, saved] = await Promise.all([
+      spotifyGet(username, '/me/top/artists?limit=50&time_range=medium_term').then(j => (j && j.items) || []),
+      spotifyPages(username, '/me/following?type=artist&limit=50', 4),
+      spotifyPages(username, '/me/albums?limit=50', 4)
+    ]);
+    const artists = new Map();
+    top.forEach((a, i) => artists.set(a.id, { id: a.id, name: a.name || '', image: spotifyImg(a.images), genres: (a.genres || []).slice(0, 3), top: i + 1, followed: false, url: (a.external_urls || {}).spotify || '' }));
+    followed.forEach(a => {
+      const cur = artists.get(a.id);
+      if (cur) cur.followed = true;
+      else artists.set(a.id, { id: a.id, name: a.name || '', image: spotifyImg(a.images), genres: (a.genres || []).slice(0, 3), top: 0, followed: true, url: (a.external_urls || {}).spotify || '' });
+    });
+    const albums = saved.map(x => x && x.album).filter(Boolean).map(al => ({ id: al.id, title: al.name || '', artist: ((al.artists || [])[0] || {}).name || '',
+      year: String(al.release_date || '').slice(0, 4), type: al.album_type || 'album', image: spotifyImg(al.images), url: (al.external_urls || {}).spotify || '' }));
+    return { fetchedAt: Date.now(), artists: [...artists.values()], albums };
+  });
+}
+function musicKey (s) { return String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/&/g, ' and ').replace(/^the\s+/, '').replace(/[^a-z0-9]+/g, ''); }
+function albumKey (s) { return musicKey(String(s || '').replace(/\s*[(\[][^)\]]*[)\]]/g, '').replace(/\s+-\s+.*$/, '')); }
+async function spotifyLibrary (me, refresh) {
+  if (refresh) memoClear('spotify:lib:' + me.username.toLowerCase());
+  const raw = await spotifyLibraryRaw(me.username);
+  const lid = arrConfigured('lidarr');
+  const [libA, libB] = lid ? await Promise.all([lidarrLibArtists().catch(() => []), lidarrLibAlbums().catch(() => [])]) : [[], []];
+  const byName = new Map(), byId = new Map();
+  (Array.isArray(libA) ? libA : []).forEach(a => { byName.set(musicKey(a.artistName), a); byId.set(a.id, a); });
+  const albumIdx = new Map();
+  (Array.isArray(libB) ? libB : []).forEach(al => {
+    const art = (al.artist && al.artist.artistName) || (byId.get(al.artistId) || {}).artistName || '';
+    albumIdx.set(musicKey(art) + '|' + albumKey(al.title), al);
+  });
+  const artists = raw.artists.map(a => { const l = byName.get(musicKey(a.name)); return Object.assign({}, a, { inLibrary: !!l, libraryId: l ? l.id : null }); });
+  artists.sort((x, y) => (x.top || 999) - (y.top || 999) || x.name.localeCompare(y.name));
+  const albums = raw.albums.map(al => {
+    const l = albumIdx.get(musicKey(al.artist) + '|' + albumKey(al.title));
+    const st = (l && l.statistics) || {};
+    const artistLib = byName.get(musicKey(al.artist));
+    return Object.assign({}, al, { inLibrary: !!(l && (l.monitored || st.trackFileCount > 0)), hasFiles: !!(st.trackFileCount > 0),
+      artistInLibrary: !!artistLib, artistLibraryId: artistLib ? artistLib.id : null });
+  });
+  return Object.assign(spotifyPublicStatus(me), { fetchedAt: raw.fetchedAt, artists, albums });
+}
+async function spotifyRequest (b, me, req) {
+  if (!arrConfigured('lidarr')) return { status: 400, body: { ok: false, message: 'Lidarr isn’t set up, so music can’t be requested yet.' } };
+  if (!addAllowed(me, 'lidarr')) return { status: 403, body: { ok: false, message: addDeniedMessage('lidarr') } };
+  if (b.kind === 'album') {
+    const artist = String(b.artist || ''), title = String(b.title || '');
+    if (!artist || !title) return { status: 400, body: { ok: false, message: 'Missing album or artist' } };
+    const list = await arrJson('lidarr', '/api/v1/album/lookup?term=' + encodeURIComponent(artist + ' ' + title.replace(/\s*[(\[][^)\]]*[)\]]/g, '')));
+    const cands = (Array.isArray(list) ? list : []).filter(x => musicKey((x.artist || {}).artistName) === musicKey(artist));
+    const hit = cands.find(x => albumKey(x.title) === albumKey(title)) ||
+      cands.find(x => albumKey(x.title).startsWith(albumKey(title)) || albumKey(title).startsWith(albumKey(x.title)));
+    if (!hit) return { status: 404, body: { ok: false, message: 'Lidarr couldn’t find “' + title + '” by ' + artist + ' on MusicBrainz.' } };
+    rememberLookup('album', String(hit.foreignAlbumId), hit);
+    return musicAdd({ kind: 'album', foreignAlbumId: hit.foreignAlbumId }, me, req);
+  }
+  const name = String(b.name || '');
+  if (!name) return { status: 400, body: { ok: false, message: 'Missing artist' } };
+  const list = await arrJson('lidarr', '/api/v1/artist/lookup?term=' + encodeURIComponent(name));
+  const hit = (Array.isArray(list) ? list : []).find(x => musicKey(x.artistName) === musicKey(name));
+  if (!hit) return { status: 404, body: { ok: false, message: 'Lidarr couldn’t find “' + name + '” on MusicBrainz.' } };
+  rememberLookup('artist', String(hit.foreignArtistId), hit);
+  return musicAdd({ kind: 'artist', foreignArtistId: hit.foreignArtistId }, me, req);
+}
+async function spotifyRoute (sub, method, b, me, req, u) {
+  const fail = e => ({ status: e.status && e.status >= 400 && e.status < 600 ? e.status : 502, body: { ok: false, code: e.code || '', message: e.message } });
+  try {
+    if (sub === '/status' && method === 'GET') return { status: 200, body: spotifyPublicStatus(me) };
+    if (sub === '/link' && method === 'POST') {
+      if (!spotifyConfigured()) return { status: 400, body: { ok: false, message: 'Spotify isn’t set up yet. An admin can add it in Settings.' } };
+      for (const [k, v] of _spotifyStates) if (Date.now() - v.at > SPOTIFY_STATE_MS) _spotifyStates.delete(k);
+      const state = crypto.randomBytes(18).toString('base64url'), redirect = spotifyRedirect(req);
+      _spotifyStates.set(state, { username: me.username, redirect, at: Date.now() });
+      const qs = new URLSearchParams({ client_id: spotifyCfg().clientId, response_type: 'code', redirect_uri: redirect, scope: SPOTIFY_SCOPES, state, show_dialog: 'true' });
+      return { status: 200, body: { ok: true, url: SPOTIFY_ACCOUNTS + '/authorize?' + qs.toString(), redirectUri: redirect } };
+    }
+    if (sub === '/complete' && method === 'POST') {
+      // For when Spotify's return address doesn't open on this device: paste it here.
+      let q; try { q = new URL(String(b.url || '').trim(), 'http://x').searchParams; } catch (_) { q = null; }
+      if (!q || !q.get('state')) return { status: 400, body: { ok: false, message: 'Paste the whole address from the page Spotify sent you to (it contains “code=” and “state=”).' } };
+      await spotifyFinishLink(q.get('state'), q.get('code'), q.get('error'), me.username);
+      return { status: 200, body: Object.assign({ ok: true }, spotifyPublicStatus(me)) };
+    }
+    if (sub === '/unlink' && method === 'POST') { setUserSpotify(me.username, null); return { status: 200, body: Object.assign({ ok: true }, spotifyPublicStatus(me)) }; }
+    if (sub === '/library' && method === 'GET') {
+      if (!spotifyConfigured()) return { status: 400, body: { ok: false, message: 'Spotify isn’t set up yet.' } };
+      return { status: 200, body: await spotifyLibrary(me, u.searchParams.get('refresh') === '1') };
+    }
+    if (sub === '/request' && method === 'POST') {
+      return await spotifyRequest(b, me, req);   // marks are recomputed from Lidarr on every library call
+    }
+  } catch (e) {
+    if (!['not_linked', 'forbidden'].includes(e.code)) logError('spotify', e.message, me.username);
+    return fail(e);
+  }
+  return null;
+}
+
 // Full Radarr/Sonarr lists for the 2.0 hub and Universal Search. Cached for 90s and
 // dropped immediately by invalidateLive() on adds/edits/webhooks, so typing in search
 // no longer re-downloads the whole library on every keystroke.
@@ -6378,6 +6631,9 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/webhooks/radarr' && req.method === 'POST') return handleArrWebhook('radarr', req, res, u);
     if (p === '/api/webhooks/sonarr' && req.method === 'POST') return handleArrWebhook('sonarr', req, res, u);
     if (p === '/api/webhooks/lidarr' && req.method === 'POST') return handleArrWebhook('lidarr', req, res, u);
+    // Spotify sends the browser back here after sign-in. The one-time state identifies the
+    // MEDIARR user, so this works even when it opens on another address (e.g. 127.0.0.1).
+    if (p === '/api/spotify/callback' && req.method === 'GET') return spotifyCallback(req, u, res);
 
     // ---- everything else under /api requires a session ----
     if (p.startsWith('/api/v1/')) {
@@ -6497,6 +6753,13 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/download-activity' && req.method === 'GET') {
         try { return sendJSON(res, 200, await downloadActivitySnapshot(me, u.searchParams.get('history'))); }
         catch (e) { logError('download-activity', e.message, me.username); return sendJSON(res, 502, { message: 'Could not build download activity: ' + e.message }); }
+      }
+
+      // ---- Spotify (per-user link) ----
+      if (p.startsWith('/api/spotify/')) {
+        let b = {}; if (req.method === 'POST') { try { b = JSON.parse((await readBody(req)) || '{}'); } catch (_) {} }
+        const r = await spotifyRoute(p.slice('/api/spotify'.length), req.method, b, me, req, u);
+        if (r) return sendJSON(res, r.status, r.body);
       }
 
       // ---- music (Lidarr) ----
@@ -7357,6 +7620,7 @@ const server = http.createServer(async (req, res) => {
         out.shell = { enabled: false, commands: [] };
         out.notify = { enabled: out.notify.enabled, targets: [], events: {} };
         out.dockerControl = { enabled: false, allowedContainers: [] };
+        out.spotify = { configured: out.spotify.configured };
       }
       return sendJSON(res, 200, out);
     }
@@ -7382,6 +7646,19 @@ const server = http.createServer(async (req, res) => {
         invalidateLive('lidarr');
       }
       if (incoming.tmdb && incoming.tmdb.apiKey) cur.tmdb.apiKey = incoming.tmdb.apiKey;
+      if (incoming.spotify) {
+        const s = incoming.spotify;
+        cur.spotify = Object.assign({}, DEFAULT_CONFIG.spotify, cur.spotify || {});
+        if (s.clientId != null)    cur.spotify.clientId = String(s.clientId).trim();
+        if (s.clientSecret)        cur.spotify.clientSecret = String(s.clientSecret).trim();   // only overwrite when non-empty
+        if (s.redirectUri != null) {
+          const r = String(s.redirectUri).trim();
+          if (r && !/^https:\/\/[^\s]+$|^http:\/\/(127\.0\.0\.1|\[::1\])(:\d+)?\/[^\s]*$/.test(r))
+            return sendJSON(res, 400, { message: 'Spotify only accepts an https:// redirect URI, or http://127.0.0.1:PORT/… (localhost is not allowed).' });
+          cur.spotify.redirectUri = r;
+        }
+        memoClear('spotify:');
+      }
       if (incoming.plex) {
         if (incoming.plex.url != null) cur.plex.url = normUrl(incoming.plex.url);
         if (incoming.plex.token)       cur.plex.token = incoming.plex.token;   // only overwrite when non-empty
@@ -7491,6 +7768,7 @@ const server = http.createServer(async (req, res) => {
       try {
         if (svc === 'tmdb') return sendJSON(res, 200, await testTmdb(key));
         if (svc === 'plex') return sendJSON(res, 200, await testPlex(url, key));
+        if (svc === 'spotify') return sendJSON(res, 200, await testSpotify(body.clientId, key));
         if (svc === 'sab') {
           const cur = readConfig().sab;
           const probeCfg = { url: url || cur.url, apiKey: body.key || cur.apiKey };

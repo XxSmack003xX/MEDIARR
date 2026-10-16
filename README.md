@@ -2,6 +2,15 @@
 
 # MEDIARR
 
+## MEDIARR 2.6
+
+MEDIARR 2.6 lets each person link their **Spotify** account.
+
+- **My Spotify** — a new menu item shows your top artists, the artists you follow and your saved albums, each marked when it's already in the music library.
+- **Request from Spotify** — one click requests an artist or album through Lidarr. Request limits, **Can add: Music** and request history apply as usual.
+- **Admin setup** — add your own Spotify app (Client ID, Client secret, redirect URI) in Settings; see [Spotify linking](#spotify-linking).
+- **Phones** — the search-mode bar no longer makes the installed app wider than the screen, so windows fit on phones again.
+
 ## MEDIARR 2.5
 
 MEDIARR 2.5 lets admins choose what each person can add.
@@ -82,7 +91,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.5.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.6.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -101,7 +110,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.5.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.6.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -131,6 +140,7 @@ This README is written against the **v2.5.0 source in this repository**. Feature
 - [Manual release search](#manual-release-search)
 - [Library browser and monitoring controls](#library-browser-and-monitoring-controls)
 - [Plex integration](#plex-integration)
+- [Spotify linking](#spotify-linking)
 - [SABnzbd activity](#sabnzbd-activity)
 - [WebDAV and local media playback](#webdav-and-local-media-playback)
 - [Automatic playback selection and Transcode Dashboard](#automatic-playback-selection-and-transcode-dashboard)
@@ -248,6 +258,7 @@ This README is written against the **v2.5.0 source in this repository**. Feature
 | **Radarr** | Movie library, add/edit, searches, manual releases, calendar, health | Recommended |
 | **Sonarr** | TV library, add/edit, episode monitoring, searches, manual releases, calendar, health | Recommended |
 | **Lidarr** | Music search and requests, artist pages, album monitoring and searches, music library, calendar, download queue, health | Optional |
+| **Spotify** | Each person's top artists, followed artists and saved albums, to request through Lidarr | Optional |
 | **TMDB** | Rich discovery, person/year/studio search, metadata and recommendations | Optional but strongly recommended |
 | **Plex** | Health, sessions, watchlists, history, watched state, account linking | Optional |
 | **SABnzbd** | Download Activity Center, queue/history visibility | Optional |
@@ -257,7 +268,7 @@ This README is written against the **v2.5.0 source in this repository**. Feature
 | **RSS/Atom feeds** | Automated movie/series discovery and additions | Optional |
 | **Discord / Slack / Telegram / ntfy / Gotify / Pushover / Pushbullet / generic webhook** | Notifications | Optional |
 
-MEDIARR is not affiliated with Radarr, Sonarr, Lidarr, Plex, TMDB, SABnzbd, Stremio, Docker, or GitHub.
+MEDIARR is not affiliated with Radarr, Sonarr, Lidarr, Spotify, Plex, TMDB, SABnzbd, Stremio, Docker, or GitHub.
 
 ---
 
@@ -1096,6 +1107,39 @@ For an existing series, MEDIARR can display live Sonarr episode status and let a
 - Distinguish downloaded, monitored, and unmonitored episodes.
 
 A series can also be added initially with nothing monitored so seasons/episodes can be selected manually afterward.
+
+---
+
+## Spotify linking
+
+Each MEDIARR user can link their own Spotify account. **My Spotify** in the menu then shows:
+
+- **Top artists** (Spotify's medium-term list),
+- **Following** — artists they follow,
+- **Saved albums**,
+
+each marked **In library** or **Wanted** when Lidarr already has it, with **Request artist** / **Request album** for the rest. Requests go through Lidarr exactly like music search: an album by a new artist adds the artist with only that album wanted, and daily limits, **Can add: Music** and request history all apply. Artists already in the library link to their MEDIARR artist page.
+
+MEDIARR only reads from Spotify (scopes `user-top-read`, `user-follow-read`, `user-library-read`). Spotify tokens are stored on the server in `users.json` and never sent to browsers. People can unlink at any time from My Spotify, or by removing MEDIARR's access in their Spotify account settings.
+
+### Setting it up (admin)
+
+Spotify requires every install to use its own Spotify app:
+
+1. Sign in at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and create an app. Tick **Web API**.
+2. Add MEDIARR's **redirect URI** (shown in **Settings → Spotify**) to the app exactly as shown.
+3. Paste the app's **Client ID** and **Client secret** into Settings, select **Test**, then save.
+4. In the app's **User Management**, add the Spotify email address of each person who will link.
+
+Spotify's current rules for apps in development mode, which is what a personal app is:
+
+- the app owner needs **Spotify Premium**;
+- up to **5 people** can use the app;
+- the redirect URI must be **https://**, or **http://127.0.0.1:PORT/…** (`localhost` and network IPs such as `http://192.168.1.10` are refused).
+
+**If MEDIARR is on https** (for example behind a reverse proxy), use `https://your-domain/api/spotify/callback`. People go to Spotify, approve, and land back in MEDIARR.
+
+**If MEDIARR is on plain http**, keep the suggested `http://127.0.0.1:PORT/api/spotify/callback`. After someone approves, Spotify sends their browser to 127.0.0.1, which only opens on the MEDIARR server itself. On other devices, they copy that page's address and paste it into **My Spotify → Spotify sent you to a page that didn't load?** to finish. Each sign-in link works once and expires after 15 minutes.
 
 ---
 
