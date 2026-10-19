@@ -5116,8 +5116,13 @@ function dockerAliases (c) {
   return [...new Set(out)];
 }
 function dockerIsSelf (c) {
+  if (!c || !c.Id) return false;
+  const id = String(c.Id).toLowerCase();
+  if (_selfInspect && _selfInspect.Id) return id === String(_selfInspect.Id).toLowerCase();
+  const ids = detectRuntime().ids;
+  if (ids.length) return ids.includes(id);
   const host = String(os.hostname() || '').toLowerCase();
-  return !!(host && c && c.Id && String(c.Id).toLowerCase().startsWith(host));
+  return !!(host && id.startsWith(host));
 }
 function dockerImageCanUpdate (image) {
   const x = String(image || '').trim();
@@ -5196,6 +5201,7 @@ async function dockerAllowedContainers () {
   const cfg = readConfig().dockerControl || DEFAULT_CONFIG.dockerControl;
   const allowed = normalizeDockerAllowed(cfg.allowedContainers);
   const wanted = new Set(allowed.map(x => x.toLowerCase()));
+  await dockerSelfInspect().catch(() => null);   // so MEDIARR's own container is recognised below
   const r = await dockerApi('GET', '/containers/json?all=1', 8000);
   const all = Array.isArray(r.data) ? r.data : [];
   return all.filter(c => dockerAliases(c).some(a => wanted.has(String(a).toLowerCase()))).map(c => {
@@ -5816,10 +5822,96 @@ async function githubLatestRelease (force) {
   const value = { repo, version, tag: d.tag_name || ('v' + version), name: d.name || d.tag_name || version, notes: String(d.body || '').slice(0, 20000), publishedAt: d.published_at || '', url: d.html_url || ('https://github.com/' + repo + '/releases/latest'), assets, image: 'ghcr.io/' + repo.toLowerCase() + ':' + version };
   _updateReleaseCache = { key, at: Date.now(), value }; return value;
 }
+/* ---------- where is MEDIARR running? ----------
+   "Is this Docker?" is answered from inside the container (the official image says so in
+   MEDIARR_RUNTIME, plus /.dockerenv, cgroups and mount info), so it never depends on the
+   Docker socket. "Which container am I?" is only needed for one-click updates and Docker
+   Controls; it tries the container ID from mount info, MEDIARR_CONTAINER_NAME and the
+   hostname, verifies each candidate, and remembers the answer for the life of the process
+   (a running container's ID, image and mounts don't change). */
+const PROC_ROOT = process.env.MEDIARR_PROC_ROOT || '/proc';
+const FS_ROOT = process.env.MEDIARR_FS_ROOT || '';
+let _runtimeInfo = null;
+function readSmall (f) { try { return fs.readFileSync(f, 'utf8').slice(0, 512 * 1024); } catch (_) { return ''; } }
+function containerIdsFromProc () {
+  const ids = [];
+  // Docker/Podman bind-mount /etc/hostname, /etc/hosts and /etc/resolv.conf from the container's own folder.
+  const mi = readSmall(PROC_ROOT + '/self/mountinfo');
+  for (const m of mi.matchAll(/\/([0-9a-f]{64})\/(?:userdata\/)?(?:hostname|hosts|resolv\.conf)(?=\s)/g)) ids.push(m[1]);
+  // cgroup v1 (and v2 without a private cgroup namespace): .../docker/<id>, docker-<id>.scope, libpod-<id>…
+  for (const f of ['/self/cgroup', '/1/cgroup']) {
+    for (const m of readSmall(PROC_ROOT + f).matchAll(/(?:docker[-/]|libpod-|crio-|cri-containerd-)([0-9a-f]{64})/g)) ids.push(m[1]);
+  }
+  return [...new Set(ids)];
+}
+function detectRuntime () {
+  if (_runtimeInfo) return _runtimeInfo;
+  const forced = String(process.env.MEDIARR_RUNTIME || '').trim().toLowerCase();
+  const signals = [];
+  if (forced === 'docker' || forced === 'podman') signals.push('image');
+  if (fs.existsSync(FS_ROOT + '/.dockerenv')) signals.push('dockerenv');
+  const podman = fs.existsSync(FS_ROOT + '/run/.containerenv');
+  if (podman) signals.push('containerenv');
+  const cg = readSmall(PROC_ROOT + '/1/cgroup') + readSmall(PROC_ROOT + '/self/cgroup');
+  if (/docker|kubepods|containerd|libpod/i.test(cg)) signals.push('cgroup');
+  const ids = containerIdsFromProc();
+  if (ids.length) signals.push('mountinfo');
+  const container = forced === 'node' ? false : signals.length > 0;
+  const kind = !container ? 'node' : (forced === 'podman' || podman || /libpod/i.test(cg)) ? 'podman' : /kubepods/i.test(cg) ? 'kubernetes' : 'docker';
+  _runtimeInfo = { container, kind, label: { docker: 'Docker', podman: 'Podman', kubernetes: 'Kubernetes', node: 'Node.js' }[kind], signals, ids };
+  return _runtimeInfo;
+}
+let _selfInspect = null, _selfLookupError = '';
+async function dockerInspectOnce (ref) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { return (await dockerApi('GET', '/containers/' + encodeURIComponent(ref) + '/json', 10000)).data || null; }
+    catch (e) {
+      if (e.statusCode === 404) return null;   // no such container: try the next candidate
+      _selfLookupError = /EACCES|permission denied/i.test(e.message) ? 'permission' : 'unreachable';
+      if (attempt === 0) await new Promise(r => setTimeout(r, 600));
+    }
+  }
+  return null;
+}
 async function dockerSelfInspect () {
-  if (!fs.existsSync(DOCKER_SOCKET)) return null;
-  const host = String(os.hostname() || '').trim(); if (!host) return null;
-  try { return (await dockerApi('GET', '/containers/' + encodeURIComponent(host) + '/json', 8000)).data || null; } catch (_) { return null; }
+  if (_selfInspect) return _selfInspect;
+  if (!fs.existsSync(DOCKER_SOCKET)) { _selfLookupError = 'no-socket'; return null; }
+  _selfLookupError = '';
+  const rt = detectRuntime(), host = String(os.hostname() || '').trim();
+  const isMe = c => !!(c && c.Id && (rt.ids.length ? rt.ids.includes(c.Id)
+    : ((host && String(c.Id).startsWith(host)) || (c.Config && c.Config.Hostname && c.Config.Hostname === host))));
+  const named = String(process.env.MEDIARR_CONTAINER_NAME || '').trim();
+  const tries = [...rt.ids];
+  if (named) tries.push(named);
+  if (host) tries.push(host);
+  for (const ref of [...new Set(tries)]) {
+    const c = await dockerInspectOnce(ref);
+    if (!c) { if (_selfLookupError) break; continue; }
+    // A name from the environment is trusted unless mount info proves it is another container.
+    if (isMe(c) || (ref === named && !rt.ids.length)) { _selfInspect = c; return c; }
+  }
+  if (!_selfLookupError && !rt.ids.length) {
+    // Last resort (e.g. host networking without mount info): exactly one running MEDIARR of this version.
+    try {
+      const list = (await dockerApi('GET', '/containers/json', 10000)).data || [];
+      const hits = [];
+      for (const it of list.filter(x => /mediarr/i.test(String(x.Image || '')) && !/updater/i.test(((x.Names || [])[0]) || ''))) {
+        const c = await dockerInspectOnce(it.Id);
+        const env = (c && c.Config && c.Config.Env) || [];
+        if (c && env.includes('MEDIARR_VERSION=' + APP_VERSION) && (!host || (c.Config.Hostname === host) || String(c.Id).startsWith(host))) hits.push(c);
+      }
+      if (hits.length === 1) { _selfInspect = hits[0]; return hits[0]; }
+    } catch (e) { _selfLookupError = /EACCES|permission denied/i.test(e.message) ? 'permission' : 'unreachable'; }
+  }
+  if (!_selfLookupError) _selfLookupError = 'not-found';
+  return null;
+}
+function selfLookupReason () {
+  const manual = ' Until then, update with: docker compose pull && docker compose up -d';
+  if (_selfLookupError === 'no-socket') return 'MEDIARR is running in Docker, but the Docker socket isn’t mounted, so it can’t replace its own container. Mount ' + DOCKER_SOCKET + ' as in the included docker-compose.yml to enable one-click updates.' + manual;
+  if (_selfLookupError === 'permission') return 'MEDIARR is running in Docker, but it isn’t allowed to use the Docker socket. Recreate the container so its startup script can grant access, or run it as a user in the socket’s group.' + manual;
+  if (_selfLookupError === 'unreachable') return 'MEDIARR is running in Docker, but the Docker API didn’t answer just now. Select Check now to try again.' + manual;
+  return 'MEDIARR is running in Docker, but couldn’t identify its own container through the Docker socket. Add MEDIARR_CONTAINER_NAME with the container’s name (for example mediarr) to its environment and recreate it.' + manual;
 }
 function dockerSocketHostSource (inspect) {
   const mounts = (inspect && inspect.Mounts) || [];
@@ -5829,19 +5921,25 @@ function dockerSocketHostSource (inspect) {
 async function updateStatus (force) {
   const cfg = readConfig().update || DEFAULT_CONFIG.update;
   const repo = updateRepo();
+  const rt = detectRuntime();
   const self = await dockerSelfInspect();
   const socketSource = dockerSocketHostSource(self);
+  const inDocker = rt.container || !!self;
   const base = { currentVersion: APP_VERSION, repo, enabled: cfg.enabled !== false, updateAvailable: false,
-    docker: !!self, currentImage: self && self.Config ? self.Config.Image || '' : '', canAutoUpdate: false,
+    docker: inDocker, runtime: inDocker ? (rt.container ? rt.label : 'Docker') : 'Node.js', runtimeSignals: rt.signals,
+    containerFound: !!self, containerName: self ? String(self.Name || '').replace(/^\//, '') : '',
+    currentImage: self && self.Config ? self.Config.Image || '' : '', canAutoUpdate: false,
     autoUpdateReason: '', sourceLockedByImage: !!UPDATE_REPO_ENV };
+  // How MEDIARR can be updated doesn't depend on GitHub, so work it out first.
+  if (!inDocker) base.autoUpdateReason = 'MEDIARR is running directly with Node.js, so it can’t update itself. Update it with git pull or the release ZIP, then restart it.';
+  else if (!self) base.autoUpdateReason = selfLookupReason();
+  else if (!socketSource) base.autoUpdateReason = 'The Docker socket is not a host bind mount MEDIARR can pass to the updater';
+  else base.canAutoUpdate = true;
   if (!base.enabled) { base.message = 'Update checks are disabled'; return base; }
   if (!repo) { base.message = 'Set the GitHub repository (owner/repository) to enable update checks'; return base; }
   try {
     const latest = await githubLatestRelease(!!force); base.latest = latest;
     base.updateAvailable = compareVersions(APP_VERSION, latest.version) < 0;
-    if (!self) base.autoUpdateReason = 'Automatic install is available only when MEDIARR itself runs in Docker';
-    else if (!socketSource) base.autoUpdateReason = 'The Docker socket is not a host bind mount MEDIARR can pass to the updater';
-    else { base.canAutoUpdate = true; base.autoUpdateReason = ''; }
     return base;
   } catch (e) { base.message = e.message; return base; }
 }
@@ -5906,12 +6004,10 @@ function systemInfo () {
     } catch (e) {}
     // container hints — useful because systemctl often isn't available inside one
     try {
-      if (fs.existsSync('/run/systemd/container')) info.container = fs.readFileSync('/run/systemd/container', 'utf8').trim();
-      else if (fs.existsSync('/.dockerenv')) info.container = 'docker';
-      else {
-        const cg = fs.readFileSync('/proc/1/cgroup', 'utf8');
-        if (/docker|lxc|kubepods/i.test(cg)) info.container = /lxc/i.test(cg) ? 'lxc' : 'docker';
-      }
+      const rt = detectRuntime();
+      if (rt.container) info.container = rt.kind;
+      else if (fs.existsSync('/run/systemd/container')) info.container = fs.readFileSync('/run/systemd/container', 'utf8').trim();
+      else if (/lxc/i.test(readSmall(PROC_ROOT + '/1/cgroup'))) info.container = 'lxc';
     } catch (e) {}
     info.hasSystemd = fs.existsSync('/run/systemd/system');
   }

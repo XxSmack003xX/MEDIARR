@@ -89,6 +89,32 @@ jobs:
           docker rm -f mediarr-smoke >/dev/null
           echo "Smoke test passed"
 
+      - name: Smoke-test Docker detection
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${{ steps.meta.outputs.repo_lc }}:${{ steps.meta.outputs.version }}"
+          # A custom hostname used to make MEDIARR think it wasn't in Docker. Check both with
+          # and without the Docker socket: it must always say Docker, and find itself when it can.
+          check () {   # name port extra-docker-args...
+            local name=$1 port=$2; shift 2
+            local d="$RUNNER_TEMP/$name"; mkdir -p "$d"; sudo chown 1000:1000 "$d"
+            docker run -d --name "$name" --hostname not-the-container-id -p 127.0.0.1:$port:7575 -v "$d:/data" "$@" "$IMAGE" >/dev/null
+            for i in $(seq 1 30); do curl -fsS http://127.0.0.1:$port/api/setup-needed >/dev/null 2>&1 && break; sleep 1; done
+            local jar; jar="$(mktemp)"
+            curl -fsS -c "$jar" -H 'Content-Type: application/json' -d '{"username":"admin","password":"smoke-test-pw"}' http://127.0.0.1:$port/api/setup >/dev/null
+            curl -fsS -b "$jar" http://127.0.0.1:$port/api/admin/update > "$RUNNER_TEMP/$name.json"
+            cat "$RUNNER_TEMP/$name.json" | jq '{docker, runtime, runtimeSignals, containerFound, containerName, autoUpdateReason}'
+            docker rm -f "$name" >/dev/null
+          }
+          check mediarr-nosock 7601
+          check mediarr-sock 7602 -v /var/run/docker.sock:/var/run/docker.sock
+          jq -e '.docker == true and .containerFound == false and (.autoUpdateReason | test("socket"))' "$RUNNER_TEMP/mediarr-nosock.json" >/dev/null \
+            || { echo "without the socket MEDIARR must still report Docker" >&2; exit 1; }
+          jq -e '.docker == true and .containerFound == true and .containerName == "mediarr-sock"' "$RUNNER_TEMP/mediarr-sock.json" >/dev/null \
+            || { echo "with the socket MEDIARR must find its own container despite the custom hostname" >&2; exit 1; }
+          echo "Docker detection smoke test passed"
+
       - name: Publish release image
         shell: bash
         run: |
@@ -123,6 +149,7 @@ jobs:
                 DATA_DIR: /data
                 SESSION_HOURS: \${SESSION_HOURS:-1}
                 DOCKER_SOCKET: /var/run/docker.sock
+                MEDIARR_CONTAINER_NAME: mediarr
               volumes:
                 - ./data:/data
                 - \${DOCKER_SOCKET_HOST:-/var/run/docker.sock}:/var/run/docker.sock

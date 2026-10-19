@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.6.1
+
+### System Update: Docker detection
+
+- MEDIARR no longer reports a Docker install as "Node / non-Docker". Whether it runs in Docker is now decided from inside the container: the official image says so (`MEDIARR_RUNTIME=docker`), backed up by `/.dockerenv`, Podman's `/run/.containerenv`, and cgroup and mount information. It used to depend on the Docker socket being mounted, the container's hostname matching its ID, and the Docker API answering within a few seconds, so it was wrong with a custom `hostname:`, host networking, no socket, or a busy Docker daemon.
+- Finding MEDIARR's own container for one-click updates now uses its container ID from mount information. That works with custom hostnames and custom Docker data folders. It falls back to the new `MEDIARR_CONTAINER_NAME` (set to `mediarr` in the included Compose files), then the hostname, and with host networking to the single running MEDIARR of the same version. Every candidate is verified, so a wrong name can't point the updater at another container. A brief Docker API error is retried, and once found the container is remembered until MEDIARR restarts.
+- When one-click update isn't possible, System Update now explains why under **Runtime**: no Docker socket, no permission to use it, Docker not answering, or the container not identified. It also shows the manual `docker compose pull && docker compose up -d` command. The reason now appears even when the GitHub release check fails.
+- Docker Controls recognises MEDIARR's own container the same way, so it isn't offered a container update that would replace MEDIARR from underneath itself.
+- System info reports the same runtime.
+- Releases now run a real-Docker check: the image must report Docker with a custom hostname, both with and without the Docker socket, and find its own container when the socket is mounted.
+
 ## 2.6.0
 
 ### Spotify

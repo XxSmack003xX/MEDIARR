@@ -91,7 +91,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.6.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.6.1-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -110,7 +110,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.6.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.6.1 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1553,6 +1553,19 @@ MEDIARR can query this repository's GitHub Releases feed and show:
 
 Source/non-Docker installs get a link to the published release artifact.
 
+### How MEDIARR knows it's in Docker
+
+System Update shows the runtime as **Docker** or **Node.js**. Since 2.6.1 this is worked out from inside the container, so it no longer depends on the Docker socket, the container's hostname or how quickly the Docker API answers:
+
+- the official image sets `MEDIARR_RUNTIME=docker`;
+- otherwise `/.dockerenv`, Podman's `/run/.containerenv`, or Docker/Kubernetes entries in the process's cgroups and mounts count as a container.
+
+Set `MEDIARR_RUNTIME=node` to force Node.js, or `MEDIARR_RUNTIME=docker` for a custom image.
+
+One-click updates also need to know **which** container is MEDIARR. It finds this from the container ID in its own mount information, which works with custom hostnames and custom Docker data folders. It falls back to `MEDIARR_CONTAINER_NAME` and then the hostname. Each candidate is checked, so a mistyped name can't make MEDIARR replace a different container, and once found the answer is kept until MEDIARR restarts. With host networking and no other clue, MEDIARR picks the single running MEDIARR container of its own version; if there are several, it doesn't guess.
+
+When one-click update isn't possible, System Update says why under **Runtime**. Typical reasons are a missing Docker socket, no permission to use it, the Docker API not answering, or the container not being identified. It also shows the manual command: `docker compose pull && docker compose up -d`.
+
 ### One-click Docker update
 
 An eligible Docker install with Docker socket access can perform a controlled update.
@@ -1670,6 +1683,8 @@ Treat API keys like passwords. Revoke and regenerate a key if it is exposed.
 | `SECURE_COOKIES` | automatic | Force secure-cookie behavior when set appropriately |
 | `TRUST_PROXY` | automatic | `1` always trusts `X-Forwarded-For`, `0` never does. By default it is trusted only from loopback/private-network peers (a reverse proxy on the host or a Docker network) |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker Engine Unix socket inside the container/process |
+| `MEDIARR_RUNTIME` | `docker` in the official image | `docker` or `node`: overrides how System Update and System info describe the runtime |
+| `MEDIARR_CONTAINER_NAME` | `mediarr` in the included Compose files | Name of MEDIARR's own container, used by one-click updates when the container ID can't be read; keep it equal to `container_name` |
 | `MEDIARR_VERSION` | package version | Runtime version override, mainly for release images |
 | `MEDIARR_UPDATE_REPO` | build/config dependent | GitHub `owner/repository` used by System Update |
 | `MEDIARR_UPDATE_API_BASE` | GitHub API default | Advanced/test override for update metadata requests |

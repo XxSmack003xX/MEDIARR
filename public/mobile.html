@@ -1876,7 +1876,7 @@ async function openUpdateM(fresh=true){
 function renderUpdateM(d){
   const latest=d.latest||null, has=!!d.updateAvailable;
   let html='<div class="card mb-2" style="background:var(--bg)"><div class="card-body">'
-    +'<div class="d-flex justify-content-between align-items-start gap-2"><div><div class="fw-bold">Installed v'+esc(d.currentVersion||'?')+'</div><div class="small text-secondary">'+(d.docker?'Docker · '+esc(d.currentImage||''):'Node / non-Docker')+'</div></div>'
+    +'<div class="d-flex justify-content-between align-items-start gap-2"><div><div class="fw-bold">Installed v'+esc(d.currentVersion||'?')+'</div><div class="small text-secondary">'+(d.docker?esc(d.runtime||'Docker')+(d.currentImage?' · '+esc(d.currentImage):(d.containerFound?'':' · container not identified')):'Node.js (not in a container)')+'</div>'+(!d.canAutoUpdate&&d.autoUpdateReason?'<div class="small text-secondary mt-1">'+esc(d.autoUpdateReason)+'</div>':'')+'</div>'
     +(latest?'<span class="badge '+(has?'text-bg-warning':'text-bg-success')+'">'+(has?'Update available':'Up to date')+'</span>':'')+'</div>'
     +(latest?'<div class="mt-2 small">Latest: <b>v'+esc(latest.version)+'</b></div>':'')
     +'</div></div>';
@@ -1886,7 +1886,7 @@ function renderUpdateM(d){
     +'<div class="d-flex gap-2 mt-2"><button class="btn btn-gold btn-sm" id="mUpSave">Save</button><button class="btn btn-outline-secondary btn-sm" id="mUpCheck">Check now</button></div><div class="small mt-2" id="mUpMsg">'+esc(d.message||'')+'</div></div></div>';
   if(latest){
     html+='<div class="card" style="background:var(--bg)"><div class="card-body"><div class="fw-bold">'+esc(latest.name||latest.tag||'Latest release')+'</div><div class="small text-secondary mb-2">'+(latest.publishedAt?esc(new Date(latest.publishedAt).toLocaleString()):'')+'</div><div class="small" style="white-space:pre-wrap;max-height:40vh;overflow:auto">'+esc(latest.notes||'No release notes.')+'</div>'
-      +'<div class="d-grid gap-2 mt-3">'+(d.canAutoUpdate?'<button class="btn btn-gold" id="mUpApply" '+(has?'':'disabled')+'>'+(has?'Update to v'+esc(latest.version):'Already up to date')+'</button>':'<a class="btn btn-gold" href="'+esc(latest.url)+'" target="_blank" rel="noopener noreferrer">Open GitHub release</a>')+'</div><div class="small text-secondary mt-2" id="mUpApplyMsg">'+esc(d.canAutoUpdate?'':(d.autoUpdateReason||''))+'</div></div></div>';
+      +'<div class="d-grid gap-2 mt-3">'+(d.canAutoUpdate?'<button class="btn btn-gold" id="mUpApply" '+(has?'':'disabled')+'>'+(has?'Update to v'+esc(latest.version):'Already up to date')+'</button>':'<a class="btn btn-gold" href="'+esc(latest.url)+'" target="_blank" rel="noopener noreferrer">Open GitHub release</a>')+'</div><div class="small text-secondary mt-2" id="mUpApplyMsg"></div></div></div>';
   }
   $('panelBody').innerHTML=html;
   $('mUpSave').onclick=saveUpdateM; $('mUpCheck').onclick=()=>openUpdateM(true); const a=$('mUpApply'); if(a)a.onclick=()=>applyUpdateM(d);

@@ -12,6 +12,8 @@ services:
       DATA_DIR: /data
       SESSION_HOURS: ${SESSION_HOURS:-1}
       DOCKER_SOCKET: /var/run/docker.sock
+      # Helps one-click updates find this container; keep it equal to container_name.
+      MEDIARR_CONTAINER_NAME: mediarr
       MEDIARR_UPDATE_REPO: ${MEDIARR_UPDATE_REPO:-XxSmack003xX/MEDIARR}
     volumes:
       - ./data:/data
