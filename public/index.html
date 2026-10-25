@@ -41,7 +41,7 @@
       radial-gradient(900px 600px at 85% -10%, rgba(232,176,75,.08), transparent 60%),
       radial-gradient(700px 500px at 5% 110%, rgba(53,197,240,.06), transparent 60%),
       var(--bg);
-    color:var(--txt);font-family:'Manrope',sans-serif;-webkit-font-smoothing:antialiased;min-height:100%;
+    color:var(--txt);font-family:'Manrope',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;-webkit-font-smoothing:antialiased;min-height:100%;
   }
   body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.035;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
@@ -68,7 +68,7 @@
   }
   a.brand:hover{opacity:.85}
   a.brand:focus-visible{outline:2px solid var(--gold);outline-offset:4px}
-  .logo{font-family:'Bebas Neue',sans-serif;font-size:40px;letter-spacing:3px;line-height:.9;background:linear-gradient(180deg,#fff,var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .logo{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:40px;letter-spacing:3px;line-height:.9;background:linear-gradient(180deg,#fff,var(--gold));-webkit-background-clip:text;background-clip:text;color:transparent}
   .logo b{color:var(--gold);-webkit-text-fill-color:var(--gold)}
   .tag{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
   .settings-btn{display:inline-flex;align-items:center;gap:8px;cursor:pointer;background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:10px 16px;border-radius:10px;font-weight:600;font-size:13px;transition:.18s}
@@ -81,7 +81,7 @@
   .side-nav{position:fixed;left:0;top:0;bottom:0;width:min(326px,90vw);z-index:79;background:linear-gradient(180deg,var(--panel),var(--bg));border-right:1px solid var(--line);box-shadow:22px 0 70px rgba(0,0,0,.38);transform:translateX(-104%);transition:transform .22s ease;display:flex;flex-direction:column}
   .side-nav.open{transform:translateX(0)}
   .side-nav-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:22px 18px 17px;border-bottom:1px solid var(--line);flex:none}
-  .side-nav-brand{font-family:'Bebas Neue',sans-serif;font-size:29px;letter-spacing:2.4px;line-height:1;color:var(--txt)}
+  .side-nav-brand{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:29px;letter-spacing:2.4px;line-height:1;color:var(--txt)}
   .side-nav-brand span{color:var(--gold)}
   .side-nav-caption{font-size:10px;letter-spacing:1.8px;text-transform:uppercase;color:var(--muted);margin-top:5px}
   .side-nav-close{width:36px;height:36px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--muted);font-size:25px;line-height:1;cursor:pointer;transition:.15s}
@@ -117,7 +117,7 @@
   .chip-btn{background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:6px 13px;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
   .chip-btn:hover{color:var(--txt)}
   .chip-btn.active{background:var(--gold);border-color:var(--gold);color:#1a1206}
-  .cal-day{margin:18px 0 8px;font-family:'Bebas Neue';font-size:19px;letter-spacing:.6px;color:var(--txt);display:flex;align-items:center;gap:10px}
+  .cal-day{margin:18px 0 8px;font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:19px;letter-spacing:.6px;color:var(--txt);display:flex;align-items:center;gap:10px}
   .cal-day .cd-count{font-family:inherit;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.3px}
   .cal-day.today{color:var(--gold)}
   .cal-item{display:flex;gap:13px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 13px;margin-bottom:8px;cursor:pointer;transition:border-color .12s,transform .12s}
@@ -156,7 +156,7 @@
   .lib-search.done{border-color:var(--green);color:var(--green)}
   .lib-search .spinner{width:15px;height:15px;border-width:2px;margin:0}
   /* recommendations row in detail view */
-  .recs-h{font-family:'Bebas Neue';font-size:22px;letter-spacing:1px;margin:24px 0 12px;font-weight:400}
+  .recs-h{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:22px;letter-spacing:1px;margin:24px 0 12px;font-weight:400}
   .recs-row{display:flex;gap:14px;overflow-x:auto;padding-bottom:10px}
   .recs-row .card{flex:0 0 148px;width:148px}
   .recs-row::-webkit-scrollbar{height:8px}
@@ -205,7 +205,7 @@
   .card-title{font-weight:700;font-size:14px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .card-year{font-size:12px;color:var(--muted);margin-top:4px}
   .state{text-align:center;color:var(--muted);padding:70px 20px}
-  .state .big{font-family:'Bebas Neue';font-size:30px;letter-spacing:2px;color:var(--txt);margin-bottom:6px}
+  .state .big{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:30px;letter-spacing:2px;color:var(--txt);margin-bottom:6px}
   .spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
   @keyframes spin{to{transform:rotate(360deg)}}
   .overlay{position:fixed;inset:0;background:rgba(6,5,8,.78);backdrop-filter:blur(6px);z-index:100;display:none;align-items:flex-start;justify-content:center;padding:40px 18px;overflow-y:auto}
@@ -214,7 +214,7 @@
   .modal.wide{max-width:900px}
   @keyframes rise{from{opacity:0;transform:translateY(18px)}}
   .modal-head{display:flex;align-items:center;justify-content:space-between;padding:22px 24px;border-bottom:1px solid var(--line)}
-  .modal-head h2{font-family:'Bebas Neue';font-size:26px;letter-spacing:1.5px;font-weight:400}
+  .modal-head h2{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:26px;letter-spacing:1.5px;font-weight:400}
   .x{cursor:pointer;color:var(--muted);background:none;border:none;font-size:24px;line-height:1;padding:4px}
   .x:hover{color:var(--txt)}
   .modal-body{padding:24px}
@@ -330,7 +330,7 @@
   .genrebar select:focus{border-color:var(--gold)}
   .genrebar .gb-l{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
   .finfo{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
-  .finfo h4{font-family:'Bebas Neue';font-size:19px;letter-spacing:1px;font-weight:400;margin:0 0 10px}
+  .finfo h4{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:19px;letter-spacing:1px;font-weight:400;margin:0 0 10px}
   .finfo-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 16px}
   .finfo-k{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:800}
   .finfo-v{font-size:13px;margin-top:2px;word-break:break-word}
@@ -380,7 +380,7 @@
   .wl-btn:hover{transform:scale(1.12)}
   .filmhead{display:flex;align-items:center;gap:14px;margin-bottom:16px}
   .filmhead img{width:54px;height:54px;border-radius:50%;object-fit:cover;flex:none;background:var(--panel2)}
-  .filmhead h2{font-family:'Bebas Neue';font-size:28px;letter-spacing:1px;font-weight:400;line-height:1}
+  .filmhead h2{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:28px;letter-spacing:1px;font-weight:400;line-height:1}
   .filmhead .sub{font-size:12px;color:var(--muted)}
   .role-tag{position:absolute;bottom:54px;left:10px;font-size:10px;font-weight:700;padding:3px 7px;border-radius:6px;background:rgba(0,0,0,.7);color:#fff;backdrop-filter:blur(3px)}
   .card .addrow{padding:0 10px 11px;margin-top:-2px}
@@ -447,7 +447,7 @@
   .detail-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(12,11,14,.96),rgba(12,11,14,.78));z-index:0}
   .detail-poster{width:120px;flex:none;border-radius:10px;position:relative;z-index:1;box-shadow:var(--shadow)}
   .detail-info{position:relative;z-index:1}
-  .detail-info h2{font-family:'Bebas Neue';font-size:34px;letter-spacing:1px;line-height:1;font-weight:400;margin-bottom:8px}
+  .detail-info h2{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:34px;letter-spacing:1px;line-height:1;font-weight:400;margin-bottom:8px}
   .detail-sub{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;font-size:13px;color:var(--muted)}
   .detail-sub .chip{background:var(--panel2);border:1px solid var(--line);padding:3px 10px;border-radius:20px;font-weight:600}
   .detail-desc{font-size:13.5px;line-height:1.65;color:#cdc4d8;max-width:560px}
@@ -499,7 +499,7 @@
   .dl-btn{flex:none}
   .trk-sel{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px;max-width:240px}
   #playerTracks label,#playerCtl label{font-size:13px;color:var(--text)}
-  .credits h3{font-family:'Bebas Neue';font-size:22px;letter-spacing:1px;margin:6px 0 12px;font-weight:400}
+  .credits h3{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:22px;letter-spacing:1px;margin:6px 0 12px;font-weight:400}
   .crew-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
   .crew-card{display:flex;align-items:center;gap:11px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 15px 8px 8px;cursor:pointer;transition:.15s}
   .crew-card:hover{border-color:var(--gold);transform:translateY(-2px)}
@@ -534,10 +534,10 @@
   .authscreen{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;padding:24px;overflow:hidden;background:#05060f}
   .authscreen.hidden{display:none}
   #authGrid{position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0}
-  .authcard{position:relative;z-index:1;width:100%;max-width:380px;background:rgba(16,16,30,.72);backdrop-filter:blur(8px);border:1px solid rgba(0,234,255,.35);border-radius:18px;
+  .authcard{position:relative;z-index:1;width:100%;max-width:380px;background:rgba(14,14,28,.93);border:1px solid rgba(0,234,255,.35);border-radius:18px;
     box-shadow:0 0 0 1px rgba(0,234,255,.08), 0 0 50px rgba(0,234,255,.18), 0 0 90px rgba(255,43,214,.12);padding:30px 28px}
   .authcard .logo{font-size:46px;margin-bottom:4px;text-shadow:0 0 18px rgba(0,234,255,.55)}
-  .authcard h2{font-family:'Bebas Neue';font-size:24px;letter-spacing:2px;font-weight:400;margin-bottom:4px;color:#bdf6ff;text-shadow:0 0 12px rgba(0,234,255,.4)}
+  .authcard h2{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:24px;letter-spacing:2px;font-weight:400;margin-bottom:4px;color:#bdf6ff;text-shadow:0 0 12px rgba(0,234,255,.4)}
   .authcard p.sub{color:var(--muted);font-size:13px;margin-bottom:20px}
   .authcard .field input{background:rgba(5,8,18,.7);border-color:rgba(0,234,255,.25)}
   .authcard .field input:focus{border-color:#00eaff;box-shadow:0 0 0 3px rgba(0,234,255,.15)}
@@ -564,7 +564,7 @@
   .linkbtn{background:none;border:none;color:var(--muted);cursor:pointer;font-family:inherit;font-weight:700;font-size:13px;padding:9px 6px}
   .linkbtn:hover{color:var(--gold)}
   /* admin */
-  .admin-sec h3{font-family:'Bebas Neue';font-size:22px;letter-spacing:1px;margin:4px 0 12px;font-weight:400}
+  .admin-sec h3{font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:22px;letter-spacing:1px;margin:4px 0 12px;font-weight:400}
   .utable{width:100%;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:8px}
   .urow{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line);font-size:13px;flex-wrap:wrap}
   .urow:last-child{border-bottom:none}
@@ -1400,7 +1400,7 @@
   </div>
 </div>
 
-<script src="/hls.min.js"></script>
+<script src="/hls.min.js" defer></script>
 <script src="/v160.js"></script>
 <script src="/nav.js"></script>
 <script>window.MEDIARR_HUB_IN_MENU = true;   /* 2.3: the hub opens from the menu + bell, no floating button */</script>
@@ -1511,7 +1511,8 @@ window.fetch = async (url, opts)=>{
   return res;
 };
 function onSessionExpired(){
-  if(sessionExpired) return;
+  // Only a session that existed can expire: a 401 on the sign-in screen is expected, not news.
+  if(sessionExpired || !currentUser) return;
   sessionExpired = true;
   currentUser = null;
   // close any open modals
@@ -2650,7 +2651,7 @@ function renderHealth(h){
   });
   // outage timeline
   const events = h.events || [];
-  html += `<h3 style="font-family:Bebas Neue;font-size:22px;letter-spacing:1px;margin:20px 0 10px;font-weight:400">Outage history</h3>`;
+  html += `<h3 style="font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:22px;letter-spacing:1px;margin:20px 0 10px;font-weight:400">Outage history</h3>`;
   if(!events.length){
     html += `<div class="ep-hint" style="padding:0 0 4px">No outages recorded since monitoring began. 🎉</div>`;
   } else {
@@ -4454,14 +4455,14 @@ function renderDetail(m, limited){
   if(!isMovie){
     if(lib && isAdmin){
       // Episodes rendered from live Sonarr data, with per-season / per-episode controls (admin only).
-      seasonsHtml = `<div class="seasons"><h3 style="font-family:Bebas Neue;font-size:22px;letter-spacing:1px;margin:6px 0 12px">Episodes</h3>
+      seasonsHtml = `<div class="seasons"><h3 style="font-family:'Bebas Neue','Arial Narrow','Roboto Condensed',sans-serif;font-size:22px;letter-spacing:1px;margin:6px 0 12px">Episodes</h3>
         <div id="epProgress"></div>
         <div id="epList"><div class="state" style="padding:20px"><div class="spinner"></div>Loading episodes from Sonarr…</div></div></div>`;
     } else if(m.videos && m.videos.length){
       const bySeason = {};
       m.videos.forEach(v=>{ const s=(v.season!=null?v.season:0); (bySeason[s]=bySeason[s]||[]).push(v); });
       const seasonNums = Object.keys(bySeason).map(Number).sort((a,b)=>a-b);
-      seasonsHtml = '<div class="seasons"><h3 style="font-family:Bebas Neue;font-size:22px;letter-spacing:1px;margin:6px 0 12px">Episodes</h3>';
+      seasonsHtml = '<div class="seasons"><h3 style="font-family:\'Bebas Neue\',\'Arial Narrow\',\'Roboto Condensed\',sans-serif;font-size:22px;letter-spacing:1px;margin:6px 0 12px">Episodes</h3>';
       seasonNums.forEach(sn=>{
         const eps = bySeason[sn].sort((a,b)=>(a.episode||0)-(b.episode||0));
         const label = sn===0 ? 'Specials' : 'Season '+sn;
@@ -4644,7 +4645,7 @@ function renderCredits(mount, directors, cast, mediaType){
     html += '</div>';
   }
   if(cast.length){
-    html += `<h3>Cast <span style="font-family:Manrope;font-size:12px;color:var(--muted);font-weight:600">(${cast.length})</span></h3><div class="cast-grid">`;
+    html += `<h3>Cast <span style="font-family:'Manrope',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:12px;color:var(--muted);font-weight:600">(${cast.length})</span></h3><div class="cast-grid">`;
     html += cast.map(c=>`<div class="cast-card" data-pid="${c.id}" data-pname="${esc(c.name)}" data-pphoto="${c.profile_path||''}">
       ${personPhoto(c.profile_path,'cast-photo',c.name)}
       <div class="cast-name">${esc(c.name)}</div>${c.character?`<div class="cast-role">${esc(c.character)}</div>`:''}</div>`).join('');
@@ -5121,7 +5122,7 @@ let themePref = 'tron';             // configured preference: tron | earth | rai
 const REAL_THEMES = ['tron','earth','rain'];
 let bgRAF=null, bgLast=0, bgW=0, bgH=0, bgDPR=1;
 // per-theme state
-let gridPhase=0, gridAgents=[], gridScan=0;        // tron
+let gridPhase=0, gridAgents=[], gridScan=0, tronStatic=null, tronScan=null;        // tron
 let stars=[], shooters=[], nebulas=[], earthAngle=0, earthInit=false;   // earth
 let drops=[], trails=[], rainInit=false, lightning=0, nextBolt=2, rainStreaks=[];   // rain
 
@@ -5129,8 +5130,9 @@ function applyActiveTheme(t){
   loginTheme = (t==='earth'||t==='rain') ? t : 'tron';
   authScreen.classList.toggle('theme-earth', loginTheme==='earth');
   authScreen.classList.toggle('theme-rain', loginTheme==='rain');
-  gridAgents=[]; earthInit=false; rainInit=false;   // force re-seed of active theme
+  gridAgents=[]; earthInit=false; rainInit=false; tronStatic=null;   // force re-seed of active theme
   if(bgRAF){ bgResize(); }
+  else if(bgReduceMotion && bgReduceMotion.matches && authScreen && !authScreen.classList.contains('hidden')) bgStill();
 }
 function rollRandomTheme(){ applyActiveTheme(REAL_THEMES[(Math.random()*REAL_THEMES.length)|0]); }
 function setLoginTheme(pref){
@@ -5154,13 +5156,16 @@ function bgFrame(ts){
   else tronFrame(dt);
   bgRAF=requestAnimationFrame(bgFrame);
 }
+const bgReduceMotion = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+function bgStill(){ bgResize(); if(loginTheme==='earth') earthFrame(0); else if(loginTheme==='rain') rainFrame(0); else tronFrame(0); }
 function bgStart(){
   if(bgRAF || !authCanvas || !authCanvas.getContext) return;
+  if(bgReduceMotion && bgReduceMotion.matches){ bgStill(); return; }   // people who asked for less motion get a still background
   bgResize();
   bgLast=0; bgRAF=requestAnimationFrame(bgFrame);
 }
 function bgStop(){ if(bgRAF){ cancelAnimationFrame(bgRAF); bgRAF=null; } }
-window.addEventListener('resize', ()=>{ if(bgRAF) bgResize(); });
+window.addEventListener('resize', ()=>{ if(bgRAF) bgResize(); else if(bgReduceMotion && bgReduceMotion.matches && !authScreen.classList.contains('hidden')) bgStill(); });
 
 /* ---------- Tron / synthwave theme ---------- */
 function tronFrame(dt){
@@ -5193,60 +5198,78 @@ function gridStep(a, dt){
   const m=90;
   if(a.x<-m||a.x>bgW+m||a.y<-m||a.y>bgH+m) Object.assign(a, gridSpawn());
 }
-function gridDraw(){
-  const ctx=authCanvas.getContext('2d'); const w=bgW,h=bgH,horizon=h*0.46,cx=w/2;
+// Everything that doesn't move (sky, glow, sun, horizon, the receding grid lines, scanlines) is drawn
+// once into tronStatic; each frame only copies it and draws the moving lines and light trails. Glows
+// use a wide faint stroke instead of shadowBlur, which Chrome has to recompute for every shape.
+function buildTronStatic(){
+  const w=bgW,h=bgH,horizon=h*0.46,cx=w/2, W=Math.max(1,Math.floor(w*bgDPR)), H=Math.max(1,Math.floor(h*bgDPR));
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const ctx=c.getContext('2d'); ctx.setTransform(bgDPR,0,0,bgDPR,0,0);
   const bg=ctx.createLinearGradient(0,0,0,h);
   bg.addColorStop(0,'#04030c'); bg.addColorStop(0.44,'#0a0a20'); bg.addColorStop(0.46,'#1a0b2e'); bg.addColorStop(1,'#05060f');
   ctx.fillStyle=bg; ctx.fillRect(0,0,w,h);
-  // horizon sun glow
   const glow=ctx.createRadialGradient(cx,horizon,0,cx,horizon,Math.max(w,h)*0.55);
   glow.addColorStop(0,'rgba(255,43,214,0.30)'); glow.addColorStop(0.4,'rgba(120,40,200,0.12)'); glow.addColorStop(1,'rgba(0,0,0,0)');
   ctx.fillStyle=glow; ctx.fillRect(0,0,w,horizon+4);
-  // synthwave sun: glowing banded disc rising from the horizon
   const R=Math.min(w,h)*0.20, sx=cx, sy=horizon - R*0.78;
   ctx.save();
   ctx.shadowColor='rgba(255,90,180,0.65)'; ctx.shadowBlur=55;
-  ctx.beginPath(); ctx.arc(sx,sy,R,0,Math.PI*2); ctx.fillStyle='rgba(255,120,170,0.25)'; ctx.fill();   // outer halo
+  ctx.beginPath(); ctx.arc(sx,sy,R,0,Math.PI*2); ctx.fillStyle='rgba(255,120,170,0.25)'; ctx.fill();
   ctx.shadowBlur=0;
   ctx.beginPath(); ctx.arc(sx,sy,R,0,Math.PI*2); ctx.closePath(); ctx.clip();
   const sg=ctx.createLinearGradient(0,sy-R,0,sy+R);
   sg.addColorStop(0,'#ffe66d'); sg.addColorStop(0.4,'#ff9f43'); sg.addColorStop(0.72,'#ff3b8b'); sg.addColorStop(1,'#c81f8e');
   ctx.fillStyle=sg; ctx.fillRect(sx-R, sy-R, 2*R, 2*R);
-  // horizontal slits (thicker & closer toward the bottom)
   ctx.fillStyle='#1a0b2e';
   for(let i=0;i<8;i++){ const t=i/8; const yy=sy - R*0.05 + t*R*1.05; const hh=2+t*t*9; ctx.fillRect(sx-R, yy, 2*R, hh); }
   ctx.restore();
-  // sun rim
   ctx.save(); ctx.beginPath(); ctx.arc(sx,sy,R,0,Math.PI*2); ctx.strokeStyle='rgba(255,190,140,0.45)'; ctx.lineWidth=2; ctx.shadowColor='rgba(255,120,200,0.8)'; ctx.shadowBlur=28; ctx.stroke(); ctx.restore();
-  ctx.fillStyle='rgba(0,234,255,0.45)'; ctx.fillRect(0,horizon,w,1.4);   // horizon line
-  // floor grid
+  ctx.fillStyle='rgba(0,234,255,0.45)'; ctx.fillRect(0,horizon,w,1.4);
   ctx.save();
   ctx.lineWidth=1.1; ctx.shadowColor='rgba(0,234,255,0.7)'; ctx.shadowBlur=7; ctx.strokeStyle='rgba(0,234,255,0.32)';
   const vGap=68;
   for(let i=-22;i<=22;i++){ const bx=cx+i*vGap; ctx.beginPath(); ctx.moveTo(cx,horizon); ctx.lineTo(bx,h); ctx.stroke(); }
+  ctx.restore();
+  tronStatic=c;
+  const sc=document.createElement('canvas'); sc.width=W; sc.height=H;
+  const sx2=sc.getContext('2d'); sx2.setTransform(bgDPR,0,0,bgDPR,0,0); sx2.fillStyle='#000';
+  for(let y=0; y<h; y+=3) sx2.fillRect(0, y, w, 1);
+  tronScan=sc;
+}
+function gridDraw(){
+  const ctx=authCanvas.getContext('2d'); const w=bgW,h=bgH,horizon=h*0.46;
+  if(!tronStatic || tronStatic.width!==Math.max(1,Math.floor(w*bgDPR)) || tronStatic.height!==Math.max(1,Math.floor(h*bgDPR))) buildTronStatic();
+  ctx.drawImage(tronStatic, 0, 0, w, h);
+  // moving floor lines
+  ctx.save(); ctx.lineCap='butt';
   const N=18;
-  for(let i=0;i<N;i++){ let f=(i+gridPhase)/N; f=f*f; const y=horizon+f*(h-horizon); ctx.strokeStyle='rgba(0,234,255,'+(0.10+0.5*f).toFixed(3)+')'; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+  for(let i=0;i<N;i++){
+    let f=(i+gridPhase)/N; f=f*f; const y=horizon+f*(h-horizon), a=0.10+0.5*f;
+    ctx.strokeStyle='rgba(0,234,255,'+(a*0.25).toFixed(3)+')'; ctx.lineWidth=5; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+    ctx.strokeStyle='rgba(0,234,255,'+a.toFixed(3)+')'; ctx.lineWidth=1.1; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+  }
   ctx.restore();
   // tron light trails
-  ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round'; ctx.lineWidth=2.2;
+  ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
   gridAgents.forEach(a=>{
     const pts=a.pts.concat([{x:a.x,y:a.y}]); const n=pts.length; if(n<2) return;
-    ctx.strokeStyle=a.color; ctx.shadowColor=a.color; ctx.shadowBlur=12;
-    for(let i=1;i<n;i++){ ctx.globalAlpha=Math.pow(i/(n-1),1.5); ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke(); }
-    ctx.globalAlpha=1; ctx.fillStyle='#fff'; ctx.shadowBlur=16; ctx.beginPath(); ctx.arc(a.x,a.y,2.3,0,7); ctx.fill();
+    ctx.strokeStyle=a.color;
+    for(let i=1;i<n;i++){
+      const al=Math.pow(i/(n-1),1.5);
+      ctx.globalAlpha=al*0.22; ctx.lineWidth=9;   ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke();
+      ctx.globalAlpha=al;      ctx.lineWidth=2.2; ctx.beginPath(); ctx.moveTo(pts[i-1].x,pts[i-1].y); ctx.lineTo(pts[i].x,pts[i].y); ctx.stroke();
+    }
+    ctx.globalAlpha=0.35; ctx.fillStyle=a.color; ctx.beginPath(); ctx.arc(a.x,a.y,6,0,7); ctx.fill();
+    ctx.globalAlpha=1; ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(a.x,a.y,2.3,0,7); ctx.fill();
   });
   ctx.restore();
-  // CRT scanlines + flicker + slow roll band
+  // CRT scanlines (steady, no flicker) + slow roll band
   ctx.save();
-  ctx.globalAlpha = 0.10 + Math.random()*0.06;     // subtle per-frame flicker
-  ctx.fillStyle = '#000';
-  for(let y=0; y<h; y+=3) ctx.fillRect(0, y, w, 1);
-  ctx.globalAlpha = 1;
-  const band = (gridScan % (h+140)) - 70;          // bright bar rolling downward
+  ctx.globalAlpha=0.13; ctx.drawImage(tronScan, 0, 0, w, h); ctx.globalAlpha=1;
+  const band = (gridScan % (h+140)) - 70;
   const bg2 = ctx.createLinearGradient(0, band-60, 0, band+60);
   bg2.addColorStop(0,'rgba(0,234,255,0)'); bg2.addColorStop(0.5,'rgba(120,220,255,0.06)'); bg2.addColorStop(1,'rgba(0,234,255,0)');
   ctx.fillStyle = bg2; ctx.fillRect(0, band-60, w, 120);
-  if(Math.random() < 0.06){ ctx.fillStyle='rgba(0,0,0,0.10)'; ctx.fillRect(0,0,w,h); }   // occasional brightness dip
   ctx.restore();
 }
 
@@ -5486,8 +5509,8 @@ function rainFrame(dt){
   nextBolt-=dt;
   if(nextBolt<=0){ lightning=1; bolt=(Math.random()<0.75)?makeBolt():null; nextBolt=2.5+Math.random()*6.5; }
   if(lightning>0){
-    const env=Math.max(0, lightning*(0.6+0.4*Math.sin(performance.now()/32)));   // multi-pulse flicker
-    ctx.fillStyle='rgba(205,222,255,'+(0.32*env).toFixed(3)+')'; ctx.fillRect(0,0,w,h);
+    const env=Math.max(0, lightning*lightning);   // one smooth flash (the old rapid pulses read as a strobe/glitch)
+    ctx.fillStyle='rgba(205,222,255,'+(0.18*env).toFixed(3)+')'; ctx.fillRect(0,0,w,h);
     if(bolt && lightning>0.5) drawBolt(ctx, bolt, Math.min(1,(lightning-0.5)*2));
     lightning-=dt*2.0; if(lightning<=0){ lightning=0; bolt=null; }
   }

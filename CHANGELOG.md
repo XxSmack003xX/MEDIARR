@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.6.2
+
+### Sign-in page
+
+- Fixed: a few seconds after the sign-in page opened, it showed "Your session expired — please sign in again" to people who had never signed in. On a brand-new install it also switched **Create admin account** to **Sign in**, so the first admin couldn't be created from the desktop page. A 401 now only counts as an expired session if someone was signed in.
+- The signed-out page no longer polls the server: Download Activity, the setup wizard and the Path Mapping Manager wait until someone signs in. Before, the wizard checked once a second for 3 minutes, filling Chrome's console with 401 errors. The page now makes one account check and one setup check.
+- Fixed: the Path Mapping Manager could stay hidden for an admin who signed in on the same page, because the "not an admin" answer from before sign-in was remembered.
+- The Tron background (the default) draws everything that doesn't move once and reuses it, and uses soft strokes instead of blur filters for its glows. Rendering a frame went from about 95 ms to 4 ms in a browser without hardware graphics: smooth instead of about 10 frames a second. Its random flicker and full-screen darkening flashes are gone.
+- The Rain background's lightning is one smooth flash instead of a rapid strobe.
+- The sign-in card no longer blurs the animated background behind it, which made Chrome re-blur it every frame and can cause flicker or black boxes on some graphics drivers.
+- With **Reduce motion** turned on in the operating system, the sign-in background is a still picture.
+- Headings and text fall back to system fonts when Google Fonts can't load, instead of Times New Roman.
+- hls.js (only needed for video) no longer holds up the page while it downloads. If it can't be downloaded, the page gets an empty placeholder instead of a 502 error, and MEDIARR waits 10 minutes before retrying.
+
 ## 2.6.1
 
 ### System Update: Docker detection

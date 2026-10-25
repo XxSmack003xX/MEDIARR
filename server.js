@@ -886,24 +886,39 @@ function serveStatic (res, file) {
 
 // Serve a vendored asset (Bootstrap). If it's already cached in /public, serve that (works fully
 // offline). Otherwise fetch it once from the CDN, cache it to /public for next time, and serve it.
+// hls.js is only needed when a video plays; Bootstrap is needed to draw the mobile page.
+const VENDOR_OPTIONAL = new Set(['hls.min.js']);
+const _vendorFail = new Map();   // name -> { at, message }: don't make every page load wait on a CDN that just failed
+function vendorUnavailable (res, name, message) {
+  if (VENDOR_OPTIONAL.has(name)) {
+    // An empty script keeps the page quiet; the player falls back to the browser's own HLS support.
+    return sendBody(res, 200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' },
+      Buffer.from('/* MEDIARR: ' + name + ' could not be downloaded (' + String(message).replace(/\*\//g, '') + '). It is retried later; you can also place the file in /public. */\n'));
+  }
+  res.writeHead(502, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
+  return res.end('Could not load ' + name + ': ' + message + '. The mobile UI needs internet on first load to cache Bootstrap, or you can drop the file into /public manually.');
+}
 async function serveVendor (res, name, url) {
   const cachePath = path.join(PUBLIC_DIR, name);
   const ctype = name.endsWith('.css') ? 'text/css' : 'text/javascript';
   try {
     if (fs.existsSync(cachePath)) return sendStaticEntry(res, staticEntry(cachePath), ctype, 'public, max-age=86400');
   } catch (e) {}
+  const failed = _vendorFail.get(name);
+  if (failed && Date.now() - failed.at < 10 * 60 * 1000) return vendorUnavailable(res, name, failed.message);
   try {
-    let up = await upstream(url, { headers: { 'Accept': '*/*', 'User-Agent': 'mediarr' } });
+    let up = await upstream(url, { headers: { 'Accept': '*/*', 'User-Agent': 'mediarr' }, timeout: 8000 });
     let hops = 0;
     while (up.status >= 300 && up.status < 400 && up.headers.location && hops++ < 3) {
-      up = await upstream(up.headers.location, { headers: { 'Accept': '*/*', 'User-Agent': 'mediarr' } });
+      up = await upstream(up.headers.location, { headers: { 'Accept': '*/*', 'User-Agent': 'mediarr' }, timeout: 8000 });
     }
     if (up.status !== 200) throw new Error('CDN returned HTTP ' + up.status);
     try { fs.writeFileSync(cachePath, up.body); } catch (e) {}   // cache for offline next time
+    _vendorFail.delete(name);
     return sendBody(res, 200, { 'Content-Type': ctype, 'Cache-Control': 'public, max-age=86400' }, up.body);
   } catch (e) {
-    res.writeHead(502, { 'Content-Type': 'text/plain' });
-    return res.end('Could not load ' + name + ': ' + e.message + '. The mobile UI needs internet on first load to cache Bootstrap, or you can drop the file into /public manually.');
+    _vendorFail.set(name, { at: Date.now(), message: e.message });
+    return vendorUnavailable(res, name, e.message);
   }
 }
 // Cached like the config: currentUser() runs on every authenticated request.

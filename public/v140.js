@@ -1,5 +1,7 @@
 (function(){
 'use strict';
+/* signed in on the desktop (currentUser) or mobile (me) page? Nothing to fetch before that. */
+function signedIn(){try{if(typeof currentUser!=='undefined'&&currentUser)return true;}catch(_){}try{if(typeof me!=='undefined'&&me)return true;}catch(_){}return false;}
 
 var RT = {
   admin:false, mobile:false, initialized:false, es:null, snapshot:null, events:[],
@@ -290,7 +292,7 @@ async function adminInit(){
   if(RT.initialized)return;
   try{
     var me=await api('/api/me');
-    if(!me||me.role!=='admin')return;
+    if(!me||me.role!=='admin'){if(me&&me.username)RT.notAdmin=true;return;}
     RT.admin=true;RT.mobile=!!q('mSettings');RT.initialized=true;
     addStyles();ensureDashboard();ensureWizard();injectMenuButton();
     var st=await api('/api/admin/setup/status');
@@ -299,8 +301,9 @@ async function adminInit(){
   }catch(_){}
 }
 function bootWait(){
-  adminInit();
-  var n=0,t=setInterval(function(){n++;if(RT.initialized||n>180){clearInterval(t);return;}adminInit();},1000);
+  if(signedIn())adminInit();
+  // Wait (without network calls) until someone signs in, then check once whether they're an admin.
+  var n=0,t=setInterval(function(){if(RT.initialized||RT.notAdmin||n>180){clearInterval(t);return;}if(!signedIn())return;n++;adminInit();},1000);
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bootWait);else bootWait();
 })();

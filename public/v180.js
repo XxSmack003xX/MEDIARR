@@ -1,5 +1,7 @@
 (function(){
 'use strict';
+/* signed in on the desktop (currentUser) or mobile (me) page? Nothing to fetch before that. */
+function signedIn(){try{if(typeof currentUser!=='undefined'&&currentUser)return true;}catch(_){}try{if(typeof me!=='undefined'&&me)return true;}catch(_){}return false;}
 var state={open:false,tab:'overview',query:'',data:null,timer:null,seq:0,badgeTimer:null};
 
 function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
@@ -81,7 +83,7 @@ async function load(quiet){
 }
 function open(){injectStyle();installNav();closeMenus();var o=ensureOverlay();state.open=true;o.classList.add('on');document.body.style.overflow='hidden';load(false);if(state.timer)clearInterval(state.timer);state.timer=setInterval(function(){if(state.open&&!document.hidden)load(true);},5000);}
 function close(){var o=document.getElementById('dac180Overlay');if(o)o.classList.remove('on');state.open=false;document.body.style.overflow='';if(state.timer){clearInterval(state.timer);state.timer=null;}}
-function badgePoll(){if(document.hidden||state.open)return;load(true);}
+function badgePoll(){if(document.hidden||state.open||!signedIn())return;load(true);}
 function boot(){injectStyle();installNav();document.addEventListener('keydown',function(e){if(e.key==='Escape'&&state.open)close();});setTimeout(badgePoll,2500);state.badgeTimer=setInterval(badgePoll,30000);setInterval(installNav,4000);}
 window.openDownloadActivityCenter=open;
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();

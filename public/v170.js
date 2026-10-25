@@ -1,5 +1,7 @@
 (function(){
 'use strict';
+/* signed in on the desktop (currentUser) or mobile (me) page? Nothing to fetch before that. */
+function signedIn(){try{if(typeof currentUser!=='undefined'&&currentUser)return true;}catch(_){}try{if(typeof me!=='undefined'&&me)return true;}catch(_){}return false;}
 
 function esc(v){return String(v==null?'':v).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 async function json(url,opt){var r=await fetch(url,opt||{cache:'no-store'}),d={};try{d=await r.json();}catch(_){}if(!r.ok)throw new Error(d.message||('HTTP '+r.status));return d;}
@@ -220,7 +222,8 @@ function installProgress(){
 var adminKnown=null, managerSeq=0;
 async function isAdmin(){
   if(adminKnown!=null)return adminKnown;
-  try{var d=await json('/api/me');adminKnown=!!(d&&d.role==='admin');}catch(_){adminKnown=false;}
+  if(!signedIn())return false;   // ask again after sign-in instead of remembering "no"
+  try{var d=await json('/api/me');adminKnown=!!(d&&d.role==='admin');}catch(_){return false;}
   return adminKnown;
 }
 function managerHost(){
