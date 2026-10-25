@@ -398,8 +398,8 @@
   .svc-head h3{font-size:15px;font-weight:700}
   .field{margin-bottom:13px}
   .field label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;letter-spacing:.3px}
-  .field input,.field select{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--txt);padding:12px 13px;font-family:inherit;font-size:14px;outline:none;transition:.15s}
-  .field input:focus,.field select:focus{border-color:var(--gold)}
+  .field input,.field select,.field textarea{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--txt);padding:12px 13px;font-family:inherit;font-size:14px;outline:none;transition:.15s}
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--gold)}
   .field .small{font-size:11px;color:var(--muted);margin-top:5px;font-weight:500}
   .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .test-row{display:flex;align-items:center;gap:12px;margin-top:4px}
@@ -698,8 +698,12 @@
       </div>
       <div class="settings-btn" id="openLibLidarr" style="display:none" title="All artists in Lidarr">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-      Music
+      Artists
       </div>
+      <a class="settings-btn" id="openMusicPlayer" href="/music" target="mediarr-music" style="display:none;text-decoration:none" title="Play the music in your music folders. Opens in its own tab so it keeps playing while you use MEDIARR.">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1v-6h3zM3 19a2 2 0 0 0 2 2h1v-6H3z"/></svg>
+      Music player
+      </a>
       <div class="settings-btn" id="openDownloads" style="display:none" title="Browse & download videos from WebDAV">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
       Downloads
@@ -927,6 +931,13 @@
         <div class="field"><label>Client secret</label><input type="password" id="spotifySecret" autocomplete="off" placeholder="from your Spotify app"><div class="small" id="spotifySecretNote"></div></div>
         <div class="field"><label>Redirect URI</label><div style="display:flex;gap:8px"><input type="text" id="spotifyRedirect" spellcheck="false" style="flex:1;min-width:0"><button class="btn btn-ghost" type="button" id="spotifyCopyRedirect">Copy</button></div><div class="small" id="spotifyRedirectNote"></div></div>
         <div class="test-row"><button class="btn btn-ghost" type="button" id="spotifyTest">Test</button><span class="test-status" id="spotifyStatus"></span></div>
+      </div>
+
+      <div class="svc" data-svc="music">
+        <div class="svc-head"><span class="pill" style="background:rgba(229,169,61,.16);color:var(--gold,#e5a93d)">Music</span><h3>Music player folders <span style="font-weight:500;color:var(--muted);font-size:12px">— optional</span></h3></div>
+        <div class="small" style="margin-bottom:10px;font-size:12.5px;line-height:1.5;color:var(--muted)">Folders on this server that hold your music, one per line. MEDIARR scans them and every folder inside them for MP3, FLAC, OGG, Opus, M4A/AAC, ALAC, WAV, AIFF, WMA and more, and everyone can play them in the <a href="/music" target="mediarr-music">Music player</a>. In Docker, mount each folder into the container first and use the path inside the container (for example <code>/music</code>).</div>
+        <div class="field"><label for="musicFolders">Music folders</label><textarea id="musicFolders" rows="3" spellcheck="false" autocapitalize="none" placeholder="/music" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;resize:vertical;white-space:pre;overflow-x:auto"></textarea><div class="small" id="musicFoldersNote"></div></div>
+        <div class="test-row"><a class="btn btn-ghost" href="/music#/settings" target="mediarr-music" style="text-decoration:none">Browse folders, scan &amp; album options</a><span class="test-status" id="musicStatus"></span></div>
       </div>
 
       <div class="svc" data-svc="plex">
@@ -1649,6 +1660,7 @@ function openSettings(firstRun){
   if(isConfigured('lidarr')) loadOptions('lidarr', true);
   { const lm=document.getElementById('lidarrMonitor'); if(lm) lm.value=(config.lidarr&&config.lidarr.monitor)||'all'; }
   fillSpotifySettings();
+  fillMusicSettings();
   document.getElementById('tmdbKey').value = '';
   document.getElementById('tmdbKeyNote').innerHTML = config.tmdb && config.tmdb.hasKey
     ? 'A key is already saved — leave blank to keep it.'
@@ -1843,6 +1855,7 @@ document.getElementById('saveSettings').onclick = async ()=>{
   { const sr=document.getElementById('spotifyRedirect').value.trim();
     if(sr && !spotifyRedirectOk(sr)){ alert('Spotify needs an https:// redirect URI, or http://127.0.0.1:PORT/api/spotify/callback (localhost isn\'t allowed).'); return; }
     payload.spotify = { clientId: document.getElementById('spotifyClientId').value.trim(), clientSecret: document.getElementById('spotifySecret').value.trim(), redirectUri: sr }; }
+  { const mf=document.getElementById('musicFolders'); if(mf) payload.music = { folders: mf.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean) }; }
   payload.plex = { url: document.getElementById('plexUrl').value.trim(), token: document.getElementById('plexKey').value.trim() };
   payload.sab = { url: document.getElementById('sabUrl').value.trim(), apiKey: document.getElementById('sabKey').value.trim() };
   payload.webdav = { source: (document.getElementById('webdavSource')?document.getElementById('webdavSource').value:'webdav'),
@@ -2922,6 +2935,8 @@ function updateLibraryButtons(){
     if(!isConfigured('lidarr') && mode==='music'){ const t=document.querySelector('.modeswitch button[data-mode="title"]'); if(t) t.click(); } }
   const sp=document.getElementById('scanPlex'); if(sp) sp.style.display=(admin && isConfigured('plex'))?'':'none';
   const os=document.getElementById('openSpotify'); if(os) os.style.display=(config && config.spotify && config.spotify.configured)?'':'none';
+  // Music player: for everyone once an admin adds music folders; admins always see it so they can set it up
+  const mp=document.getElementById('openMusicPlayer'); if(mp) mp.style.display=((config && config.music && config.music.configured) || admin)?'':'none';
   const dl=document.getElementById('openDownloads'); if(dl) dl.style.display=isConfigured('webdav')?'':'none';
   // Queue button appears for every signed-in user once SABnzbd is configured
   const qb=document.getElementById('openQueue');
@@ -3369,6 +3384,18 @@ function spotifyRedirectNote(){
   n.textContent = !spotifyRedirectOk(r) ? 'Spotify only accepts https:// addresses, or http://127.0.0.1 (not localhost or a network IP).'
     : /^http:\/\/(127\.0\.0\.1|\[::1\])/.test(r) ? 'Because MEDIARR isn’t on https, Spotify returns to 127.0.0.1. On other devices that page won’t load. People copy its address and paste it into My Spotify to finish, which takes a few seconds.'
     : 'Spotify returns people straight to MEDIARR after they approve.';
+}
+function fillMusicSettings(){
+  const m=(config&&config.music)||{}, f=document.getElementById('musicFolders'); if(!f) return;
+  f.value=(m.folders||[]).join('\n');
+  const st=document.getElementById('musicStatus'); st.className='test-status ok'; st.textContent='';
+  const note=document.getElementById('musicFoldersNote'); note.textContent='';
+  if((m.folders||[]).length) fetch('/api/music/status').then(r=>r.ok?r.json():null).then(d=>{
+    if(!d) return;
+    st.textContent=d.scanning?'Scanning…':('✓ '+Number(d.tracks||0).toLocaleString()+' songs');
+    const bad=(d.folders||[]).filter(x=>x.state==='missing'||x.state==='error'||x.state==='empty');
+    note.textContent=bad.length?('⚠ '+bad.map(x=>x.path+': '+x.message).join(' · ')):'';
+  }).catch(()=>{});
 }
 function fillSpotifySettings(){
   const c=(config&&config.spotify)||{};

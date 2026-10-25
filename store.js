@@ -15,6 +15,9 @@
  *                                                         (was health.json / v2-state.json)
  *   sessions        login sessions, so restarts and updates no longer sign people out.
  *                   Only a SHA-256 of each session token is stored.
+ *   music_tracks    the music player's scanned library (a cache; rebuilt by rescanning)
+ *   music_playlists, music_playlist_items, music_plays
+ *                   per-user playlists and play counts (included in backups)
  *
  * Uses Node's built-in node:sqlite (Node.js 22.13+), so MEDIARR still needs no
  * npm install. On first launch, migrateLegacy() imports the old JSON files, verifies
@@ -25,7 +28,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;   // 2 (v2.7): music library, playlists and play counts
 const LIMITS = { activity: 50000, errors: 2000, blocks: 5000, inbox: 2000, watchPerUser: 1000 };
 // Old JSON files this store replaces. Deleted after a verified migration.
 const LEGACY_FILES = ['adds.json', 'watch-progress.json', 'v2-state.json', 'errors.json', 'health.json', 'blocked.json'];
@@ -275,6 +278,86 @@ function open (dataDir, opts) {
     clear () { db.exec('DELETE FROM sessions'); }
   };
 
+  /* ---------- music library (v2.7) ---------- */
+  const music = {
+    allTracks () { return prep('mtAll', 'SELECT id,path,root,size,mtime,added_at,data FROM music_tracks').all(); },
+    upsertTracks (rows) {
+      if (!rows.length) return;
+      tx(() => {
+        const ins = prep('mtPut', 'INSERT INTO music_tracks(id,path,root,size,mtime,added_at,data) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET path=excluded.path, root=excluded.root, size=excluded.size, mtime=excluded.mtime, data=excluded.data');
+        for (const r of rows) ins.run(r.id, r.path, r.root, num(r.size), num(r.mtime), num(r.added_at) || Date.now(), j(r.data));
+      });
+    },
+    deleteTracks (ids) {
+      if (!ids.length) return;
+      tx(() => { const del = prep('mtDel', 'DELETE FROM music_tracks WHERE id=?'); for (const id of ids) del.run(id); });
+    },
+    clearTracks () { db.exec('DELETE FROM music_tracks'); },
+    trackCount () { return prep('mtCount', 'SELECT count(*) c FROM music_tracks').get().c; },
+    /* play counts */
+    played (username, id, ts) {
+      prep('mpInc', 'INSERT INTO music_plays(username,track_id,count,last_at) VALUES(?,?,1,?) ON CONFLICT(username,track_id) DO UPDATE SET count=count+1, last_at=excluded.last_at')
+        .run(String(username), String(id), num(ts) || Date.now());
+    },
+    playsFor (username) { return prep('mpUser', 'SELECT track_id id,count,last_at last FROM music_plays WHERE username=?').all(String(username)); },
+    /* playlists */
+    playlists (username) {
+      return prep('plList', 'SELECT p.id,p.name,p.created_at created,p.updated_at updated,(SELECT count(*) FROM music_playlist_items i WHERE i.playlist_id=p.id) n FROM music_playlists p WHERE p.username=? ORDER BY lower(p.name)')
+        .all(String(username)).map(r => Object.assign({}, r));
+    },
+    playlist (username, id) {
+      const p = prep('plGet', 'SELECT id,name,created_at created,updated_at updated FROM music_playlists WHERE username=? AND id=?').get(String(username), String(id));
+      if (!p) return null;
+      const items = prep('plItems', 'SELECT track_id FROM music_playlist_items WHERE playlist_id=? ORDER BY pos').all(String(id)).map(r => r.track_id);
+      return Object.assign({}, p, { items });
+    },
+    createPlaylist (username, name, items) {
+      const id = crypto.randomBytes(8).toString('hex'), now = Date.now();
+      tx(() => {
+        prep('plNew', 'INSERT INTO music_playlists(id,username,name,created_at,updated_at) VALUES(?,?,?,?,?)').run(id, String(username), str(name, 120), now, now);
+        setItems(id, items || []);
+      });
+      return id;
+    },
+    renamePlaylist (username, id, name) {
+      return prep('plRen', 'UPDATE music_playlists SET name=?, updated_at=? WHERE username=? AND id=?').run(str(name, 120), Date.now(), String(username), String(id)).changes > 0;
+    },
+    deletePlaylist (username, id) {
+      return prep('plDel', 'DELETE FROM music_playlists WHERE username=? AND id=?').run(String(username), String(id)).changes > 0;
+    },
+    setPlaylistItems (username, id, items) {
+      const p = prep('plOwn', 'SELECT id FROM music_playlists WHERE username=? AND id=?').get(String(username), String(id));
+      if (!p) return false;
+      tx(() => { setItems(id, items); prep('plTouch', 'UPDATE music_playlists SET updated_at=? WHERE id=?').run(Date.now(), String(id)); });
+      return true;
+    },
+    exportAll () {
+      const playlists = prep('plAll', 'SELECT id,username,name,created_at,updated_at FROM music_playlists ORDER BY username, lower(name)').all()
+        .map(p => Object.assign({}, p, { items: prep('plItems', 'SELECT track_id FROM music_playlist_items WHERE playlist_id=? ORDER BY pos').all(p.id).map(r => r.track_id) }));
+      const plays = prep('mpAll', 'SELECT username,track_id,count,last_at FROM music_plays').all().map(r => Object.assign({}, r));
+      return { version: 1, playlists, plays };
+    },
+    importAll (doc, replace) {
+      tx(() => {
+        if (replace) db.exec('DELETE FROM music_playlist_items; DELETE FROM music_playlists; DELETE FROM music_plays;');
+        const insP = prep('plImp', 'INSERT OR REPLACE INTO music_playlists(id,username,name,created_at,updated_at) VALUES(?,?,?,?,?)');
+        for (const p of (doc && Array.isArray(doc.playlists) ? doc.playlists : [])) {
+          if (!p || !p.id || !p.username) continue;
+          insP.run(String(p.id), String(p.username), str(p.name, 120) || 'Playlist', num(p.created_at) || Date.now(), num(p.updated_at) || Date.now());
+          setItems(String(p.id), Array.isArray(p.items) ? p.items : []);
+        }
+        const insC = prep('mpImp', 'INSERT INTO music_plays(username,track_id,count,last_at) VALUES(?,?,?,?) ON CONFLICT(username,track_id) DO UPDATE SET count=max(count,excluded.count), last_at=max(last_at,excluded.last_at)');
+        for (const r of (doc && Array.isArray(doc.plays) ? doc.plays : [])) if (r && r.username && r.track_id) insC.run(String(r.username), String(r.track_id), num(r.count) || 1, num(r.last_at));
+      });
+      return (doc && Array.isArray(doc.playlists)) ? doc.playlists.length : 0;
+    }
+  };
+  function setItems (id, items) {
+    prep('plClear', 'DELETE FROM music_playlist_items WHERE playlist_id=?').run(String(id));
+    const ins = prep('plAdd', 'INSERT INTO music_playlist_items(playlist_id,pos,track_id) VALUES(?,?,?)');
+    (items || []).slice(0, 10000).forEach((t, i) => ins.run(String(id), i, String(t).slice(0, 64)));
+  }
+
   /* ---------- legacy import shared by migration and backup restore ---------- */
   function importLegacyDoc (name, doc) {
     switch (name) {
@@ -296,6 +379,7 @@ function open (dataDir, opts) {
       }
       case 'errors.json': return importErrors(doc);
       case 'blocked.json': return importBlocks(doc);
+      case 'music.json': return music.importAll(doc, false);
       case 'health.json': {
         const cur = kv.get('health', null);
         const src = doc && typeof doc === 'object' ? doc : {};
@@ -317,6 +401,7 @@ function open (dataDir, opts) {
       case 'adds.json': return activity.replaceAll(doc && doc.adds);
       case 'watch-progress.json': return watch.replaceAll(doc);
       case 'blocked.json': return blocks.replaceAll(doc);
+      case 'music.json': return music.importAll(doc, true);
       case 'v2-state.json':
         tx(() => { db.exec('DELETE FROM inbox_read; DELETE FROM inbox;'); importInbox(doc); });
         if (doc && doc.automation) kv.set('v2.automation', doc.automation);
@@ -428,13 +513,13 @@ function open (dataDir, opts) {
 
   function close () { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (_) {} try { db.close(); } catch (_) {} }
 
-  return { db, file, kv, activity, watch, inbox, errors, blocks, sessions, importLegacyDoc, restoreLegacyDoc, migrateLegacy, close, sha256, LIMITS, LEGACY_FILES };
+  return { db, file, kv, activity, watch, inbox, errors, blocks, sessions, music, importLegacyDoc, restoreLegacyDoc, migrateLegacy, close, sha256, LIMITS, LEGACY_FILES };
 }
 
 function migrateSchema (db) {
   const v = db.prepare('PRAGMA user_version').get().user_version;
   if (v >= SCHEMA_VERSION) return;
-  db.exec(`
+  if (v < 1) db.exec(`
     BEGIN;
     CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE IF NOT EXISTS activity (
@@ -458,7 +543,24 @@ function migrateSchema (db) {
     CREATE TABLE IF NOT EXISTS plex_blocks (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, expires INTEGER NOT NULL, data TEXT);
-    PRAGMA user_version = ${SCHEMA_VERSION};
+    PRAGMA user_version = 1;
+    COMMIT;`);
+  if (v < 2) db.exec(`
+    BEGIN;
+    CREATE TABLE IF NOT EXISTS music_tracks (
+      id TEXT PRIMARY KEY, path TEXT NOT NULL, root TEXT, size INTEGER, mtime INTEGER,
+      added_at INTEGER, data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS music_playlists (
+      id TEXT PRIMARY KEY, username TEXT NOT NULL, name TEXT NOT NULL,
+      created_at INTEGER, updated_at INTEGER);
+    CREATE INDEX IF NOT EXISTS music_playlists_user ON music_playlists(username);
+    CREATE TABLE IF NOT EXISTS music_playlist_items (
+      playlist_id TEXT NOT NULL REFERENCES music_playlists(id) ON DELETE CASCADE,
+      pos INTEGER NOT NULL, track_id TEXT NOT NULL, PRIMARY KEY (playlist_id, pos));
+    CREATE TABLE IF NOT EXISTS music_plays (
+      username TEXT NOT NULL, track_id TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0,
+      last_at INTEGER, PRIMARY KEY (username, track_id));
+    PRAGMA user_version = 2;
     COMMIT;`);
 }
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.7.0
+
+### Music player
+
+- New **Music player** at `/music`, separate from the video player: its own page, audio player, queue and settings. Open it from **Music player** in the desktop menu (it opens in its own tab so music keeps playing) or **🎧 Music player** in the phone menu.
+- **Music folders:** admins add any number of folders under **Settings → Music player folders** (desktop and phone) or in the player's **Music settings**, which also has a server folder browser. Every folder inside them is scanned at any depth; hidden and NAS system folders are skipped and symbolic-link loops are ignored.
+- **Formats:** MP3, FLAC (including 24-bit / 96 kHz and above), OGG Vorbis, Opus, M4A/AAC, ALAC, WAV, AIFF, WMA, APE, WavPack, Musepack, DSD and more. Files the browser can't play are converted on the fly with ffmpeg (128–320 kbps, seeking supported).
+- **Albums kept together:** each folder of songs is one album, Disc 1 / CD2 sub-folders join their album, an album split over a folder and its sub-folders is one album, and folders that mix many albums are sorted by their tags. Each person can switch this off for classic tag grouping, or make every folder its own album.
+- **Library:** Listen Now, Recently Added, Artists, Albums, Songs (sortable, filterable), Genres, search, cover art from folder images or embedded pictures, Hi-Res and Lossless badges, and disc headings on multi-disc albums.
+- **Playback:** Up Next queue with Play Next / Add to Up Next and drag to reorder, shuffle (optionally whole albums at a time), repeat all / one, keep playing the album, per-person playlists, play counts, smart playlists (Recently Played, Top 100 Most Played, Recently Added Songs), keyboard shortcuts, lock-screen and headphone controls, and the queue remembered on each device.
+- **Scanning:** incremental rescans that only re-read new or changed files (about 6,000 songs in under 5 seconds), on a schedule (every 12 hours by default), shortly after Lidarr imports music, and at startup. Songs from a disconnected share are kept until it is back. Unreadable files are listed for admins.
+- Every signed-in person can listen. Only admins see folder paths, browse server folders or start scans. Audio and cover art are addressed by IDs from the scanned library, never by file path.
+- Playlists and play counts are stored in `mediarr.db` and included in configuration backups (`music.json`).
+- The Compose files include a commented-out music mount (`/path/to/your/music:/music:ro`).
+- The Lidarr library item in the desktop menu is now called **Artists**, so it isn't confused with the Music player.
+
+### Updates reach every browser
+
+- MEDIARR now adds its version to its own script addresses (`/v200.js?v=2.7.0`). After an update, browsers, proxies and CDNs that kept an old copy have to load the new one. A stale copy of the hub script is what makes notification rows run off the right edge of an iPhone with oversized text, which was fixed in 2.3.1.
+- The service worker no longer handles music streams and cover art, so audio seeking works reliably in Safari.
+
 ## 2.6.2
 
 ### Sign-in page

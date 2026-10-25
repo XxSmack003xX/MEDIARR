@@ -84,6 +84,17 @@ let STORE_MIGRATION = null;
 try {
   STORE_MIGRATION = store.migrateLegacy(path.join(DATA_DIR, 'backups'), ['config.json', 'users.json', 'favorites.json', 'rss.json', 'autoadd.json']);
 } catch (e) { console.error('  [migration] unexpected error, old files kept: ' + e.message); }
+/* Music player library (2.7): scans the configured music folders into mediarr.db. */
+const musicLib = require('./music').createMusicLibrary({
+  store, dataDir: DATA_DIR,
+  getConfig: () => { const m = readConfig().music || {}; return Object.assign({}, m, { folders: normalizeMusicFolders(m.folders) }); },
+  ffmpeg: () => FFMPEG, ffprobe: () => FFPROBE,
+  log: m => console.log('  ' + m),
+  onScanDone: r => {
+    try { realtimePush('music.scan', { tracks: r.tracks, added: r.added, removed: r.removed, failed: r.failed }); } catch (_) {}
+    if (r.error) try { logError('music', 'Music library scan failed', r.error); } catch (_) {}
+  }
+});
 const PUBLIC_DIR  = path.join(ROOT, 'public');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const USERS_PATH  = path.join(DATA_DIR, 'users.json');
@@ -111,6 +122,7 @@ const DEFAULT_CONFIG = {
   autoAdd: { intervalMinutes: 5, minRuntime: 0 },
   libraryCache: { enabled: true, intervalMinutes: 360 },
   notify: { enabled: false, targets: [], events: { added: true, downloaded: true, pastDownloaded: true, rss: true, blocked: true, jobs: true, errors: true, serviceDown: true, login: false } },
+  music: { folders: [], scanIntervalHours: 12, transcodeKbps: 256 },   // music player (2.7): folders scanned recursively for audio
   sab: { url: '', apiKey: '' },   // SABnzbd — queue + history, visible to every signed-in user
   backup: { onChange: true, everyDays: 7, keep: 20 },   // auto-snapshot of all settings
   shell: { enabled: false, commands: [] },   // admin-defined restart/maintenance commands
@@ -160,6 +172,7 @@ function readConfig () {
       update: Object.assign({}, DEFAULT_CONFIG.update, c.update),
       notify: Object.assign({}, DEFAULT_CONFIG.notify, c.notify),
       backup: Object.assign({}, DEFAULT_CONFIG.backup, c.backup),
+      music: Object.assign({}, DEFAULT_CONFIG.music, c.music),
       sab: Object.assign({}, DEFAULT_CONFIG.sab, c.sab)
     });
   } catch (e) {
@@ -219,6 +232,7 @@ function sanitize (c) {
   out.ui = { loginTheme: (c.ui && c.ui.loginTheme) || 'tron' };
   out.donate = { url: (c.donate && c.donate.url) || '', label: (c.donate && c.donate.label) || '' };
   out.sab = { url: c.sab.url, hasKey: !!c.sab.apiKey };
+  { const m = c.music || {}; out.music = { folders: normalizeMusicFolders(m.folders), scanIntervalHours: Number.isFinite(Number(m.scanIntervalHours)) ? Number(m.scanIntervalHours) : 12, transcodeKbps: Number(m.transcodeKbps) || 256, configured: normalizeMusicFolders(m.folders).length > 0 }; }
   out.backup = { onChange: !(c.backup && c.backup.onChange === false),
                  everyDays: Math.max(0, Number((c.backup && c.backup.everyDays)) || 0),
                  keep: Math.max(1, Number((c.backup && c.backup.keep)) || 20) };
@@ -244,6 +258,19 @@ function sanitize (c) {
   return out;
 }
 function normUrl (u) { return (u || '').trim().replace(/\/+$/, ''); }
+// Music folders: absolute paths only, de-duplicated, at most 50.
+function normalizeMusicFolders (raw) {
+  const list = Array.isArray(raw) ? raw : String(raw || '').split(/\r?\n/);
+  const out = [];
+  for (let f of list) {
+    f = String(f || '').trim().replace(/^["']|["']$/g, '');
+    if (!f || f.length > 1024 || f.includes('\0') || !path.isAbsolute(f)) continue;
+    f = path.resolve(f);
+    if (!out.includes(f)) out.push(f);
+    if (out.length >= 50) break;
+  }
+  return out;
+}
 function normalizePathMappings (raw) {
   const list = Array.isArray(raw) ? raw : [];
   const out = [];
@@ -831,6 +858,8 @@ async function handleArrWebhook (svc, req, res, urlObj) {
   invalidateLive(svc);
   if (!/^test$/i.test(eventType)) scheduleLibraryReconcile(svc, 250);
   try { notifyArrDownload(svc, eventType, body, item); } catch (_) {}
+  // New or upgraded music from Lidarr: pick it up in the music player shortly after the import settles.
+  if (svc === 'lidarr' && /download|import|upgrade|rename|retag|delete/i.test(eventType)) musicLib.scheduleScan(90000, 'lidarr');
   realtimePush('arr.webhook', {
     service: svc, eventType, title,
     itemId: item && item.id ? item.id : null,
@@ -851,7 +880,10 @@ function staticEntry (full) {
   const st = fs.statSync(full);
   let e = _staticCache.get(full);
   if (!e || e.mtimeMs !== st.mtimeMs || e.size !== st.size) {
-    const raw = fs.readFileSync(full);
+    let raw = fs.readFileSync(full);
+    // Stamp the release onto MEDIARR's own scripts (/v200.js → /v200.js?v=2.7.0) so a
+    // browser, proxy or CDN holding an old copy must fetch the new one after an update.
+    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
     e = { mtimeMs: st.mtimeMs, size: st.size, raw, etag: '"' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20) + '"', gzip: null, br: null };
     _staticCache.set(full, e);
   }
@@ -1265,16 +1297,17 @@ async function downloadActivitySnapshot (me, historyLimit) {
    Everything that isn't regenerable gets snapshotted: settings, users, favorites,
    activity, RSS state, blocklist. Caches are deliberately excluded. */
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
-const BACKUP_FILES = ['config.json', 'users.json', 'favorites.json', 'adds.json', 'rss.json', 'blocked.json', 'autoadd.json', 'watch-progress.json', 'v2-state.json'];
+const BACKUP_FILES = ['config.json', 'users.json', 'favorites.json', 'adds.json', 'rss.json', 'blocked.json', 'autoadd.json', 'watch-progress.json', 'v2-state.json', 'music.json'];
 /* Since 2.2 these four live in mediarr.db. Backups still store them under their old
    file names and formats, so 2.2 restores older backups, and older versions can
    still read a 2.2 backup. */
-const DB_BACKUP_FILES = new Set(['adds.json', 'blocked.json', 'watch-progress.json', 'v2-state.json']);
+const DB_BACKUP_FILES = new Set(['adds.json', 'blocked.json', 'watch-progress.json', 'v2-state.json', 'music.json']);   // music.json (2.7): playlists and play counts
 function exportDbDoc (name) {
   if (name === 'adds.json') return { adds: store.activity.exportAll() };
   if (name === 'blocked.json') return { events: store.blocks.recent() };
   if (name === 'watch-progress.json') return store.watch.exportAll();
   if (name === 'v2-state.json') return Object.assign(store.inbox.exportAll(), { automation: v2State().automation });
+  if (name === 'music.json') return store.music.exportAll();
   return null;
 }
 const BACKUP_VERSION = 1;
@@ -2556,7 +2589,9 @@ const ADMIN_ONLY_ROUTES = new Set([
   'POST /api/tv/episode-monitor',
   'POST /api/tv/missing/start',
   'POST /api/tv/missing/stop',
-  'POST /api/test'
+  'POST /api/test',
+  'POST /api/music/scan',
+  'GET /api/music/browse'
 ]);
 /* Read-only Radarr/Sonarr endpoints a regular user's UI needs. Anything else (host
    config with the Arr API key, download clients, indexers, backups, logs…) is admin-only. */
@@ -6572,6 +6607,136 @@ setTimeout(() => { const cfg = readConfig().libraryCache; if (cfg.enabled) scanA
   process.exit(0);
 })();
 
+/* ---------- music player API (2.7) ----------
+   Every signed-in user can browse and play the music library; only admins choose
+   the folders, browse the server's directories and start scans. Audio and art are
+   addressed by opaque ids from the scanned library, never by file path. */
+const MUSIC_PREF_DEFAULTS = { keepAlbums: true, strictFolders: false, albumShuffle: true, continueAlbum: true };
+function musicPrefs (username) {
+  const p = Object.assign({}, MUSIC_PREF_DEFAULTS, store.kv.get('music.prefs.' + String(username).toLowerCase(), {}) || {});
+  for (const k of Object.keys(MUSIC_PREF_DEFAULTS)) p[k] = !!p[k];
+  p.mode = p.keepAlbums ? (p.strictFolders ? 'folder' : 'smart') : 'tags';
+  return p;
+}
+const MUSIC_BROWSE_SKIP = new Set(['proc', 'sys', 'dev', 'run', 'boot', 'etc', 'bin', 'sbin', 'lib', 'lib32', 'lib64', 'libx32', 'usr', 'var', 'tmp', 'root', 'snap', 'lost+found']);
+async function musicBrowse (dir) {
+  const fsp = fs.promises;
+  if (!dir) {
+    const picks = ['/music', '/media', '/mnt', '/data', '/srv', '/storage', '/volume1', '/share', '/shares', '/home', '/downloads', '/nas'];
+    const ok = [];
+    for (const d of picks) { try { if ((await fsp.stat(d)).isDirectory()) ok.push(d); } catch (_) {} }
+    return { path: '', parent: null, dirs: ok.map(d => ({ name: d, path: d })), audio: 0, suggestions: true };
+  }
+  if (!path.isAbsolute(dir)) throw new Error('Use a full path that starts with /');
+  dir = path.resolve(dir);
+  const ents = await fsp.readdir(dir, { withFileTypes: true });
+  const dirs = []; let audio = 0;
+  for (const e of ents.slice(0, 5000)) {
+    if (e.name.startsWith('.')) continue;
+    let isDir = e.isDirectory();
+    if (e.isSymbolicLink()) { try { isDir = (await fsp.stat(path.join(dir, e.name))).isDirectory(); } catch (_) { continue; } }
+    if (isDir) { if (dir === '/' && MUSIC_BROWSE_SKIP.has(e.name)) continue; dirs.push({ name: e.name, path: path.join(dir, e.name) }); }
+    else if (require('./music').AUDIO_EXT.has((e.name.split('.').pop() || '').toLowerCase())) audio++;
+  }
+  dirs.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+  return { path: dir, parent: dir === '/' ? null : path.dirname(dir), dirs: dirs.slice(0, 1000), audio };
+}
+async function musicApi (p, u, req, res, me) {
+  const q = u.searchParams;
+  const prefs = musicPrefs(me.username);
+  const mode = musicLib.MODES.includes(q.get('m')) ? q.get('m') : prefs.mode;
+  const body = async () => { try { return JSON.parse((await readBody(req)) || '{}'); } catch (_) { return {}; } };
+  const sendPlain = (code, obj) => { res.setHeader('Cache-Control', 'no-store'); return sendJSON(res, code, obj); };
+  let m;
+  if (p === '/api/music/status' && req.method === 'GET') {
+    const st = musicLib.status();
+    if (me.role !== 'admin') { delete st.folders; if (st.last) delete st.last.failedFiles; }
+    return sendPlain(200, Object.assign(st, { isAdmin: me.role === 'admin', prefs, username: me.username }));
+  }
+  if (p === '/api/music/prefs' && req.method === 'POST') {
+    const b = await body(), cur = musicPrefs(me.username), next = {};
+    for (const k of Object.keys(MUSIC_PREF_DEFAULTS)) next[k] = b[k] != null ? !!b[k] : cur[k];
+    store.kv.set('music.prefs.' + String(me.username).toLowerCase(), next);
+    return sendPlain(200, musicPrefs(me.username));
+  }
+  if (p === '/api/music/library' && req.method === 'GET') {
+    const etag = '"music-' + musicLib.gen + '-' + mode + '"';
+    if (req.headers['if-none-match'] === etag) { res.writeHead(304, { ETag: etag, 'Cache-Control': 'private, no-cache' }); return res.end(); }
+    const out = musicLib.libraryPayload(mode);
+    return sendBody(res, 200, { 'Content-Type': 'application/json', ETag: etag, 'Cache-Control': 'private, no-cache' }, Buffer.from(JSON.stringify(out)));
+  }
+  if (p === '/api/music/home' && req.method === 'GET') return sendPlain(200, musicLib.home(mode, me.username));
+  if ((m = p.match(/^\/api\/music\/album\/([a-f0-9]{16})$/)) && req.method === 'GET') {
+    const r = musicLib.album(mode, m[1], me.username); if (!r) return sendPlain(404, { message: 'Album not found. The library may have been rescanned.' });
+    if (me.role !== 'admin') delete r.folder;
+    return sendPlain(200, r);
+  }
+  if ((m = p.match(/^\/api\/music\/artist\/([a-f0-9]{12})$/)) && req.method === 'GET') {
+    const r = musicLib.artist(mode, m[1], me.username); return r ? sendPlain(200, r) : sendPlain(404, { message: 'Artist not found' });
+  }
+  if ((m = p.match(/^\/api\/music\/genre\/([a-f0-9]{10})$/)) && req.method === 'GET') {
+    const r = musicLib.genre(mode, m[1]); return r ? sendPlain(200, r) : sendPlain(404, { message: 'Genre not found' });
+  }
+  if (p === '/api/music/songs' && req.method === 'GET') return sendPlain(200, musicLib.songs(mode, { sort: q.get('sort'), dir: q.get('dir'), offset: q.get('offset'), limit: q.get('limit'), q: q.get('q') }, me.username));
+  if (p === '/api/music/search' && req.method === 'GET') return sendPlain(200, musicLib.search(mode, String(q.get('q') || '').slice(0, 200), me.username));
+  if (p === '/api/music/shuffle' && req.method === 'GET') return sendPlain(200, musicLib.shuffle(mode, { by: q.get('by'), scope: q.get('scope'), limit: q.get('limit') }, me.username));
+  if (p === '/api/music/tracks' && req.method === 'POST') { const b = await body(); return sendPlain(200, { tracks: musicLib.tracksByIds(mode, Array.isArray(b.ids) ? b.ids : [], me.username) }); }
+  if ((m = p.match(/^\/api\/music\/smart\/([a-z-]+)$/)) && req.method === 'GET') {
+    const r = musicLib.smartList(mode, m[1], me.username); return r ? sendPlain(200, r) : sendPlain(404, { message: 'Unknown list' });
+  }
+  if (p === '/api/music/played' && req.method === 'POST') {
+    const b = await body();
+    if (!musicLib.trackExists(b.id)) return sendPlain(404, { message: 'Track not found' });
+    store.music.played(me.username, String(b.id), Date.now());
+    return sendPlain(200, { ok: true });
+  }
+  if ((m = p.match(/^\/api\/music\/stream\/([a-f0-9]{16})$/)) && (req.method === 'GET' || req.method === 'HEAD')) {
+    const t = musicLib.getTrack(m[1]);
+    if (t) { keepSessionAlive(req, res, 'music'); markMediaActivity(me, 'music', [t.artist, t.title].filter(Boolean).join(' — ')); }
+    return musicLib.stream(req, res, m[1], q);
+  }
+  if ((m = p.match(/^\/api\/music\/art\/([a-f0-9]{20})$/)) && (req.method === 'GET' || req.method === 'HEAD')) return musicLib.sendArt(req, res, m[1], q.get('s'));
+  // playlists
+  if (p === '/api/music/playlists' && req.method === 'GET') return sendPlain(200, { playlists: store.music.playlists(me.username) });
+  if (p === '/api/music/playlists' && req.method === 'POST') {
+    const b = await body(); const name = String(b.name || '').trim().slice(0, 120);
+    if (!name) return sendPlain(400, { message: 'Give the playlist a name' });
+    if (store.music.playlists(me.username).length >= 500) return sendPlain(400, { message: 'You have reached 500 playlists' });
+    const items = (Array.isArray(b.items) ? b.items : []).map(String).filter(id => musicLib.trackExists(id));
+    const id = store.music.createPlaylist(me.username, name, items);
+    return sendPlain(200, { ok: true, id, playlist: store.music.playlist(me.username, id) });
+  }
+  if ((m = p.match(/^\/api\/music\/playlists\/([a-f0-9]{16})$/))) {
+    const pl = store.music.playlist(me.username, m[1]);
+    if (!pl) return sendPlain(404, { message: 'Playlist not found' });
+    if (req.method === 'GET') return sendPlain(200, Object.assign({}, pl, { tracks: musicLib.tracksByIds(mode, pl.items, me.username) }));
+    if (req.method === 'DELETE') { store.music.deletePlaylist(me.username, m[1]); return sendPlain(200, { ok: true }); }
+    if (req.method === 'POST') {
+      const b = await body();
+      if (b.name != null) { const n = String(b.name).trim().slice(0, 120); if (!n) return sendPlain(400, { message: 'Give the playlist a name' }); store.music.renamePlaylist(me.username, m[1], n); }
+      let items = null;
+      if (Array.isArray(b.items)) items = b.items.map(String);
+      if (Array.isArray(b.add)) items = pl.items.concat(b.add.map(String).filter(id => musicLib.trackExists(id)));
+      if (items) { if (items.length > 10000) return sendPlain(400, { message: 'Playlists can hold up to 10,000 songs' }); store.music.setPlaylistItems(me.username, m[1], items); }
+      const next = store.music.playlist(me.username, m[1]);
+      return sendPlain(200, { ok: true, playlist: Object.assign({}, next, { n: next.items.length }) });
+    }
+  }
+  // admin
+  if (p === '/api/music/scan' && req.method === 'POST') {
+    const b = await body();
+    if (!normalizeMusicFolders(readConfig().music.folders).length) return sendPlain(400, { message: 'Add a music folder first' });
+    if (musicLib.isScanning()) return sendPlain(200, { ok: true, running: true, message: 'A scan is already running' });
+    musicLib.scan({ full: !!b.full, reason: b.full ? 'full rescan' : 'manual' }).catch(() => {});
+    return sendPlain(200, { ok: true, started: true });
+  }
+  if (p === '/api/music/browse' && req.method === 'GET') {
+    try { return sendPlain(200, await musicBrowse(String(q.get('path') || '').trim())); }
+    catch (e) { return sendPlain(400, { message: e.code === 'ENOENT' ? 'That folder doesn’t exist on the server' : e.code === 'EACCES' ? 'MEDIARR doesn’t have permission to open that folder' : e.message }); }
+  }
+  return sendPlain(404, { message: 'Not found' });
+}
+
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://localhost');
   const p = u.pathname;
@@ -6589,6 +6754,7 @@ const server = http.createServer(async (req, res) => {
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/m' || p === '/m/' || p === '/mobile' || p === '/mobile.html')) return serveStatic(res, 'mobile.html');
+    if (req.method === 'GET' && (p === '/music' || p === '/music/' || p === '/music.html')) return serveStatic(res, 'music.html');
     if (req.method === 'GET' && (p === '/manifest.webmanifest' || p === '/sw.js' || p === '/icons/mediarr-icon.svg' || p === '/icons/mediarr-icon-192.png' || p === '/icons/mediarr-icon-512.png')) return serveStatic(res, p.slice(1));
     if (req.method === 'GET' && p === '/bootstrap.min.css') return serveVendor(res, 'bootstrap.min.css', 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css');
     if (req.method === 'GET' && p === '/bootstrap.bundle.min.js') return serveVendor(res, 'bootstrap.bundle.min.js', 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js');
@@ -6761,6 +6927,9 @@ const server = http.createServer(async (req, res) => {
       const adminOnly = (p === '/api/config' && req.method === 'POST') || p.startsWith('/api/admin/') || p.startsWith('/api/releases') || (p === '/api/plex/scan' && req.method === 'POST') ||
         ADMIN_ONLY_ROUTES.has(req.method + ' ' + p);
       if (adminOnly && me.role !== 'admin') return sendJSON(res, 403, { message: 'Admin only' });
+
+      // ---- music player (2.7) ----
+      if (p.startsWith('/api/music/')) return musicApi(p, u, req, res, me);
 
       // ---- realtime dashboard + setup wizard (admin) ----
       if (p === '/api/admin/realtime/stream' && req.method === 'GET') return openRealtimeStream(req, res, me);
@@ -7732,6 +7901,7 @@ const server = http.createServer(async (req, res) => {
         out.notify = { enabled: out.notify.enabled, targets: [], events: {} };
         out.dockerControl = { enabled: false, allowedContainers: [] };
         out.spotify = { configured: out.spotify.configured };
+        out.music = { configured: out.music.configured };
       }
       return sendJSON(res, 200, out);
     }
@@ -7841,6 +8011,21 @@ const server = http.createServer(async (req, res) => {
           cur.rss.feeds = raw.map(x => String(x).trim()).filter(x => /^https?:\/\//i.test(x)).slice(0, 30);
         }
         setTimeout(scheduleRss, 50);
+      }
+      let musicFoldersChanged = false;
+      if (incoming.music) {
+        const m = incoming.music;
+        cur.music = Object.assign({}, DEFAULT_CONFIG.music, cur.music || {});
+        if (m.folders != null) {
+          const next = normalizeMusicFolders(m.folders);
+          const bad = (Array.isArray(m.folders) ? m.folders : String(m.folders).split(/\r?\n/)).map(x => String(x || '').trim()).filter(x => x && !path.isAbsolute(x));
+          if (bad.length) return sendJSON(res, 400, { message: 'Music folders must be full paths that start with / (for example /music). Not valid: ' + bad.slice(0, 3).join(', ') });
+          musicFoldersChanged = JSON.stringify(next) !== JSON.stringify(normalizeMusicFolders(cur.music.folders));
+          cur.music.folders = next;
+        }
+        if (m.scanIntervalHours != null) { const h = Number(m.scanIntervalHours); if (Number.isFinite(h)) cur.music.scanIntervalHours = Math.min(168, Math.max(0, Math.round(h))); }
+        if (m.transcodeKbps != null && [128, 192, 256, 320].includes(Number(m.transcodeKbps))) cur.music.transcodeKbps = Number(m.transcodeKbps);
+        setTimeout(() => { musicLib.startSchedule(); if (musicFoldersChanged) musicLib.scheduleScan(1000, 'settings'); }, 50);
       }
       if (incoming.plexBlock) {
         if (incoming.plexBlock.enabled != null) cur.plexBlock.enabled = !!incoming.plexBlock.enabled;
@@ -7968,6 +8153,8 @@ server.listen(PORT, HOST, () => {
   console.log('  Config stored at:  ' + CONFIG_PATH);
   console.log('  Database at:       ' + store.file);
   console.log('  Stop with Ctrl+C\n');
+  // music player: load the scanned library, then check the folders for changes
+  try { musicLib.load(); musicLib.startSchedule(); musicLib.scheduleScan(15000, 'startup'); } catch (e) { console.error('  [music] ' + e.message); }
   // background health monitoring: first run shortly after boot, then on an interval
   setTimeout(() => { runAllChecks().catch(() => {}); }, 2500);
   setInterval(() => { runAllChecks().catch(() => {}); }, HEALTH_INTERVAL_MS);

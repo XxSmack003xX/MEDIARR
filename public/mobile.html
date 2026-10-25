@@ -179,6 +179,7 @@
   <div class="offcanvas-header"><h5 class="offcanvas-title">Menu</h5><button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button></div>
   <div class="offcanvas-body d-flex flex-column gap-2">
     <div id="menuUser" class="small text-secondary mb-1"></div>
+    <a id="mMusic" href="/music" class="btn btn-outline-gold text-start" style="display:none">🎧 Music player</a>
     <button id="mStreaming" class="btn btn-outline-gold text-start">▶️ Now streaming</button>
     <button id="mScanPlex" class="btn btn-outline-gold text-start" style="display:none">🔄 Scan Plex libraries</button>
     <button id="mDownloads" class="btn btn-outline-gold text-start" style="display:none">⬇️ Downloads</button>
@@ -418,6 +419,7 @@ async function onAuthed(){
   await loadConfig();
   const sp=$('mScanPlex'); if(sp) sp.style.display=(adminOnly && isConfigured('plex'))?'':'none';
   const dl=$('mDownloads'); if(dl) dl.style.display=isConfigured('webdav')?'':'none';
+  { const mu=$('mMusic'); if(mu) mu.style.display=((config&&config.music&&config.music.configured)||adminOnly)?'':'none'; }
   { const qb=$('mQueue'); if(qb) qb.style.display=(config&&config.sab&&config.sab.url&&config.sab.hasKey)?'':'none'; }
   { const md=$('mDonate'), url=(config&&config.donate&&config.donate.url)||''; if(md){ if(url){ md.href=url; md.style.display=''; const l=$('mDonateLabel'); if(l) l.textContent=((config.donate.label||'').trim())||'Donate'; } else md.style.display='none'; } }
   await loadFavoritesM(); loadPlexSeenM(); await refreshPlexMeM();
@@ -1405,6 +1407,13 @@ function openSettings(){
       <div class="small text-secondary mt-1">${(config&&config.webdav&&config.webdav.hwEncoder)?('✓ '+({h264_nvenc:'NVIDIA NVENC',h264_qsv:'Intel Quick Sync',h264_videotoolbox:'Apple VideoToolbox'}[config.webdav.hwEncoder]||config.webdav.hwEncoder)+' detected'):'No GPU encoder detected — CPU used. Pick a faster speed to speed it up.'}</div>
       <button class="btn btn-outline-gold btn-sm mt-2" data-test="webdav">Test</button><span class="small ms-2" id="s_webdav_msg"></span>
     </div></div>` +
+    `<div class="card mb-3" style="background:var(--bg)"><div class="card-body">
+      <div class="fw-bold mb-2">🎧 Music player ${(config&&config.music&&config.music.configured)?'<span class="badge text-bg-success ms-1">set up</span>':''}</div>
+      <div class="small text-secondary mb-2">Folders on the server that hold your music, one per line. Every folder inside them is scanned for MP3, FLAC, OGG, Opus, M4A, ALAC, WAV, AIFF, WMA and more. In Docker, use the path inside the container (for example /music).</div>
+      <label class="form-label small" for="s_music_folders">Music folders</label>
+      <textarea class="form-control form-control-sm font-monospace" id="s_music_folders" rows="3" spellcheck="false" autocapitalize="none" placeholder="/music">${esc(((config&&config.music&&config.music.folders)||[]).join('\n'))}</textarea>
+      <a class="btn btn-outline-gold btn-sm mt-2" href="/music#/settings">Browse folders, scan &amp; album options</a>
+    </div></div>` +
     `<div class="card mb-3" style="background:var(--bg2)"><div class="card-body">
       <div class="fw-bold mb-2">Auto add</div>
       <label class="form-label small">Minutes between each add</label>
@@ -1473,6 +1482,7 @@ function gatherConfig(){
   const tk=$('s_tmdb_key'); if(tk&&tk.value.trim())cfg.tmdb={apiKey:tk.value.trim()};
   const pu=$('s_plex_url'), pk=$('s_plex_key'); if(pu){ const o={}; if(pu.value.trim())o.url=pu.value.trim(); if(pk&&pk.value.trim())o.token=pk.value.trim(); if(Object.keys(o).length)cfg.plex=o; }
   const wu=$('s_webdav_url'); if(wu){ const o={ url:wu.value.trim(), username:$('s_webdav_user').value.trim(), folder:$('s_webdav_folder').value.trim(), mode:($('s_webdav_mode')?$('s_webdav_mode').value:'redirect'), transcode:($('s_webdav_transcode')?$('s_webdav_transcode').checked:false), encSpeed:($('s_webdav_encspeed')?$('s_webdav_encspeed').value:'balanced'), hwAccel:($('s_webdav_hwaccel')?$('s_webdav_hwaccel').value:'auto') }; const wp=$('s_webdav_pass').value.trim(); if(wp)o.password=wp; cfg.webdav=o; }
+  { const mf=$('s_music_folders'); if(mf) cfg.music={ folders: mf.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean) }; }
   { const du=$('s_donate_url'); if(du) cfg.donate={ url:du.value.trim(), label:($('s_donate_label')?$('s_donate_label').value.trim():'') }; }
   { const am=$('s_autoadd_mins'), ar=$('s_autoadd_minrt'); if(am||ar) cfg.autoAdd={ intervalMinutes:Number(am?am.value:5)||0, minRuntime:Number(ar?ar.value:0)||0 }; }
   return cfg;

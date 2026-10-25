@@ -1,4 +1,4 @@
-const CACHE='mediarr-pwa-v2.6.2';
+const CACHE='mediarr-pwa-v2.7.0';
 const SHELL=['/?pwa=1&v2=overview','/?pwa=1','/','/m','/manifest.webmanifest','/icons/mediarr-icon.svg','/icons/mediarr-icon-192.png','/icons/mediarr-icon-512.png'];
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>Promise.all(SHELL.map(url=>cache.add(url).catch(()=>null)))));
@@ -12,6 +12,9 @@ self.addEventListener('fetch',event=>{
   if(req.method!=='GET') return;
   const url=new URL(req.url);
   if(url.origin!==self.location.origin) return;
+  // Music streams and cover art go straight to the network: audio uses byte-range
+  // requests, which Safari handles badly when they pass through a service worker.
+  if(url.pathname.startsWith('/api/music/')) return;
   // APIs, authenticated media, HLS, and app JS/HTML are always network-first/no-cache.
   // This prevents stale MEDIARR state and old release code from being served by the PWA.
   if(url.pathname.startsWith('/api/')||url.pathname.startsWith('/hls/')||url.pathname.startsWith('/v')&&url.pathname.endsWith('.js')){

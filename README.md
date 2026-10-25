@@ -2,6 +2,16 @@
 
 # MEDIARR
 
+## MEDIARR 2.7
+
+MEDIARR 2.7 adds a **Music player** for the music on your server, separate from the video player.
+
+- **Your own folders** — admins list any number of music folders in Settings. MEDIARR scans each one and every folder inside it, however deep, and picks up new music on a schedule, after Lidarr imports, and when it starts.
+- **Albums kept together** — each folder of songs becomes one album, Disc 1 / CD2 sub-folders join their album, and folders that mix many albums fall back to the album tags. Each person can switch this off, or make every folder its own album.
+- **Plays almost anything** — MP3, FLAC (including 24-bit hi-res), OGG Vorbis, Opus, M4A/AAC, ALAC, WAV, AIFF, WMA, APE, WavPack, DSD and more. Formats a browser can't play are converted on the fly with ffmpeg, which the Docker image includes.
+- **An iTunes-style library** — Listen Now, Recently Added, Artists, Albums, Songs, Genres, cover art, Up Next, shuffle by album, repeat, playlists, play counts, smart playlists, search, keyboard shortcuts, and lock-screen controls on phones.
+- **Open it** from **Music player** in the desktop menu or **🎧 Music player** in the phone menu, or go to `/music`. See [Music player](#music-player).
+
 ## MEDIARR 2.6
 
 MEDIARR 2.6 lets each person link their **Spotify** account.
@@ -91,7 +101,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.6.2-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.7.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -110,7 +120,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.6.2 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.7.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -135,6 +145,7 @@ This README is written against the **v2.6.2 source in this repository**. Feature
 - [Movie and TV discovery](#movie-and-tv-discovery)
 - [Radarr and Sonarr integration](#radarr-and-sonarr-integration)
 - [Lidarr and music](#lidarr-and-music)
+- [Music player](#music-player)
 - [Unified media detail](#unified-media-detail)
 - [Real-time events and Live Dashboard](#real-time-events-and-live-dashboard)
 - [Manual release search](#manual-release-search)
@@ -899,12 +910,70 @@ Artist pages can be shared: the address bar shows `?title=artist:<MusicBrainz id
 
 ### Library, calendar and downloads
 
-- **Music** in the admin menu opens the Lidarr library with tracks on disk per artist and a per-artist search button.
+- **Artists** in the admin menu opens the Lidarr library with tracks on disk per artist and a per-artist search button.
 - Upcoming album releases appear on the calendar with a **Music** filter.
 - Download Activity has a **Lidarr** tab, and Health monitors Lidarr.
 - Lidarr's webhook (below) refreshes the music library right after imports and sends download notifications.
 
-Music playback is not part of MEDIARR yet.
+To listen to your music, use the [Music player](#music-player). Lidarr's webhook also tells the player to look for new music after each import.
+
+---
+
+## Music player
+
+The Music player is a separate page at `/music` for listening to the music stored on your server. It has its own audio player, queue and settings, so it never interrupts a video and a video never interrupts it. It works without Lidarr; any folder of music will do.
+
+### Set it up
+
+1. **Docker:** mount your music into the container. Read-only is fine, because MEDIARR never changes your music files:
+
+   ```yaml
+   volumes:
+     - ./data:/data
+     - /path/to/your/music:/music:ro
+   ```
+
+2. Open **Settings → Music player folders** (desktop or phone) and enter the folder as MEDIARR sees it, one per line, for example `/music`. Add as many folders as you like: another drive, a share, a Lidarr root folder.
+3. Save. The first scan starts straight away. In the Music player, **Music settings** (admins only) also has a folder browser, **Scan for changes**, **Rescan everything**, the scan schedule and the conversion quality.
+
+Every signed-in person can play the library. Only admins see folder paths, browse the server's folders or start scans.
+
+### Scanning
+
+- Every folder inside each music folder is scanned, at any depth. Hidden folders and NAS system folders (`@eaDir`, `#recycle`, `.AppleDouble`, …) are skipped, and symbolic-link loops can't trap the scan.
+- Tags are read straight from the files: ID3v1/v2.2–2.4 and APE for MP3, Vorbis comments for FLAC/OGG/Opus, iTunes atoms for M4A/ALAC, and RIFF/AIFF chunks for WAV and AIFF. Other formats are read with ffprobe.
+- Songs with no tags still appear, named from the file and folder names (`07 - Song Title.mp3` → track 7, "Song Title").
+- Rescans are incremental: only new or changed files are read again. A scan of 6,000 songs takes a few seconds.
+- If a music folder disappears (a share that isn't mounted), its songs stay in the library until the folder is back, so playlists and play counts aren't lost.
+- New music is picked up on a schedule (every 12 hours by default), about 90 seconds after Lidarr imports something, and when MEDIARR starts.
+- Files that can't be read are listed under **Music settings** so you can find them.
+
+### Albums
+
+Each person chooses how songs become albums in **Music settings → Albums & playback**:
+
+| Setting | What it does |
+| --- | --- |
+| **Keep albums together** (on by default) | A folder of songs is one album, the way it's organised on disk. Disc 1 / CD2 / "Disc 2" sub-folders join their album, and an album split over a folder and its sub-folders becomes one album. A folder that holds songs from many albums (a "Downloads" folder) is sorted by album tags instead. |
+| **Every folder is one album** | Stricter: always group by folder, even when a folder's songs have different album tags. |
+| Both off | Classic tag grouping by album and album artist, like iTunes. |
+
+Compilations are shown as **Various Artists**, featured artists ("feat.", "&", …) don't split an album, and 24-bit or above-48 kHz lossless albums are marked **Hi-Res**.
+
+### Playback
+
+- Files the browser can play (usually MP3, AAC/M4A, FLAC, Opus, OGG Vorbis and WAV) are sent as they are, with instant seeking. Anything else (for example ALAC or OGG in some browsers, WMA, APE, WavPack, DSD) is converted on the fly to MP3 (or AAC) at 128–320 kbps, and seeking works there too. This needs ffmpeg, which the Docker image includes.
+- **Up Next** queue (drag to reorder on desktop), Play Next, Add to Up Next, and Save as playlist.
+- Shuffle (optionally whole albums at a time), repeat all, repeat one, and **Keep playing the album** after a song chosen from Songs or search.
+- Playlists per person, play counts, and smart playlists: Recently Played, Top 100 Most Played, Recently Added Songs.
+- The queue and position are remembered on each device. Phones get lock-screen and headphone controls.
+- Keyboard: Space play/pause, ← → seek, Shift+← → previous/next, ↑ ↓ volume, S shuffle, R repeat, M mute, Q Up Next, / search.
+
+On desktop, **Music player** opens in its own tab so music keeps playing while you use the rest of MEDIARR.
+
+### What's stored
+
+The scanned library and resized cover art are caches (`mediarr.db` and `cache/music-art/` in the data folder) that a rescan rebuilds. Playlists and play counts are kept in `mediarr.db` and included in configuration backups as `music.json`.
 
 ---
 
@@ -1967,6 +2036,7 @@ MEDIARR/
 │   └── PUBLISHING.md            # Maintainer release instructions
 ├── public/
 │   ├── index.html               # Desktop application
+│   ├── music.html               # Music player
 │   ├── nav.js                   # Shared Escape/Back/keyboard handling and address-bar state
 │   └── mobile.html              # Mobile application
 ├── .dockerignore
@@ -1981,6 +2051,8 @@ MEDIARR/
 ├── package.json
 ├── docker-recreate.js           # Shared container recreate + rename-and-restore rollback
 ├── server.js                    # Main HTTP server/API/integrations/background jobs
+├── music.js                     # Music library: folder scanning, album grouping, audio streaming, cover art
+├── music-tags.js                # Audio tag reader (ID3, Vorbis comments, MP4, RIFF/AIFF; ffprobe fallback)
 ├── store.js                     # SQLite storage (mediarr.db) + migration from pre-2.2 JSON files
 └── update-helper.js             # One-shot Docker update/rollback helper
 ```

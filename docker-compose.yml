@@ -24,6 +24,9 @@ services:
       # Optional: if MEDIARR's Local Folder source should browse host media,
       # mount it here and configure the in-container path (for example /media/movies).
       # - /mnt/media:/media:ro
+      # Music player: mount the folders that hold your music (read-only is fine), then add
+      # the path inside the container (here /music) under Settings → Music player folders.
+      # - /path/to/your/music:/music:ro
     extra_hosts:
       # Useful on Linux when Radarr/Sonarr/Plex run directly on the Docker host.
       - "host.docker.internal:host-gateway"
