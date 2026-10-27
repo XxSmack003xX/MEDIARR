@@ -85,8 +85,21 @@ try {
   STORE_MIGRATION = store.migrateLegacy(path.join(DATA_DIR, 'backups'), ['config.json', 'users.json', 'favorites.json', 'rss.json', 'autoadd.json']);
 } catch (e) { console.error('  [migration] unexpected error, old files kept: ' + e.message); }
 /* Music player library (2.7): scans the configured music folders into mediarr.db. */
+/* Online music metadata (2.8): MusicBrainz + Cover Art Archive, then Deezer. */
+const MUSIC_ONLINE_DEFAULTS = { enabled: true, musicbrainz: true, deezer: true, preferOnlineArt: false };
+function musicOnlineConfig (c) {
+  const o = Object.assign({}, MUSIC_ONLINE_DEFAULTS, ((c || readConfig()).music || {}).online || {});
+  for (const k of Object.keys(MUSIC_ONLINE_DEFAULTS)) o[k] = !!o[k];
+  return o;
+}
+const musicMeta = require('./music-meta').createMetaFetcher({
+  store, dataDir: DATA_DIR, upstream, version: APP_VERSION,
+  getConfig: () => musicOnlineConfig(),
+  log: m => console.log('  ' + m),
+  onChange: () => { try { musicLib.metaChanged(); realtimePush('music.meta', { at: Date.now() }); } catch (_) {} }
+});
 const musicLib = require('./music').createMusicLibrary({
-  store, dataDir: DATA_DIR,
+  store, dataDir: DATA_DIR, meta: musicMeta,
   getConfig: () => { const m = readConfig().music || {}; return Object.assign({}, m, { folders: normalizeMusicFolders(m.folders) }); },
   ffmpeg: () => FFMPEG, ffprobe: () => FFPROBE,
   log: m => console.log('  ' + m),
@@ -122,7 +135,7 @@ const DEFAULT_CONFIG = {
   autoAdd: { intervalMinutes: 5, minRuntime: 0 },
   libraryCache: { enabled: true, intervalMinutes: 360 },
   notify: { enabled: false, targets: [], events: { added: true, downloaded: true, pastDownloaded: true, rss: true, blocked: true, jobs: true, errors: true, serviceDown: true, login: false } },
-  music: { folders: [], scanIntervalHours: 12, transcodeKbps: 256 },   // music player (2.7): folders scanned recursively for audio
+  music: { folders: [], scanIntervalHours: 12, transcodeKbps: 256, online: { enabled: true, musicbrainz: true, deezer: true, preferOnlineArt: false } },   // music player (2.7): folders scanned recursively for audio
   sab: { url: '', apiKey: '' },   // SABnzbd — queue + history, visible to every signed-in user
   backup: { onChange: true, everyDays: 7, keep: 20 },   // auto-snapshot of all settings
   shell: { enabled: false, commands: [] },   // admin-defined restart/maintenance commands
@@ -232,7 +245,7 @@ function sanitize (c) {
   out.ui = { loginTheme: (c.ui && c.ui.loginTheme) || 'tron' };
   out.donate = { url: (c.donate && c.donate.url) || '', label: (c.donate && c.donate.label) || '' };
   out.sab = { url: c.sab.url, hasKey: !!c.sab.apiKey };
-  { const m = c.music || {}; out.music = { folders: normalizeMusicFolders(m.folders), scanIntervalHours: Number.isFinite(Number(m.scanIntervalHours)) ? Number(m.scanIntervalHours) : 12, transcodeKbps: Number(m.transcodeKbps) || 256, configured: normalizeMusicFolders(m.folders).length > 0 }; }
+  { const m = c.music || {}; out.music = { folders: normalizeMusicFolders(m.folders), scanIntervalHours: Number.isFinite(Number(m.scanIntervalHours)) ? Number(m.scanIntervalHours) : 12, transcodeKbps: Number(m.transcodeKbps) || 256, online: musicOnlineConfig(c), configured: normalizeMusicFolders(m.folders).length > 0 }; }
   out.backup = { onChange: !(c.backup && c.backup.onChange === false),
                  everyDays: Math.max(0, Number((c.backup && c.backup.everyDays)) || 0),
                  keep: Math.max(1, Number((c.backup && c.backup.keep)) || 20) };
@@ -6650,6 +6663,8 @@ async function musicApi (p, u, req, res, me) {
   let m;
   if (p === '/api/music/status' && req.method === 'GET') {
     const st = musicLib.status();
+    st.online = musicOnlineConfig();
+    if (me.role === 'admin') st.meta = musicMeta.status();
     if (me.role !== 'admin') { delete st.folders; if (st.last) delete st.last.failedFiles; }
     return sendPlain(200, Object.assign(st, { isAdmin: me.role === 'admin', prefs, username: me.username }));
   }
@@ -6729,6 +6744,30 @@ async function musicApi (p, u, req, res, me) {
     if (musicLib.isScanning()) return sendPlain(200, { ok: true, running: true, message: 'A scan is already running' });
     musicLib.scan({ full: !!b.full, reason: b.full ? 'full rescan' : 'manual' }).catch(() => {});
     return sendPlain(200, { ok: true, started: true });
+  }
+  // online metadata (admin)
+  if (p.startsWith('/api/music/meta/') && me.role !== 'admin') return sendPlain(403, { message: 'Admin only' });
+  if (p === '/api/music/meta/run' && req.method === 'POST') {
+    const b = await body();
+    if (!musicOnlineConfig().enabled) return sendPlain(400, { message: 'Turn on online album info first' });
+    const n = musicLib.queueMeta(b.mode === 'all' ? 'all' : 'retry');
+    return sendPlain(200, { ok: true, queued: n, meta: musicMeta.status() });
+  }
+  if (p === '/api/music/meta/clear' && req.method === 'POST') { await musicMeta.clearAll(); return sendPlain(200, { ok: true, meta: musicMeta.status() }); }
+  if ((m = p.match(/^\/api\/music\/meta\/(album|artist)\/([a-f0-9]{12,16})$/)) && req.method === 'POST') {
+    const b = await body();
+    const job = m[1] === 'album' ? musicLib.albumMetaJob(mode, m[2]) : musicLib.artistMetaJob(mode, m[2]);
+    if (!job) return sendPlain(404, { message: m[1] === 'album' ? 'Album not found' : 'Artist not found' });
+    if (b.action === 'skip' || b.action === 'unskip') {
+      musicMeta.setSkip(job.key, job.name, job.kind, b.action === 'skip');
+      if (b.action === 'unskip' && musicOnlineConfig().enabled) musicMeta.refreshNow(job).catch(() => {});
+      return sendPlain(200, { ok: true });
+    }
+    if (!musicOnlineConfig().enabled) return sendPlain(400, { message: 'Turn on online album info in Music settings first' });
+    try {
+      const rec = await musicMeta.refreshNow(Object.assign({}, job, { haveArt: musicOnlineConfig().preferOnlineArt ? false : job.haveArt }));
+      return sendPlain(200, { ok: true, status: rec.status, source: rec.source, art: !!rec.art, message: rec.status === 'ok' ? 'Found on ' + (rec.source === 'deezer' ? 'Deezer' : 'MusicBrainz') : rec.status === 'error' ? 'Couldn’t reach the music services: ' + (musicMeta.status().lastError || 'no answer') : 'No match found online' });
+    } catch (e) { return sendPlain(502, { message: e.message }); }
   }
   if (p === '/api/music/browse' && req.method === 'GET') {
     try { return sendPlain(200, await musicBrowse(String(q.get('path') || '').trim())); }
@@ -8012,7 +8051,7 @@ const server = http.createServer(async (req, res) => {
         }
         setTimeout(scheduleRss, 50);
       }
-      let musicFoldersChanged = false;
+      let musicFoldersChanged = false, musicOnlineChange = null;
       if (incoming.music) {
         const m = incoming.music;
         cur.music = Object.assign({}, DEFAULT_CONFIG.music, cur.music || {});
@@ -8025,7 +8064,18 @@ const server = http.createServer(async (req, res) => {
         }
         if (m.scanIntervalHours != null) { const h = Number(m.scanIntervalHours); if (Number.isFinite(h)) cur.music.scanIntervalHours = Math.min(168, Math.max(0, Math.round(h))); }
         if (m.transcodeKbps != null && [128, 192, 256, 320].includes(Number(m.transcodeKbps))) cur.music.transcodeKbps = Number(m.transcodeKbps);
-        setTimeout(() => { musicLib.startSchedule(); if (musicFoldersChanged) musicLib.scheduleScan(1000, 'settings'); }, 50);
+        if (m.online && typeof m.online === 'object') {
+          const before = musicOnlineConfig(cur), next = Object.assign({}, before);
+          for (const k of Object.keys(MUSIC_ONLINE_DEFAULTS)) if (m.online[k] != null) next[k] = !!m.online[k];
+          cur.music.online = next;
+          // look up what's now possible: newly enabled sources retry unmatched albums; preferring online art fetches covers
+          const turnedOn = k => next[k] && !before[k];
+          musicOnlineChange = { refresh: JSON.stringify(before) !== JSON.stringify(next), mode: turnedOn('preferOnlineArt') ? 'art' : (turnedOn('enabled') || turnedOn('musicbrainz') || turnedOn('deezer')) ? 'retry' : null, stop: !next.enabled };
+        }
+        setTimeout(() => {
+          musicLib.startSchedule(); if (musicFoldersChanged) musicLib.scheduleScan(1000, 'settings');
+          if (musicOnlineChange) { if (musicOnlineChange.stop) musicMeta.stop(); if (musicOnlineChange.refresh) musicLib.metaChanged(); if (musicOnlineChange.mode && !musicFoldersChanged) musicLib.queueMeta(musicOnlineChange.mode); }
+        }, 50);
       }
       if (incoming.plexBlock) {
         if (incoming.plexBlock.enabled != null) cur.plexBlock.enabled = !!incoming.plexBlock.enabled;

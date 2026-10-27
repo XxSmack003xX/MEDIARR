@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.8.0
+
+### Online album info for the Music player
+
+- New: the Music player looks up details your music files are missing. **MusicBrainz** provides the album match, release year, release type and genres; the **Cover Art Archive** provides front covers up to 1200 px; **Deezer** provides covers and details for albums MusicBrainz doesn't have, and artist photos. No account or API key is needed.
+- Fills gaps only: folder and embedded cover art, tag years and tag genres are kept. Admins can turn on **Prefer online cover art** to use the online cover anyway.
+- Matching ignores edition suffixes such as "(Deluxe Edition)" or "[2011 Remaster]", matches compilations as Various Artists, and doesn't use an album with the same title by a different artist. Deezer's blank "no photo" picture is ignored.
+- Runs in the background after each scan at about one MusicBrainz request a second, as MusicBrainz asks, with a User-Agent that identifies MEDIARR. Albums with no match are retried after a month; if a service can't be reached, MEDIARR retries the next day and keeps anything it already found. Rescans don't look anything up again.
+- Pictures are downloaded once into `cache/music-meta/` and served by MEDIARR, so browsers never contact these services. Only artist and album names are sent. Music files are never changed.
+- Album and artist pages credit where the cover, details and photo came from, with links to MusicBrainz and Deezer, and show EPs, singles and live albums as such.
+- Admins get an **Online album info** card in the player's Music settings: on/off (on by default; off also hides what was found), MusicBrainz + Cover Art Archive, Deezer, Prefer online cover art, progress and match counts, **Look up unmatched albums now** and **Forget online info**. Album and artist **⋯** menus add **Look up online again** and **Don't use online info** for admins.
+- Online genres appear under Genres, and online years in album sorting and on album pages.
+
 ## 2.7.0
 
 ### Music player

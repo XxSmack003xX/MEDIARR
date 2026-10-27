@@ -18,6 +18,7 @@
  *   music_tracks    the music player's scanned library (a cache; rebuilt by rescanning)
  *   music_playlists, music_playlist_items, music_plays
  *                   per-user playlists and play counts (included in backups)
+ *   music_meta      online album/artist matches, years, genres and downloaded art (a cache)
  *
  * Uses Node's built-in node:sqlite (Node.js 22.13+), so MEDIARR still needs no
  * npm install. On first launch, migrateLegacy() imports the old JSON files, verifies
@@ -28,7 +29,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 
-const SCHEMA_VERSION = 2;   // 2 (v2.7): music library, playlists and play counts
+const SCHEMA_VERSION = 3;   // 2 (v2.7): music library, playlists and play counts; 3 (v2.8): online music metadata
 const LIMITS = { activity: 50000, errors: 2000, blocks: 5000, inbox: 2000, watchPerUser: 1000 };
 // Old JSON files this store replaces. Deleted after a verified migration.
 const LEGACY_FILES = ['adds.json', 'watch-progress.json', 'v2-state.json', 'errors.json', 'health.json', 'blocked.json'];
@@ -358,6 +359,19 @@ function open (dataDir, opts) {
     (items || []).slice(0, 10000).forEach((t, i) => ins.run(String(id), i, String(t).slice(0, 64)));
   }
 
+  /* ---------- online music metadata (v2.8, a cache) ---------- */
+  const musicMeta = {
+    all () {
+      return prep('mmAll', 'SELECT key,kind,status,source,name,data,art,checked FROM music_meta').all()
+        .map(r => ({ key: r.key, kind: r.kind, status: r.status, source: r.source || '', name: r.name || '', data: parse(r.data, {}), art: r.art || '', checked: r.checked || 0 }));
+    },
+    put (r) {
+      prep('mmPut', 'INSERT INTO music_meta(key,kind,status,source,name,data,art,checked) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET kind=excluded.kind, status=excluded.status, source=excluded.source, name=excluded.name, data=excluded.data, art=excluded.art, checked=excluded.checked')
+        .run(String(r.key), String(r.kind || ''), String(r.status || ''), str(r.source, 40) || '', str(r.name, 500) || '', j(r.data || {}), str(r.art, 200) || '', num(r.checked));
+    },
+    clear () { db.exec('DELETE FROM music_meta'); }
+  };
+
   /* ---------- legacy import shared by migration and backup restore ---------- */
   function importLegacyDoc (name, doc) {
     switch (name) {
@@ -513,7 +527,7 @@ function open (dataDir, opts) {
 
   function close () { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (_) {} try { db.close(); } catch (_) {} }
 
-  return { db, file, kv, activity, watch, inbox, errors, blocks, sessions, music, importLegacyDoc, restoreLegacyDoc, migrateLegacy, close, sha256, LIMITS, LEGACY_FILES };
+  return { db, file, kv, activity, watch, inbox, errors, blocks, sessions, music, musicMeta, importLegacyDoc, restoreLegacyDoc, migrateLegacy, close, sha256, LIMITS, LEGACY_FILES };
 }
 
 function migrateSchema (db) {
@@ -561,6 +575,13 @@ function migrateSchema (db) {
       username TEXT NOT NULL, track_id TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0,
       last_at INTEGER, PRIMARY KEY (username, track_id));
     PRAGMA user_version = 2;
+    COMMIT;`);
+  if (v < 3) db.exec(`
+    BEGIN;
+    CREATE TABLE IF NOT EXISTS music_meta (
+      key TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL, source TEXT, name TEXT,
+      data TEXT, art TEXT, checked INTEGER);
+    PRAGMA user_version = 3;
     COMMIT;`);
 }
 

@@ -22,6 +22,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const tagsLib = require('./music-tags.js');
+const metaLib = require('./music-meta.js');
 
 const AUDIO_EXT = new Set(['mp3', 'mp2', 'mpga', 'flac', 'ogg', 'oga', 'opus', 'spx', 'm4a', 'm4b', 'm4p', 'aac', 'adts', 'wav', 'wave', 'aif', 'aiff', 'aifc',
   'wma', 'ape', 'wv', 'mpc', 'mp+', 'mpp', 'tta', 'dsf', 'dff', 'mka', 'weba', 'caf', 'ac3', 'eac3', 'dts', 'amr', 'awb', 'au', 'snd', 'shn', 'tak', 'ra', '3ga']);
@@ -117,6 +118,8 @@ function createMusicLibrary (opts) {
   let lastScan = null;
   let scanTimer = null, intervalTimer = null, pendingScan = null;
   let encoders = null;
+  const meta = opts.meta || null;   // online metadata (music-meta.js), optional
+  const metaOn = () => !!(meta && meta.config().enabled);
 
   function folders () {
     const c = opts.getConfig() || {};
@@ -299,6 +302,7 @@ function createMusicLibrary (opts) {
       if (result.added || result.removed || result.updated) cleanArtCache().catch(() => {});
       log('[music] scan (' + result.reason + ') finished in ' + (result.took / 1000).toFixed(1) + 's: ' + result.tracks + ' tracks, +' + result.added + ' ~' + result.updated + ' -' + result.removed + (result.failed ? ', ' + result.failed + ' unreadable' : ''));
       if (opts.onScanDone) try { opts.onScanDone(result); } catch (_) {}
+      if (!result.error) setTimeout(() => queueMeta(false), 1000);
     }
     return { started: true, result };
   }
@@ -406,6 +410,8 @@ function createMusicLibrary (opts) {
         art: '', dir: isDir ? key.slice(2).split('\u0000')[1] : ''
       };
       al.art = albumArt(al, g, isDir);
+      al.localArt = !!al.art; al.localYear = !!al.year; al.localGenre = !!al.genre;
+      applyMeta(al);
       albums.push(al); albumById.set(id, al);
       for (const t of g) albumOfTrack.set(t.id, al);
     }
@@ -426,6 +432,8 @@ function createMusicLibrary (opts) {
     for (const ar of artists.values()) {
       const own = ar.albums.map(i => albumById.get(i)).sort((a, b) => (b.year || 0) - (a.year || 0));
       ar.art = (own.find(a => a.art) || {}).art || '';
+      const m = metaOn() && meta.get(metaLib.artistKey(ar.name));
+      if (m && m.status === 'ok') { ar.meta = m.data; const k = m.art && onlineArt(m); if (k) { ar.art = k; ar.onlineArt = true; } }
     }
     const artistList = [...artists.values()].sort((a, b) => (a.name === 'Various Artists') - (b.name === 'Various Artists') || cmp(sortKey(a.name), sortKey(b.name)));
     const genres = new Map();
@@ -443,6 +451,48 @@ function createMusicLibrary (opts) {
     indexes.set(mode, idx);
     return idx;
   }
+  // Online metadata fills what the files don't have (and replaces local art only if the admin prefers online art).
+  function applyMeta (al) {
+    if (!metaOn()) return;
+    const m = meta.get(metaLib.albumKey(al.artist, al.title));
+    if (!m || m.status !== 'ok') return;
+    const d = m.data || {};
+    if (!al.year && d.year) al.year = d.year;
+    if (!al.genre && d.genre) al.genre = d.genre;
+    al.meta = d;
+    if (m.art && (!al.art || meta.config().preferOnlineArt)) { const k = onlineArt(m); if (k) { al.art = k; al.onlineArt = true; } }
+  }
+  function onlineArt (m) {
+    const file = meta.artPath(m); if (!file) return '';
+    const key = sha('art:online:' + file + ':' + (m.checked || 0), 20);
+    artMap.set(key, { kind: 'file', path: file, sig: file + ':' + m.checked });
+    return key;
+  }
+  function metaJobs () {
+    const albums = new Map(), artists = new Map();
+    for (const m of ['smart', 'tags']) {
+      const idx = buildIndex(m);
+      for (const al of idx.albums) {
+        const key = metaLib.albumKey(al.artist, al.title);
+        if (!albums.has(key)) albums.set(key, { key, title: al.title, artist: al.artist, comp: !!al.comp, haveArt: al.localArt, haveYear: al.localYear, haveGenre: al.localGenre });
+      }
+      for (const ar of idx.artistList) { const key = metaLib.artistKey(ar.name); if (!artists.has(key)) artists.set(key, { key, name: ar.name }); }
+    }
+    return { albums: [...albums.values()], artists: [...artists.values()] };
+  }
+  function queueMeta (mode) {
+    if (!meta) return 0;
+    try { const j = metaJobs(); return meta.enqueue(j.albums, j.artists, mode || false); } catch (e) { log('[music] online metadata: ' + e.message); return 0; }
+  }
+  function metaChanged () { gen = Date.now(); indexes.clear(); artMap.clear(); }
+  function albumMetaJob (mode, id) {
+    const al = buildIndex(mode).albumById.get(String(id)); if (!al) return null;
+    return { kind: 'album', key: metaLib.albumKey(al.artist, al.title), title: al.title, artist: al.artist, comp: !!al.comp, haveArt: al.localArt, haveYear: al.localYear, haveGenre: al.localGenre, name: al.artist + ' — ' + al.title };
+  }
+  function artistMetaJob (mode, id) {
+    const ar = buildIndex(mode).artists.get(String(id)); if (!ar) return null;
+    return { kind: 'artist', key: metaLib.artistKey(ar.name), name: ar.name };
+  }
   function albumArt (al, g, isDir) {
     const dirs = [];
     for (const t of g) { const d = path.dirname(t.path); if (!dirs.includes(d)) dirs.push(d); }
@@ -455,6 +505,19 @@ function createMusicLibrary (opts) {
     const key = sha('art:' + src.kind + ':' + src.sig, 20);
     artMap.set(key, src);
     return key;
+  }
+
+  // what the album/artist page shows about where online details came from
+  function metaInfo (m, al) {
+    if (!metaOn()) return null;
+    if (!m) return { status: 'pending' };
+    if (m.status !== 'ok') return { status: m.status };
+    const d = m.data || {};
+    const links = [];
+    if (d.mbid) links.push({ name: 'MusicBrainz', url: 'https://musicbrainz.org/release-group/' + encodeURIComponent(d.mbid) });
+    if (d.deezerId) links.push({ name: 'Deezer', url: 'https://www.deezer.com/' + (m.kind === 'artist' ? 'artist/' : 'album/') + encodeURIComponent(d.deezerId) });
+    return { status: 'ok', source: m.source, type: d.type || '', secondary: d.secondary || '', year: d.year || 0, genre: d.genre || '',
+      art: !!m.art, artSource: d.artSource || (m.kind === 'artist' && m.art ? 'Deezer' : ''), usingArt: !!(al && al.onlineArt), links };
   }
 
   /* ---------- output shapes ---------- */
@@ -493,7 +556,8 @@ function createMusicLibrary (opts) {
     const idx = buildIndex(mode); const al = idx.albumById.get(String(id));
     if (!al) return null;
     const plays = playsMap(username);
-    return { album: albumOut(al), tracks: al.tracks.map(tid => trackOut(tracks.get(tid), idx, plays)), folder: al.dir };
+    const m = meta && meta.get(metaLib.albumKey(al.artist, al.title));
+    return { album: albumOut(al), tracks: al.tracks.map(tid => trackOut(tracks.get(tid), idx, plays)), folder: al.dir, info: metaInfo(m, al) };
   }
   function artist (mode, id, username) {
     const idx = buildIndex(mode); const ar = idx.artists.get(String(id));
@@ -506,6 +570,7 @@ function createMusicLibrary (opts) {
     const top = songs.filter(t => plays.has(t.id)).sort((a, b) => plays.get(b.id).count - plays.get(a.id).count).slice(0, 10);
     return {
       artist: { id: ar.id, name: ar.name, albums: albums.length, n: ar.n, art: ar.art },
+      info: metaInfo(meta && meta.get(metaLib.artistKey(ar.name)), ar),
       albums: albums.map(albumOut),
       top: top.map(t => trackOut(t, idx, plays)),
       appears: (idx.appears.get(ar.id) || []).filter(tid => !own.has((idx.albumOfTrack.get(tid) || {}).id)).slice(0, 200).map(tid => trackOut(tracks.get(tid), idx, plays))
@@ -812,7 +877,7 @@ function createMusicLibrary (opts) {
 
   return {
     load, scan, scheduleScan, startSchedule, status, buildIndex, libraryPayload, album, artist, genre, songs, search, tracksByIds, shuffle, home, smartList,
-    getTrack, trackExists, sendArt, stream, MODES,
+    getTrack, trackExists, sendArt, stream, MODES, queueMeta, metaChanged, albumMetaJob, artistMetaJob,
     get gen () { return gen; },
     isScanning: () => scanState.running
   };

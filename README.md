@@ -2,6 +2,16 @@
 
 # MEDIARR
 
+## MEDIARR 2.8
+
+MEDIARR 2.8 looks up the details your music files are missing.
+
+- **Cover art** from the **Cover Art Archive** (up to 1200 px), or from **Deezer** when the Cover Art Archive has none, for albums without their own picture.
+- **Release years, genres and release types** (EP, single, live, compilation) from **MusicBrainz**, the open music encyclopedia that Lidarr also uses, with Deezer as a fallback.
+- **Artist photos** from Deezer on the Artists page and artist pages.
+- Album and artist pages say where each detail came from, with links to MusicBrainz and Deezer. Admins can look an album up again or stop using online info for it.
+- Lookups run in the background after each scan. Only artist and album names are sent, and your music files are never changed. Turn it off, choose sources or prefer online covers in the player's **Music settings**. See [Online album info](#online-album-info).
+
 ## MEDIARR 2.7
 
 MEDIARR 2.7 adds a **Music player** for the music on your server, separate from the video player.
@@ -101,7 +111,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.7.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.8.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -120,7 +130,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.7.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.8.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -971,9 +981,28 @@ Compilations are shown as **Various Artists**, featured artists ("feat.", "&", �
 
 On desktop, **Music player** opens in its own tab so music keeps playing while you use the rest of MEDIARR.
 
+### Online album info
+
+The Music player fills in what your music files don't have from two free services. Neither needs an account or API key.
+
+| Source | What it provides |
+| --- | --- |
+| **MusicBrainz** + **Cover Art Archive** | The album match, release year, release type (album, EP, single, live, compilation), genres, and front cover art up to 1200 px. |
+| **Deezer** | Cover art and details for albums MusicBrainz doesn't have or has no cover for, and artist photos. |
+
+- **Only fills gaps.** Your own cover art (folder images and embedded pictures), years and genres always win, unless an admin turns on **Prefer online cover art**.
+- **Careful matching.** Albums are matched on album title and artist. Edition suffixes such as "(Deluxe Edition)" or "[2011 Remaster]" are ignored, compilations match as Various Artists, and an album with the same title by a different artist isn't used.
+- **In the background, politely.** After each scan, new albums and artists are looked up at about one MusicBrainz request a second, as MusicBrainz asks, so a large library fills in over the first hour or so. Albums with no match are tried again after a month. If the services can't be reached, MEDIARR tries again the next day and keeps anything it already found.
+- **Private and safe.** Only artist and album names are sent. Pictures are downloaded once into `cache/music-meta/` in the data folder and served by MEDIARR, so browsers never contact these services. Music files are never modified.
+- **Credits.** Album and artist pages show where the cover, details and photo came from, with links to the MusicBrainz or Deezer page.
+
+Admins control it in the player's **Music settings → Online album info**: turn it on or off (on by default; off also hides what was found), choose the sources, prefer online cover art, see how many albums matched, **Look up unmatched albums now** and **Forget online info**. On an album's **⋯** menu (or an artist page's), admins can **Look up online again** or choose **Don't use online info** for a wrong match.
+
+MEDIARR needs outbound internet access to `musicbrainz.org`, `coverartarchive.org` (which redirects to `archive.org`) and `api.deezer.com` and Deezer's image servers.
+
 ### What's stored
 
-The scanned library and resized cover art are caches (`mediarr.db` and `cache/music-art/` in the data folder) that a rescan rebuilds. Playlists and play counts are kept in `mediarr.db` and included in configuration backups as `music.json`.
+The scanned library, online album info and resized cover art are caches (`mediarr.db` and `cache/music-art/` in the data folder) that a rescan rebuilds. Playlists and play counts are kept in `mediarr.db` and included in configuration backups as `music.json`.
 
 ---
 
@@ -2053,6 +2082,7 @@ MEDIARR/
 ├── server.js                    # Main HTTP server/API/integrations/background jobs
 ├── music.js                     # Music library: folder scanning, album grouping, audio streaming, cover art
 ├── music-tags.js                # Audio tag reader (ID3, Vorbis comments, MP4, RIFF/AIFF; ffprobe fallback)
+├── music-meta.js                # Online album info: MusicBrainz, Cover Art Archive, Deezer
 ├── store.js                     # SQLite storage (mediarr.db) + migration from pre-2.2 JSON files
 └── update-helper.js             # One-shot Docker update/rollback helper
 ```

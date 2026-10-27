@@ -1409,7 +1409,7 @@ function openSettings(){
     </div></div>` +
     `<div class="card mb-3" style="background:var(--bg)"><div class="card-body">
       <div class="fw-bold mb-2">🎧 Music player ${(config&&config.music&&config.music.configured)?'<span class="badge text-bg-success ms-1">set up</span>':''}</div>
-      <div class="small text-secondary mb-2">Folders on the server that hold your music, one per line. Every folder inside them is scanned for MP3, FLAC, OGG, Opus, M4A, ALAC, WAV, AIFF, WMA and more. In Docker, use the path inside the container (for example /music).</div>
+      <div class="small text-secondary mb-2">Folders on the server that hold your music, one per line. Every folder inside them is scanned for MP3, FLAC, OGG, Opus, M4A, ALAC, WAV, AIFF, WMA and more. In Docker, use the path inside the container (for example /music). Missing cover art, years, genres and artist photos are looked up on MusicBrainz and Deezer (change this in the player’s Music settings).</div>
       <label class="form-label small" for="s_music_folders">Music folders</label>
       <textarea class="form-control form-control-sm font-monospace" id="s_music_folders" rows="3" spellcheck="false" autocapitalize="none" placeholder="/music">${esc(((config&&config.music&&config.music.folders)||[]).join('\n'))}</textarea>
       <a class="btn btn-outline-gold btn-sm mt-2" href="/music#/settings">Browse folders, scan &amp; album options</a>
