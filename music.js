@@ -460,7 +460,7 @@ function createMusicLibrary (opts) {
     if (!al.year && d.year) al.year = d.year;
     if (!al.genre && d.genre) al.genre = d.genre;
     al.meta = d;
-    if (m.art && (!al.art || meta.config().preferOnlineArt)) { const k = onlineArt(m); if (k) { al.art = k; al.onlineArt = true; } }
+    if (m.art && (!al.art || meta.config().preferOnlineArt || d.useArt)) { const k = onlineArt(m); if (k) { al.art = k; al.onlineArt = true; } }
   }
   function onlineArt (m) {
     const file = meta.artPath(m); if (!file) return '';
@@ -483,6 +483,27 @@ function createMusicLibrary (opts) {
   function queueMeta (mode) {
     if (!meta) return 0;
     try { const j = metaJobs(); return meta.enqueue(j.albums, j.artists, mode || false); } catch (e) { log('[music] online metadata: ' + e.message); return 0; }
+  }
+  // Matches page: every album with how it is matched (like Plex's Unmatched / Fix Match views)
+  function matchList (mode, filter) {
+    const idx = buildIndex(mode);
+    const counts = { all: 0, matched: 0, manual: 0, unmatched: 0, skipped: 0, pending: 0 };
+    const items = [];
+    for (const al of idx.albums) {
+      const m = meta ? meta.get(metaLib.albumKey(al.artist, al.title)) : null;
+      const d = (m && m.data) || {};
+      const st = !m ? (metaLib.canLookup(al.title, al.artist, al.comp) ? 'pending' : 'unmatched') : m.status === 'ok' ? (d.manual ? 'manual' : 'matched') : m.status === 'skip' ? 'skipped' : m.status === 'error' ? 'pending' : 'unmatched';
+      counts.all++; counts[st]++;
+      if (filter === 'matched' ? !(st === 'matched' || st === 'manual') : (filter && filter !== 'all' && filter !== st)) continue;
+      items.push({ id: al.id, t: al.title, a: al.artist, y: al.year || 0, n: al.n, art: al.art, state: st,
+        note: !m && !metaLib.canLookup(al.title, al.artist, al.comp) ? 'No album or artist name to search for. Use Fix match to search by hand.' : '',
+        match: m && m.status === 'ok' ? { title: d.title || '', artist: d.artist || '', year: d.year || 0, source: m.source, score: d.score || 0, type: d.type || '' } : null,
+        checked: m ? m.checked || 0 : 0 });
+    }
+    // what needs attention first
+    const order = { unmatched: 0, pending: 1, matched: 2, manual: 3, skipped: 4 };
+    items.sort((a, b) => order[a.state] - order[b.state] || (a.match && b.match ? a.match.score - b.match.score : 0) || cmp(sortKey(a.a), sortKey(b.a)) || cmp(sortKey(a.t), sortKey(b.t)));
+    return { counts, items };
   }
   function metaChanged () { gen = Date.now(); indexes.clear(); artMap.clear(); }
   function albumMetaJob (mode, id) {
@@ -517,7 +538,9 @@ function createMusicLibrary (opts) {
     if (d.mbid) links.push({ name: 'MusicBrainz', url: 'https://musicbrainz.org/release-group/' + encodeURIComponent(d.mbid) });
     if (d.deezerId) links.push({ name: 'Deezer', url: 'https://www.deezer.com/' + (m.kind === 'artist' ? 'artist/' : 'album/') + encodeURIComponent(d.deezerId) });
     return { status: 'ok', source: m.source, type: d.type || '', secondary: d.secondary || '', year: d.year || 0, genre: d.genre || '',
-      art: !!m.art, artSource: d.artSource || (m.kind === 'artist' && m.art ? 'Deezer' : ''), usingArt: !!(al && al.onlineArt), links };
+      art: !!m.art, artSource: d.artSource || (m.kind === 'artist' && m.art ? 'Deezer' : ''), usingArt: !!(al && al.onlineArt), links,
+      manual: !!d.manual, useArt: !!d.useArt, score: d.score || 0, matchTitle: d.title || d.name || '', matchArtist: d.artist || '',
+      mbid: d.mbid || '', deezerId: d.deezerId ? String(d.deezerId) : '', ownArt: !!(al && al.localArt) };
   }
 
   /* ---------- output shapes ---------- */
@@ -877,7 +900,7 @@ function createMusicLibrary (opts) {
 
   return {
     load, scan, scheduleScan, startSchedule, status, buildIndex, libraryPayload, album, artist, genre, songs, search, tracksByIds, shuffle, home, smartList,
-    getTrack, trackExists, sendArt, stream, MODES, queueMeta, metaChanged, albumMetaJob, artistMetaJob,
+    getTrack, trackExists, sendArt, stream, MODES, queueMeta, metaChanged, albumMetaJob, artistMetaJob, matchList,
     get gen () { return gen; },
     isScanning: () => scanState.running
   };

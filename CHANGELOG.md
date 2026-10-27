@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.9.0
+
+### Plex-style matching for the Music player
+
+- New **Fix match…** for albums and artists (admins): search MusicBrainz and Deezer with editable title and artist, see each candidate's cover, artist, year, release type, track count, source and match score, and pick the right one. For albums with their own picture, **Use the matched album's cover** replaces it. Hand-picked matches are never replaced automatically.
+- New **Refresh metadata** (re-reads the current match; for hand-picked ones, the album you picked) and **Unmatch** / **Match automatically again** in album and artist menus, including the right-click menu on album covers.
+- New **Album matches** page for admins (sidebar and Music settings → **Review matches**): every album as Matched (with score; under 90% flagged), Fixed by hand, No match, Unmatched or Not looked up yet, with filters, counts and **Fix match…** on each row. Albums needing attention are listed first.
+- Candidate covers in Fix match load through MEDIARR, which only fetches from the Cover Art Archive, archive.org and Deezer's image servers, so the browser never contacts these services.
+
+### Better automatic matching
+
+- "ACDC" matches "AC/DC" (and similar spellings): artist and title comparisons also ignore spaces and punctuation.
+- Folder leftovers in album names are ignored when matching: a trailing "CD" or "Disc 2", "[FLAC]", "(320kbps)", "{WEB}" and a leading "1976 - ".
+- When searching MusicBrainz with the artist finds nothing, MEDIARR searches by album title alone and checks the artist itself; Deezer gets a title-only search as well.
+- Each match records a score, shown on the Album matches page.
+
+### Fixed
+
+- "Last problem: MusicBrainz is busy (rate limited)": when MusicBrainz asks MEDIARR to slow down, MEDIARR now waits as long as asked (or backs off), temporarily spaces its requests further apart and tries again, instead of giving up on that album until the next day. Albums that are still refused are put back in line after a minute.
+- Requests to each service are now queued strictly one after another, so a Fix match search and background lookups together still stay within MusicBrainz's one request a second.
+- Music settings only shows a red problem when it's still happening: "can't reach the music services" for connection failures (with the internet hint), and a calm note when MusicBrainz is just busy.
+
 ## 2.8.0
 
 ### Online album info for the Music player

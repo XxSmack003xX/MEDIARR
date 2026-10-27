@@ -2,6 +2,16 @@
 
 # MEDIARR
 
+## MEDIARR 2.9
+
+MEDIARR 2.9 gives the Music player Plex-style matching.
+
+- **Fix match** — on any album (or artist), search MusicBrainz and Deezer yourself and pick the right one from a list with covers, year, type, track count and a match score. Your choice is kept and never replaced automatically.
+- **Refresh metadata** and **Unmatch**, like Plex, in each album's and artist's **⋯** menu.
+- **Album matches** — a new admin page lists every album as Matched (with its score), Fixed by hand, No match, Unmatched or Not looked up yet, with **Fix match** on each row. Low-confidence matches are flagged for a second look.
+- **Better automatic matching** — "ACDC" now matches "AC/DC", and folder leftovers such as "CD", "Disc 2", "[FLAC]" or a leading year no longer get in the way.
+- **"MusicBrainz is busy" fixed** — when MusicBrainz asks MEDIARR to slow down, it now waits as long as asked and tries again instead of giving up on those albums until the next day, and the settings page no longer shows it as an error.
+
 ## MEDIARR 2.8
 
 MEDIARR 2.8 looks up the details your music files are missing.
@@ -111,7 +121,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.8.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.9.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -130,7 +140,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.8.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.9.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -991,12 +1001,24 @@ The Music player fills in what your music files don't have from two free service
 | **Deezer** | Cover art and details for albums MusicBrainz doesn't have or has no cover for, and artist photos. |
 
 - **Only fills gaps.** Your own cover art (folder images and embedded pictures), years and genres always win, unless an admin turns on **Prefer online cover art**.
-- **Careful matching.** Albums are matched on album title and artist. Edition suffixes such as "(Deluxe Edition)" or "[2011 Remaster]" are ignored, compilations match as Various Artists, and an album with the same title by a different artist isn't used.
-- **In the background, politely.** After each scan, new albums and artists are looked up at about one MusicBrainz request a second, as MusicBrainz asks, so a large library fills in over the first hour or so. Albums with no match are tried again after a month. If the services can't be reached, MEDIARR tries again the next day and keeps anything it already found.
+- **Careful matching.** Albums are matched on album title and artist. Edition suffixes such as "(Deluxe Edition)" or "[2011 Remaster]" and folder leftovers such as "CD", "Disc 2", "[FLAC]" or a leading year are ignored, punctuation in names doesn't matter ("ACDC" matches "AC/DC"), compilations match as Various Artists, and an album with the same title by a different artist isn't used. If nothing turns up for the artist's spelling, MEDIARR searches by album title and checks the artist itself.
+- **In the background, politely.** After each scan, new albums and artists are looked up at about one MusicBrainz request a second, as MusicBrainz asks, so a large library fills in over the first hour or so. When MusicBrainz says it's busy, MEDIARR waits as long as it asks, slows down for a while and tries again; that's normal and isn't shown as an error. Albums with no match are tried again after a month. If the services can't be reached at all, MEDIARR tries again the next day and keeps anything it already found.
 - **Private and safe.** Only artist and album names are sent. Pictures are downloaded once into `cache/music-meta/` in the data folder and served by MEDIARR, so browsers never contact these services. Music files are never modified.
 - **Credits.** Album and artist pages show where the cover, details and photo came from, with links to the MusicBrainz or Deezer page.
 
-Admins control it in the player's **Music settings → Online album info**: turn it on or off (on by default; off also hides what was found), choose the sources, prefer online cover art, see how many albums matched, **Look up unmatched albums now** and **Forget online info**. On an album's **⋯** menu (or an artist page's), admins can **Look up online again** or choose **Don't use online info** for a wrong match.
+Admins control it in the player's **Music settings → Online album info**: turn it on or off (on by default; off also hides what was found), choose the sources, prefer online cover art, see how many albums matched, **Review matches**, **Look up unmatched albums now** and **Forget online info**.
+
+### Fixing matches (like Plex)
+
+Admins fix wrong or missing matches the way Plex does:
+
+- **Fix match…** (album or artist **⋯** menu, or the **Album matches** page) opens a search with the album title and artist filled in. Results from MusicBrainz and Deezer show their cover, artist, year, release type, track count and a match score; the current match is marked. Pick one to use it. For an album with its own picture, tick **Use the matched album's cover** to replace it.
+- A match you pick is kept: later scans, **Look up unmatched albums now** and re-looking up everything never replace it. **Refresh metadata** re-reads the album you picked.
+- **Unmatch** stops using online info for that album or artist; **Match automatically again** undoes it.
+- **Album matches** (in the sidebar for admins) lists every album as **Matched** (with its score; scores under 90% are flagged), **Fixed by hand**, **No match**, **Unmatched** or **Not looked up yet**, with filters and a **Fix match…** button on each row. Albums needing attention come first.
+- For artists, Fix match searches Deezer and changes the artist photo.
+
+Candidate covers in the search load through MEDIARR, which only fetches pictures from the Cover Art Archive, archive.org and Deezer's image servers.
 
 MEDIARR needs outbound internet access to `musicbrainz.org`, `coverartarchive.org` (which redirects to `archive.org`) and `api.deezer.com` and Deezer's image servers.
 

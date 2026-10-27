@@ -6754,10 +6754,35 @@ async function musicApi (p, u, req, res, me) {
     return sendPlain(200, { ok: true, queued: n, meta: musicMeta.status() });
   }
   if (p === '/api/music/meta/clear' && req.method === 'POST') { await musicMeta.clearAll(); return sendPlain(200, { ok: true, meta: musicMeta.status() }); }
+  if (p === '/api/music/meta/albums' && req.method === 'GET') {
+    const f = String(q.get('filter') || 'all');
+    return sendPlain(200, Object.assign(musicLib.matchList(mode, ['all', 'matched', 'manual', 'unmatched', 'skipped', 'pending'].includes(f) ? f : 'all'), { online: musicOnlineConfig(), meta: musicMeta.status() }));
+  }
+  if (p === '/api/music/meta/search' && req.method === 'GET') {
+    if (!musicOnlineConfig().enabled) return sendPlain(400, { message: 'Turn on online album info in Music settings first' });
+    const r = q.get('kind') === 'artist' ? await musicMeta.searchArtists(String(q.get('name') || '').slice(0, 200))
+      : await musicMeta.searchAlbums(String(q.get('title') || '').slice(0, 200), String(q.get('artist') || '').slice(0, 200));
+    // candidate pictures load through MEDIARR, never straight from the services
+    for (const x of r.results) x.thumb = x.thumb ? '/api/music/meta/thumb?u=' + encodeURIComponent(x.thumb) : '';
+    return sendPlain(200, r);
+  }
+  if (p === '/api/music/meta/thumb' && req.method === 'GET') {
+    let t = null; try { t = await musicMeta.thumb(String(q.get('u') || '')); } catch (_) {}
+    if (!t) { res.writeHead(404, { 'Cache-Control': 'private, max-age=600' }); return res.end(); }
+    res.writeHead(200, { 'Content-Type': t.type, 'Content-Length': t.body.length, 'Cache-Control': 'private, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+    return res.end(t.body);
+  }
   if ((m = p.match(/^\/api\/music\/meta\/(album|artist)\/([a-f0-9]{12,16})$/)) && req.method === 'POST') {
     const b = await body();
     const job = m[1] === 'album' ? musicLib.albumMetaJob(mode, m[2]) : musicLib.artistMetaJob(mode, m[2]);
     if (!job) return sendPlain(404, { message: m[1] === 'album' ? 'Album not found' : 'Artist not found' });
+    if (b.action === 'match') {
+      if (!musicOnlineConfig().enabled) return sendPlain(400, { message: 'Turn on online album info in Music settings first' });
+      try {
+        const rec = job.kind === 'artist' ? await musicMeta.applyArtistMatch(job, String(b.id || '')) : await musicMeta.applyAlbumMatch(job, String(b.source || ''), String(b.id || ''), !!b.useArt);
+        return sendPlain(200, { ok: true, message: 'Matched to ' + (rec.data.title || rec.data.name || 'the chosen ' + job.kind) + (rec.data.artist ? ' by ' + rec.data.artist : '') });
+      } catch (e) { return sendPlain(e.busy ? 503 : 502, { message: e.message }); }
+    }
     if (b.action === 'skip' || b.action === 'unskip') {
       musicMeta.setSkip(job.key, job.name, job.kind, b.action === 'skip');
       if (b.action === 'unskip' && musicOnlineConfig().enabled) musicMeta.refreshNow(job).catch(() => {});
@@ -6765,6 +6790,12 @@ async function musicApi (p, u, req, res, me) {
     }
     if (!musicOnlineConfig().enabled) return sendPlain(400, { message: 'Turn on online album info in Music settings first' });
     try {
+      const cur = musicMeta.get(job.key);
+      if (cur && cur.status === 'ok' && cur.data && cur.data.manual) {   // refresh a hand-picked match from the same album/artist
+        const rec = job.kind === 'artist' ? await musicMeta.applyArtistMatch(job, String(cur.data.deezerId || ''))
+          : await musicMeta.applyAlbumMatch(job, cur.source, String(cur.source === 'deezer' ? cur.data.deezerId : cur.data.mbid), !!cur.data.useArt);
+        return sendPlain(200, { ok: true, status: rec.status, source: rec.source, art: !!rec.art, message: 'Refreshed from ' + (rec.source === 'deezer' ? 'Deezer' : 'MusicBrainz') });
+      }
       const rec = await musicMeta.refreshNow(Object.assign({}, job, { haveArt: musicOnlineConfig().preferOnlineArt ? false : job.haveArt }));
       return sendPlain(200, { ok: true, status: rec.status, source: rec.source, art: !!rec.art, message: rec.status === 'ok' ? 'Found on ' + (rec.source === 'deezer' ? 'Deezer' : 'MusicBrainz') : rec.status === 'error' ? 'Couldn’t reach the music services: ' + (musicMeta.status().lastError || 'no answer') : 'No match found online' });
     } catch (e) { return sendPlain(502, { message: e.message }); }
