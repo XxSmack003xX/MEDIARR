@@ -19,6 +19,7 @@
  *   music_playlists, music_playlist_items, music_plays
  *                   per-user playlists and play counts (included in backups)
  *   music_meta      online album/artist matches, years, genres and downloaded art (a cache)
+ *   music_keys      per-user keys for direct music links, each with its own expiry
  *
  * Uses Node's built-in node:sqlite (Node.js 22.13+), so MEDIARR still needs no
  * npm install. On first launch, migrateLegacy() imports the old JSON files, verifies
@@ -29,7 +30,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 
-const SCHEMA_VERSION = 3;   // 2 (v2.7): music library, playlists and play counts; 3 (v2.8): online music metadata
+const SCHEMA_VERSION = 4;   // 2 (v2.7): music library, playlists and play counts; 3 (v2.8): online music metadata; 4 (v2.10): music link keys
 const LIMITS = { activity: 50000, errors: 2000, blocks: 5000, inbox: 2000, watchPerUser: 1000 };
 // Old JSON files this store replaces. Deleted after a verified migration.
 const LEGACY_FILES = ['adds.json', 'watch-progress.json', 'v2-state.json', 'errors.json', 'health.json', 'blocked.json'];
@@ -372,6 +373,29 @@ function open (dataDir, opts) {
     clear () { db.exec('DELETE FROM music_meta'); }
   };
 
+  /* ---------- direct music link keys (v2.10) ---------- */
+  const row2key = r => r && ({ id: r.id, username: r.username, label: r.label || '', key: r.key, created: r.created || 0, expires: r.expires || 0, lastUsed: r.last_used || 0, uses: r.uses || 0, lastIp: r.last_ip || '' });
+  const musicKeys = {
+    forUser (username) { return prep('mkUser', 'SELECT * FROM music_keys WHERE username=? ORDER BY created DESC').all(String(username)).map(row2key); },
+    all () { return prep('mkAll', 'SELECT * FROM music_keys ORDER BY username, created DESC').all().map(row2key); },
+    byKey (key) { return row2key(prep('mkByKey', 'SELECT * FROM music_keys WHERE key=?').get(String(key))) || null; },
+    byId (id) { return row2key(prep('mkById', 'SELECT * FROM music_keys WHERE id=?').get(String(id))) || null; },
+    create (k) {
+      prep('mkNew', 'INSERT INTO music_keys(id,username,label,key,created,expires,last_used,uses,last_ip) VALUES(?,?,?,?,?,?,0,0,\'\')')
+        .run(String(k.id), String(k.username), str(k.label, 80) || '', String(k.key), num(k.created) || Date.now(), num(k.expires));
+    },
+    update (id, fields) {
+      if (fields.expires != null) prep('mkExp', 'UPDATE music_keys SET expires=? WHERE id=?').run(num(fields.expires), String(id));
+      if (fields.label != null) prep('mkLabel', 'UPDATE music_keys SET label=? WHERE id=?').run(str(fields.label, 80) || '', String(id));
+    },
+    used (id, ip) { prep('mkUsed', 'UPDATE music_keys SET uses=uses+1, last_used=?, last_ip=? WHERE id=?').run(Date.now(), str(ip, 80) || '', String(id)); },
+    remove (id) { return prep('mkDel', 'DELETE FROM music_keys WHERE id=?').run(String(id)).changes > 0; },
+    removeForUser (username) { prep('mkDelUser', 'DELETE FROM music_keys WHERE username=?').run(String(username)); },
+    // keys that ran out more than `keepMs` ago are dropped
+    prune (now, keepMs) { prep('mkPrune', 'DELETE FROM music_keys WHERE expires>0 AND expires<?').run(now - keepMs); },
+    capAll (maxExpires) { prep('mkCap', 'UPDATE music_keys SET expires=? WHERE expires=0 OR expires>?').run(num(maxExpires), num(maxExpires)); }
+  };
+
   /* ---------- legacy import shared by migration and backup restore ---------- */
   function importLegacyDoc (name, doc) {
     switch (name) {
@@ -527,7 +551,7 @@ function open (dataDir, opts) {
 
   function close () { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (_) {} try { db.close(); } catch (_) {} }
 
-  return { db, file, kv, activity, watch, inbox, errors, blocks, sessions, music, musicMeta, importLegacyDoc, restoreLegacyDoc, migrateLegacy, close, sha256, LIMITS, LEGACY_FILES };
+  return { db, file, kv, activity, watch, inbox, errors, blocks, sessions, music, musicMeta, musicKeys, importLegacyDoc, restoreLegacyDoc, migrateLegacy, close, sha256, LIMITS, LEGACY_FILES };
 }
 
 function migrateSchema (db) {
@@ -582,6 +606,14 @@ function migrateSchema (db) {
       key TEXT PRIMARY KEY, kind TEXT NOT NULL, status TEXT NOT NULL, source TEXT, name TEXT,
       data TEXT, art TEXT, checked INTEGER);
     PRAGMA user_version = 3;
+    COMMIT;`);
+  if (v < 4) db.exec(`
+    BEGIN;
+    CREATE TABLE IF NOT EXISTS music_keys (
+      id TEXT PRIMARY KEY, username TEXT NOT NULL, label TEXT, key TEXT NOT NULL UNIQUE,
+      created INTEGER, expires INTEGER, last_used INTEGER, uses INTEGER, last_ip TEXT);
+    CREATE INDEX IF NOT EXISTS music_keys_user ON music_keys(username);
+    PRAGMA user_version = 4;
     COMMIT;`);
 }
 

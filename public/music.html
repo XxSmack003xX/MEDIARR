@@ -305,6 +305,19 @@
   .fmsg{font-size:12px;color:var(--red);margin:-4px 0 8px 4px}
   .credit{font-size:12px;color:var(--muted);margin-top:12px}
   #dlg .box.fm{width:min(720px,100%);max-height:90vh}
+  #dlg .box.lk{width:min(640px,100%)}
+  .lkrow{display:flex;gap:12px;flex-wrap:wrap}
+  .lkcopy{display:flex;gap:8px}.lkcopy .inp{flex:1;min-width:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  .keys{display:flex;flex-direction:column;gap:6px}
+  .key{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;border-radius:12px;background:var(--panel2)}
+  .key.exp{opacity:.75}
+  .key .grow{min-width:0;flex:1}
+  .kmeta{font-size:12.5px;color:var(--muted);margin-top:2px}.kmeta .bad{color:var(--red)}
+  .kval{font-size:11.5px;color:var(--muted)}
+  .kact{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .sel.sm{padding:6px 28px 6px 10px;font-size:12.5px;border-radius:9px;width:auto;max-width:220px}
+  .btn.danger{color:var(--red)}
+  .sub3{font-size:14px;margin:18px 0 8px}
   .fmq{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
   .fmq .inp{flex:1 1 180px;min-width:0}
   .fmart{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);margin:2px 0 10px}
@@ -550,6 +563,7 @@ const I={
   up:sv('<path d="m18 15-6-6-6 6"/>',18),
   dn:sv('<path d="m6 9 6 6 6-6"/>',18),
   search:sv('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',18),
+  link:sv('<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',18),
   refresh:sv('<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/><path d="M3 12A9 9 0 0 1 18.5 5.8L21 8"/><path d="M21 3v5h-5"/>',16)
 };
 
@@ -940,6 +954,7 @@ async function viewPlaylist(id){
   $('#pMore').onclick=e=>openMenu(e,[
     {label:'Rename',icon:I.edit,fn:async()=>{ const n=await promptDlg('Rename playlist','Name',d.name); if(!n)return; await api('/api/music/playlists/'+id,{method:'POST',body:{name:n}}); await loadPlaylists(); route(true); }},
     {label:'Add all to Up Next',icon:I.addq,fn:()=>{ addToQueue(d.tracks); }},
+    ...(linksOn()?[{label:'Copy playlist link (M3U)…',icon:I.link,fn:()=>linkDialog('playlist',id,null,d.name)}]:[]),
     {sep:1},
     {label:'Delete playlist',icon:I.trash,fn:async()=>{ if(!await confirmDlg('Delete “'+d.name+'”?','The songs stay in your library.'))return; await api('/api/music/playlists/'+id,{method:'DELETE'}); await loadPlaylists(); location.hash='#/playlists'; toast('Playlist deleted'); }}
   ]);
@@ -1041,6 +1056,7 @@ async function viewSettings(){
       +'<div id="metaStatus" style="margin-top:12px"></div>'
       +'<div class="tools" style="margin-top:12px"><a class="btn primary" href="#/matches">'+I.album+'Review matches</a><button class="btn" id="oRun">'+I.refresh+'Look up unmatched albums now</button><button class="btn" id="oClear">Forget online info</button></div>'
       +'</section>':'')
+    +(st.links&&(st.links.enabled||admin)?'<section class="card-s" id="linksCard"><h2>Direct links</h2><p>Link keys let you play songs, albums and playlists outside MEDIARR (in VLC, a browser, a smart speaker or another app) without signing in. A key only plays music and stops working when it expires; change how long it works or revoke it here. Copy a link from any song’s, album’s or playlist’s ⋯ menu.</p><div id="keysBox"><div class="muted">Loading…</div></div></section>':'')
     +'<section class="card-s"><h2>Keyboard shortcuts</h2><dl class="kv"><dt>Space</dt><dd>Play / pause</dd><dt>← →</dt><dd>Back / forward 10 seconds</dd><dt>Shift + ← →</dt><dd>Previous / next song</dd><dt>↑ ↓</dt><dd>Volume</dd><dt>S · R · M · Q</dt><dd>Shuffle · repeat · mute · Up Next</dd><dt>/</dt><dd>Search</dd></dl></section>';
   const savePrefs=async()=>{
     const body={keepAlbums:$('#pKeep').checked,strictFolders:$('#pStrict').checked,albumShuffle:$('#pAlbumShuffle').checked,continueAlbum:$('#pContinue').checked};
@@ -1048,6 +1064,7 @@ async function viewSettings(){
     try{ const np=await api('/api/music/prefs',{method:'POST',body}); const modeChanged=np.mode!==S.mode; S.prefs=np; S.mode=np.mode; if(modeChanged){ await loadLibrary(true); toast('Albums regrouped'); } else toast('Saved'); }catch(e){ toast(e.message); }
   };
   ['#pKeep','#pStrict','#pAlbumShuffle','#pContinue'].forEach(s=>$(s).onchange=savePrefs);
+  paintKeys(admin);
   if(!admin)return;
   let folders=(cfg&&cfg.folders)||[];
   $('#fInt').value=String(cfg?cfg.scanIntervalHours:12); if(!$('#fInt').value)$('#fInt').value='12';
@@ -1096,6 +1113,39 @@ async function viewSettings(){
   $('#oRun').onclick=async()=>{ try{ const r=await api('/api/music/meta/run',{method:'POST',body:{}}); S.status.meta=r.meta; toast(r.queued?'Looking up '+r.queued.toLocaleString()+(r.queued===1?' album or artist':' albums and artists')+'…':'Nothing left to look up'); paintMeta(); }catch(e){ toast(e.message); } };
   $('#oClear').onclick=async()=>{ if(!confirm('Forget all online album info and downloaded covers? They’ll be looked up again after the next scan.'))return; try{ const r=await api('/api/music/meta/clear',{method:'POST',body:{}}); S.status.meta=r.meta; await loadLibrary(true); toast('Online info forgotten'); paintMeta(); }catch(e){ toast(e.message); } };
   paintMeta();
+}
+async function paintKeys(admin){
+  const box=$('#keysBox'); if(!box)return;
+  let d; try{ d=await api('/api/music/keys'+(admin?'?all=1':'')); }catch(e){ box.innerHTML='<div class="fmsg">'+esc(e.message)+'</div>'; return; }
+  if(S.route!=='settings')return;
+  const pol=d.policy, ch=linkChoices(pol);
+  const chSel=(id,cls)=>'<select class="sel sm '+(cls||'')+'" data-k="'+id+'" aria-label="Change how long it works"><option value="">Change expiry…</option>'+ch.map(([h,l])=>'<option value="'+h+'">'+(h?'Works for '+l+' from now':'Never expires')+'</option>').join('')+'</select>';
+  let h='';
+  if(!pol.enabled) h+='<div class="banner"><div class="grow">Direct links are turned off, so existing links don’t work. '+(admin?'Turn them on below.':'Ask your admin to turn them on.')+'</div></div>';
+  h+=d.keys.length?'<div class="keys">'+d.keys.map(k=>'<div class="key'+(k.expired?' exp':'')+'"><div class="grow"><b>'+esc(k.label)+'</b><div class="kmeta"><span class="'+(k.expired?'bad':'')+'">'+esc(expText(k))+'</span> · '+(k.uses?'used '+plural(k.uses,'time')+', last '+relTime(k.lastUsed):'not used yet')+' · created '+relTime(k.created)+'</div><code class="kval">'+esc(k.key.slice(0,10))+'…</code></div><div class="kact">'+chSel(k.id)+'<button class="btn sm" data-copy="'+k.id+'" title="Copy the key">Copy key</button><button class="btn sm danger" data-rev="'+k.id+'">Revoke</button></div></div>').join('')+'</div>'
+    :'<div class="muted" style="margin-bottom:8px">You don’t have any link keys yet.</div>';
+  h+=pol.enabled?'<div class="tools" style="margin-top:10px"><button class="btn primary" id="kNew">'+I.plus+'New link key</button></div>':'';
+  if(admin){
+    const opt=(v,l,cur)=>'<option value="'+v+'"'+(v===cur?' selected':'')+'>'+l+'</option>';
+    h+='<h3 class="sub3">For everyone (admin)</h3>'
+      +'<label class="tog"><span class="grow"><b>Allow direct links</b><small>Turn off to stop every link key from working at once (keys are kept, so turning it back on restores them).</small></span><span class="sw"><input type="checkbox" id="lOn"'+(pol.enabled?' checked':'')+'><i></i></span></label>'
+      +'<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px"><div class="field" style="flex:1;min-width:200px"><label for="lMax">Longest a key can work</label><select class="sel" id="lMax" style="border-radius:10px;width:100%">'+opt(1,'1 day',pol.maxDays)+opt(7,'7 days',pol.maxDays)+opt(30,'30 days',pol.maxDays)+opt(90,'90 days',pol.maxDays)+opt(365,'1 year',pol.maxDays)+opt(0,'No limit (keys can be permanent)',pol.maxDays)+'</select><div class="help">Lowering it also shortens keys that already run longer.</div></div>'
+      +'<div class="field" style="flex:1;min-width:200px"><label for="lDef">Default for new keys</label><select class="sel" id="lDef" style="border-radius:10px;width:100%">'+opt(1,'1 day',pol.defaultDays)+opt(7,'7 days',pol.defaultDays)+opt(30,'30 days',pol.defaultDays)+opt(90,'90 days',pol.defaultDays)+opt(365,'1 year',pol.defaultDays)+opt(0,'Never expires',pol.defaultDays)+'</select></div></div>'
+      +'<h3 class="sub3">Everyone’s keys</h3>'+((d.all||[]).length?'<div class="keys">'+d.all.map(k=>'<div class="key'+(k.expired?' exp':'')+'"><div class="grow"><b>'+esc(k.username)+' · '+esc(k.label)+'</b><div class="kmeta"><span class="'+(k.expired?'bad':'')+'">'+esc(expText(k))+'</span> · '+(k.uses?'used '+plural(k.uses,'time')+', last '+relTime(k.lastUsed):'not used yet')+'</div></div><div class="kact"><button class="btn sm danger" data-rev="'+k.id+'">Revoke</button></div></div>').join('')+'</div>':'<div class="muted">Nobody has a link key.</div>');
+  }
+  box.innerHTML=h;
+  box.querySelectorAll('[data-k]').forEach(sel=>sel.onchange=async()=>{ if(sel.value==='')return; try{ await api('/api/music/keys/'+sel.dataset.k,{method:'POST',body:{hours:Number(sel.value)}}); toast('Updated'); paintKeys(admin); }catch(e){ toast(e.message); sel.value=''; } });
+  box.querySelectorAll('[data-rev]').forEach(b=>b.onclick=async()=>{ if(!await confirmDlg('Revoke this key?','Every link made with it stops working straight away.'))return; try{ await api('/api/music/keys/'+b.dataset.rev,{method:'DELETE'}); toast('Key revoked'); paintKeys(admin); }catch(e){ toast(e.message); } });
+  box.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{ const k=d.keys.find(x=>x.id===b.dataset.copy); toast(await copyText(k.key)?'Key copied':'Couldn’t copy'); });
+  const nb=$('#kNew'); if(nb) nb.onclick=async()=>{
+    const def=pol.defaultDays?pol.defaultDays*24:0;
+    const r=await dlg('New link key','<div class="field"><label for="nkLabel">Name</label><input class="inp" id="nkLabel" value="Direct links" maxlength="80"></div><div class="field"><label for="nkHours">Works for</label><select class="sel" id="nkHours" style="border-radius:10px;width:100%">'+ch.map(([h,l])=>'<option value="'+h+'"'+(h===def?' selected':'')+'>'+l+'</option>').join('')+'</select></div>',[{label:'Cancel',value:()=>null},{label:'Create',primary:true,value:dd=>({label:dd.querySelector('#nkLabel').value,hours:Number(dd.querySelector('#nkHours').value)})}]);
+    if(!r)return; try{ await api('/api/music/keys',{method:'POST',body:r}); toast('Key created. Copy links from any song, album or playlist menu.'); paintKeys(admin); }catch(e){ toast(e.message); }
+  };
+  if(admin){
+    const savePol=async()=>{ try{ await api('/api/config',{method:'POST',body:{music:{links:{enabled:$('#lOn').checked,maxDays:Number($('#lMax').value),defaultDays:Number($('#lDef').value)}}}}); await loadStatus(); toast('Saved'); paintKeys(admin); }catch(e){ toast(e.message); } };
+    $('#lOn').onchange=$('#lMax').onchange=$('#lDef').onchange=savePol;
+  }
 }
 let metaTimer=null;
 function paintMeta(){
@@ -1166,7 +1216,8 @@ function trackMenu(t,e,L,i){
     {label:'Add to playlist…',icon:I.plist,fn:()=>addToPlaylist([t.id])},
     {sep:1},
     {label:'Go to album',icon:I.disc,fn:()=>{ location.hash='#/album/'+t.ali; }},
-    {label:'Go to artist',icon:I.artist,fn:()=>{ location.hash='#/artist/'+t.ai; }}
+    {label:'Go to artist',icon:I.artist,fn:()=>{ location.hash='#/artist/'+t.ai; }},
+    ...(linksOn()?[{sep:1},{label:'Copy direct link…',icon:I.link,fn:()=>linkDialog('t',t.id,t,t.t)}]:[])
   ];
   if(L&&L.ctx&&L.ctx.playlistId){
     const pid=L.ctx.playlistId;
@@ -1206,6 +1257,69 @@ function metaMenuItems(kind,id,inf){
     if(!inf||inf.status==='ok') items.push({label:'Unmatch',icon:I.x,fn:()=>metaAction(kind,id,'skip')});
   }
   return items;
+}
+/* ---------- direct links (2.10) ---------- */
+const LINK_CHOICES=[[1,'1 hour'],[24,'1 day'],[168,'7 days'],[720,'30 days'],[2160,'90 days'],[8760,'1 year'],[0,'Never']];
+const linksOn=()=>!!(S.status&&S.status.links&&S.status.links.enabled);
+function linkChoices(policy){ return LINK_CHOICES.filter(([h])=>h===0?!policy.maxDays:(!policy.maxDays||h<=policy.maxDays*24)); }
+function relTime(ts){
+  const d=ts-Date.now(), a=Math.abs(d), m=Math.round(a/60000), h=Math.round(a/3600000), dd=Math.round(a/86400000);
+  const s=m<1?'less than a minute':m<60?plural(m,'minute'):h<48?plural(h,'hour'):dd<60?plural(dd,'day'):dd<730?plural(Math.round(dd/30),'month'):plural(Math.round(dd/365),'year');
+  return d>=0?'in '+s:s+' ago';
+}
+function expText(k){ return !k.expires?'Never expires':k.expired?'Expired '+relTime(k.expires):'Expires '+relTime(k.expires); }
+function directUrl(key,kind,id,t,fmt){
+  const base=location.origin+'/music/d/'+key+'/';
+  if(kind==='t'){ const ext=fmt==='mp3'?'mp3':(t&&t.x||'audio'); const name=((t?[t.a,t.t].filter(Boolean).join(' - '):'')||'track').replace(/[\\/:*?"<>|#%]+/g,' ').trim().slice(0,120)+'.'+ext; return base+'t/'+id+'/'+encodeURIComponent(name)+(fmt==='mp3'?'?format=mp3':''); }
+  const q=[]; if(kind==='album')q.push('m='+S.mode); if(fmt==='mp3')q.push('format=mp3');
+  return base+kind+'/'+id+'.m3u8'+(q.length?'?'+q.join('&'):'');
+}
+async function copyText(text,input){
+  try{ await navigator.clipboard.writeText(text); return true; }
+  catch(_){ if(input){ input.focus(); input.select(); try{ return document.execCommand('copy'); }catch(__){} } return false; }
+}
+function modal(title,inner,cls){
+  const d=document.createElement('div'); d.id='dlg';
+  d.innerHTML='<div class="box '+(cls||'')+'" role="dialog" aria-modal="true" aria-label="'+esc(title)+'"><div class="dh"><h3>'+esc(title)+'</h3><button class="iconbtn" data-x aria-label="Close">'+I.x+'</button></div><div class="db">'+inner+'</div></div>';
+  document.body.appendChild(d);
+  const key=e=>{ if(e.key==='Escape'){ e.stopPropagation(); close(); } };
+  const close=()=>{ d.remove(); document.removeEventListener('keydown',key,true); };
+  document.addEventListener('keydown',key,true);
+  d.onclick=e=>{ if(e.target===d)close(); };
+  d.querySelector('[data-x]').onclick=close;
+  return {el:d,close,body:d.querySelector('.db')};
+}
+async function linkDialog(kind,id,t,title){
+  let data; try{ data=await api('/api/music/keys'); }catch(e){ toast(e.message); return; }
+  if(!data.policy.enabled){ toast('Direct links are turned off'); return; }
+  const what=kind==='t'?'song':kind==='album'?'album':'playlist';
+  const m=modal('Direct link: '+(title||what),'','lk');
+  const paint=()=>{
+    const active=data.keys.filter(k=>!k.expired);
+    if(!active.length){
+      const ch=linkChoices(data.policy), def=data.policy.defaultDays?data.policy.defaultDays*24:0;
+      m.body.innerHTML='<p class="muted" style="font-size:13px;margin:0 0 12px">A direct link plays this '+what+' outside MEDIARR, in VLC, a browser, a smart speaker or another app, without signing in. Links use a <b>link key</b> that only plays music and stops working when it expires. You don’t have one yet.</p>'
+        +'<div class="field"><label for="lkLabel">Name</label><input class="inp" id="lkLabel" value="Direct links" maxlength="80"></div>'
+        +'<div class="field"><label for="lkHours">Works for</label><select class="sel" id="lkHours" style="border-radius:10px;width:100%">'+ch.map(([h,l])=>'<option value="'+h+'"'+(h===def?' selected':'')+'>'+l+'</option>').join('')+'</select></div>'
+        +'<div class="tools" style="margin-top:12px"><button class="btn primary" id="lkCreate">'+I.link+'Create key and link</button></div>';
+      m.body.querySelector('#lkCreate').onclick=async()=>{
+        try{ const r=await api('/api/music/keys',{method:'POST',body:{label:m.body.querySelector('#lkLabel').value,hours:Number(m.body.querySelector('#lkHours').value)}}); data.keys.unshift(r.key); paint(); }catch(e){ toast(e.message); }
+      };
+      return;
+    }
+    const sel=m.body.querySelector('#lkKey'), cur=sel?sel.value:active[0].id, fmtSel=m.body.querySelector('#lkFmt'), fmt=fmtSel?fmtSel.value:'';
+    const k=active.find(x=>x.id===cur)||active[0];
+    const url=directUrl(k.key,kind,id,t,fmt);
+    m.body.innerHTML='<div class="lkrow"><div class="field" style="flex:1;min-width:180px"><label for="lkKey">Link key</label><select class="sel" id="lkKey" style="border-radius:10px;width:100%">'+active.map(x=>'<option value="'+x.id+'"'+(x.id===k.id?' selected':'')+'>'+esc(x.label)+' · '+esc(expText(x).toLowerCase())+'</option>').join('')+'</select></div>'
+      +'<div class="field" style="flex:1;min-width:180px"><label for="lkFmt">Format</label><select class="sel" id="lkFmt" style="border-radius:10px;width:100%"><option value="">Original files'+(t&&t.x?' ('+esc(String(t.x).toUpperCase())+')':'')+'</option><option value="mp3"'+(fmt==='mp3'?' selected':'')+'>MP3 (plays everywhere)</option></select></div></div>'
+      +'<div class="field"><label for="lkUrl">'+(kind==='t'?'Link to this song':'Playlist link (M3U) with every song')+'</label><div class="lkcopy"><input class="inp" id="lkUrl" readonly value="'+esc(url)+'"><button class="btn primary" id="lkCopy">Copy</button></div></div>'
+      +'<p class="muted" style="font-size:12.5px;margin:10px 0 0">Anyone with this link can play it '+(k.expires?'until the key expires '+relTime(k.expires)+' ('+new Date(k.expires).toLocaleString()+')':'until you revoke the key')+'. '+(kind==='t'?'Open it in a browser or any music app.':'Open it in VLC, foobar2000, Kodi or most music apps.')+' Change how long it works or revoke it in <a href="#/settings" data-close>Music settings → Direct links</a>.</p>';
+    m.body.querySelector('#lkKey').onchange=paint; m.body.querySelector('#lkFmt').onchange=paint;
+    m.body.querySelector('[data-close]').onclick=()=>m.close();
+    const inp=m.body.querySelector('#lkUrl'); inp.onclick=()=>inp.select();
+    m.body.querySelector('#lkCopy').onclick=async()=>{ toast(await copyText(inp.value,inp)?'Link copied':'Select the link and copy it'); };
+  };
+  paint();
 }
 /* Fix match: search MusicBrainz and Deezer, pick the right album or artist (like Plex) */
 async function fixMatch(kind,id,inf){
@@ -1265,6 +1379,7 @@ function albumMenu(id,e,tracks,inf){
     {label:'Add to playlist…',icon:I.plist,fn:async()=>addToPlaylist((await get()).map(t=>t.id))},
     {sep:1},
     {label:'Go to artist',icon:I.artist,fn:()=>{ location.hash='#/artist/'+a.ai; }},
+    ...(linksOn()?[{label:'Copy album link (M3U)…',icon:I.link,fn:()=>linkDialog('album',id,null,a.t)}]:[]),
     ...metaMenuItems('album',id,inf||null)
   ],a.t);
 }

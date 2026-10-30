@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.10.0
+
+### Direct music links
+
+- New: **link keys** for playing music outside MEDIARR without signing in (VLC, browsers, Kodi, foobar2000, smart speakers, other apps). A key only plays music and has its own expiry (1 hour, 1 day, 7 days, 30 days, 90 days, 1 year, or never if allowed) that its owner can change at any time (also after it has expired, which brings its links back) or revoke. Each key shows its uses and last use.
+- **Copy direct link…** on songs, **Copy album link (M3U)…** on albums and **Copy playlist link (M3U)…** on playlists, with **Original files** or **MP3**. Song links support seeking and cross-site playback (CORS); album and playlist links are M3U playlists of song links with titles and lengths.
+- Admins: allow or turn off direct links for everyone (off stops all links; on restores them), the longest a key can work (1 day to 1 year, or no limit) and the default for new keys. Lowering the limit shortens existing keys. Admins see and revoke everyone's keys without seeing the keys. Deleting a user removes their keys; keys are forgotten 30 days after expiring.
+- A key can't open someone else's playlists and can't be used for anything else in MEDIARR.
+
+### Downloads: folders that looked empty
+
+- Fixed: a movie folder showed "No sub-folders or videos in this folder" when its video was a link (symlink) to a folder MEDIARR can't see, which is common with debrid, Zurg and rclone mounts that aren't mounted into the MEDIARR container. Such videos are now listed as **unavailable** with the reason; admins also see where the link points and that the folder needs mounting. Files MEDIARR isn't allowed to read and unfinished downloads (.part, …) are listed with the reason too.
+- Fixed: with a WebDAV source, folders whose names contain brackets, such as "28 Years Later (2025)", could look empty when the server redirected them to its own spelling of the address. MEDIARR now spells such addresses the way WebDAV servers do (%28, %29), follows redirects on the same server when listing and playing, and decodes &amp; and other XML entities in names.
+- A WebDAV answer that isn't a readable folder listing now shows an error instead of an empty folder.
+- Downloads mention how many other files (subtitles, .nfo, artwork) a folder has that aren't videos.
+
 ## 2.9.0
 
 ### Plex-style matching for the Music player

@@ -2,6 +2,13 @@
 
 # MEDIARR
 
+## MEDIARR 2.10
+
+MEDIARR 2.10 adds direct music links and fixes "empty" folders in Downloads.
+
+- **Direct links for music** — copy a link to any song, album or playlist and play it outside MEDIARR (VLC, a browser, Kodi, foobar2000, a smart speaker) without signing in. Links use a **link key** that only plays music and has its own expiry, from 1 hour to 1 year (or never, if the admin allows), which you can change or revoke at any time. Albums and playlists are M3U playlists; links can also convert to MP3 for players without FLAC. See [Direct music links](#direct-music-links).
+- **Downloads no longer hide videos silently** — a movie folder could look empty when its video was a link (symlink) to a folder MEDIARR can't see, as with debrid or rclone mounts, or when the WebDAV server redirected folder names with brackets. Such videos are now listed as unavailable with the reason, WebDAV redirects are followed, and other files (subtitles, .nfo) are counted.
+
 ## MEDIARR 2.9
 
 MEDIARR 2.9 gives the Music player Plex-style matching.
@@ -121,7 +128,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.9.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.10.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -140,7 +147,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.9.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.10.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1022,9 +1029,20 @@ Candidate covers in the search load through MEDIARR, which only fetches pictures
 
 MEDIARR needs outbound internet access to `musicbrainz.org`, `coverartarchive.org` (which redirects to `archive.org`) and `api.deezer.com` and Deezer's image servers.
 
+### Direct music links
+
+Each person can make **link keys** in the player's **Music settings → Direct links**. A key only plays music (it can't sign in or use anything else in MEDIARR) and has its own expiry, which its owner can change at any time, even after it has expired, or revoke.
+
+- **Copy direct link…** in a song's **⋯** menu gives a link to that song. **Copy album link (M3U)…** and **Copy playlist link (M3U)…** give a playlist file with a direct link for every song, for VLC, foobar2000, Kodi and most music apps.
+- Choose **Original files** (FLAC, ALAC, … as they are) or **MP3** for players that can't play the original format.
+- Links work without signing in, support seeking and are allowed from other websites (CORS). Each key shows how often it was used and when. An expired link answers "This link has expired"; extending the key brings its links back.
+- Admins choose whether direct links are allowed at all (turning them off stops every link at once; turning them back on restores them), the **longest a key can work** (1 day to 1 year, or no limit for permanent keys) and the **default** for new keys. Lowering the limit also shortens keys that already run longer. Admins see everyone's keys (but not the keys themselves) and can revoke any of them. Deleting a user removes their keys; expired keys are forgotten 30 days after they expire.
+
+Link URLs look like `https://your-server/music/d/ml_…/t/<song>/<Artist - Title>.flac` and `…/album/<id>.m3u8`. Treat them like passwords until they expire.
+
 ### What's stored
 
-The scanned library, online album info and resized cover art are caches (`mediarr.db` and `cache/music-art/` in the data folder) that a rescan rebuilds. Playlists and play counts are kept in `mediarr.db` and included in configuration backups as `music.json`.
+The scanned library, online album info and resized cover art are caches (`mediarr.db` and `cache/music-art/` in the data folder) that a rescan rebuilds. Link keys are kept in `mediarr.db`; they aren't part of configuration backups, so restoring a backup on a new server means making new keys. Playlists and play counts are kept in `mediarr.db` and included in configuration backups as `music.json`.
 
 ---
 

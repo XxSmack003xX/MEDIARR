@@ -92,6 +92,71 @@ function musicOnlineConfig (c) {
   for (const k of Object.keys(MUSIC_ONLINE_DEFAULTS)) o[k] = !!o[k];
   return o;
 }
+/* Direct music links (2.10): per-user keys that only play music, each with an adjustable expiry. */
+const LINK_HOURS = [1, 24, 168, 720, 2160, 8760, 0];   // 1 hour … 1 year, 0 = never
+const LINK_MAX_DAYS = [1, 7, 30, 90, 365, 0];          // admin limit, 0 = no limit
+function musicLinksPolicy (c) {
+  const l = Object.assign({ enabled: true, maxDays: 30, defaultDays: 7 }, ((c || readConfig()).music || {}).links || {});
+  const maxDays = LINK_MAX_DAYS.includes(Number(l.maxDays)) ? Number(l.maxDays) : 30;
+  let defaultDays = [1, 7, 30, 90, 365, 0].includes(Number(l.defaultDays)) ? Number(l.defaultDays) : 7;
+  if (maxDays && (!defaultDays || defaultDays > maxDays)) defaultDays = maxDays;
+  return { enabled: l.enabled !== false, maxDays, defaultDays };
+}
+function linkExpiryFor (hours, policy) {
+  hours = Number(hours);
+  if (!LINK_HOURS.includes(hours)) return { error: 'Choose how long the key should work' };
+  if (hours === 0 && policy.maxDays) return { error: 'Keys that never expire aren’t allowed. The longest allowed is ' + (policy.maxDays === 1 ? '1 day' : policy.maxDays + ' days') + '.' };
+  if (policy.maxDays && hours > policy.maxDays * 24) return { error: 'The longest allowed is ' + (policy.maxDays === 1 ? '1 day' : policy.maxDays + ' days') + '.' };
+  return { expires: hours ? Date.now() + hours * 3600 * 1000 : 0 };
+}
+function musicKeyOut (k, withKey) {
+  const o = { id: k.id, label: k.label, created: k.created, expires: k.expires, lastUsed: k.lastUsed, uses: k.uses, expired: !!(k.expires && k.expires <= Date.now()) };
+  if (withKey) o.key = k.key; else o.username = k.username;
+  return o;
+}
+// Public links: /music/d/<key>/t/<track>/<name>.<ext>, /music/d/<key>/album/<id>.m3u8, /music/d/<key>/playlist/<id>.m3u8
+async function musicDirect (req, res, u) {
+  const m = u.pathname.match(/^\/music\/d\/(ml_[a-f0-9]{48})\/(t|album|playlist)\/([a-f0-9]{16})(?:\.m3u8?|\/[^/]*)?$/);
+  const plain = (code, msg) => { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' }); return res.end(msg + '\n'); };
+  if (!m) return plain(404, 'Not found');
+  const policy = musicLinksPolicy();
+  if (!policy.enabled) return plain(403, 'Direct music links are turned off on this server.');
+  const k = store.musicKeys.byKey(m[1]);
+  if (!k) return plain(404, 'This link isn’t valid. It may have been revoked.');
+  if (k.expires && k.expires <= Date.now()) return plain(410, 'This link has expired. Ask for a new one, or extend the key in Music settings → Direct links.');
+  const owner = readUsers().users.find(x => x.username.toLowerCase() === String(k.username).toLowerCase());
+  if (!owner || !userApproved(owner)) return plain(403, 'This link’s owner no longer has access.');
+  const q = u.searchParams, fmt = q.get('format') === 'mp3' ? 'mp3' : '';
+  const prefs = musicPrefs(owner.username);
+  const mode = musicLib.MODES.includes(q.get('m')) ? q.get('m') : prefs.mode;
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('X-Robots-Tag', 'noindex');
+  if (req.method === 'GET' && !(req.headers.range && !/^bytes=0-/.test(req.headers.range))) { try { store.musicKeys.used(k.id, clientIp(req)); } catch (_) {} }
+  if (m[2] === 't') {
+    const t = musicLib.getTrack(m[3]);
+    if (!t || !t.ok) return plain(404, 'That song isn’t in the music library any more.');
+    const ext = fmt === 'mp3' ? 'mp3' : (t.container || 'audio');
+    const fname = ([t.artist, t.title].filter(Boolean).join(' - ') || 'track').replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 150) + '.' + ext;
+    res.setHeader('Content-Disposition', "inline; filename=\"" + fname.replace(/[^\x20-\x7e]/g, '_') + "\"; filename*=UTF-8''" + encodeURIComponent(fname));
+    const sq = new URLSearchParams(); if (fmt === 'mp3' && t.container !== 'mp3') sq.set('tc', '1');
+    return musicLib.stream(req, res, m[3], sq);
+  }
+  // playlists for players (VLC, foobar2000, Kodi, phones): every song is a direct link with the same key
+  let name = '', list = [];
+  if (m[2] === 'album') { const a = musicLib.album(mode, m[3], owner.username); if (!a) return plain(404, 'That album isn’t in the music library any more.'); name = a.album.a + ' - ' + a.album.t; list = a.tracks; }
+  else { const pl = store.music.playlist(owner.username, m[3]); if (!pl) return plain(404, 'That playlist doesn’t exist any more.'); name = pl.name; list = musicLib.tracksByIds(mode, pl.items, owner.username); }
+  const base = requestBaseUrl(req) + '/music/d/' + k.key + '/t/';
+  const lines = ['#EXTM3U', '#PLAYLIST:' + name.replace(/[\r\n]+/g, ' ')];
+  for (const t of list) {
+    const ext = fmt === 'mp3' ? 'mp3' : (t.x || 'audio');
+    const fname = ([t.a, t.t].filter(Boolean).join(' - ') || 'track').replace(/[\\/:*?"<>|\r\n#]+/g, ' ').trim().slice(0, 120) + '.' + ext;
+    lines.push('#EXTINF:' + Math.round(t.d || 0) + ',' + [t.a, t.t].filter(Boolean).join(' - ').replace(/[\r\n]+/g, ' '));
+    lines.push(base + t.id + '/' + encodeURIComponent(fname) + (fmt ? '?format=mp3' : ''));
+  }
+  const fname = name.replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 120) + '.m3u8';
+  res.writeHead(200, { 'Content-Type': 'audio/x-mpegurl; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': "inline; filename=\"" + fname.replace(/[^\x20-\x7e]/g, '_') + "\"; filename*=UTF-8''" + encodeURIComponent(fname) });
+  return res.end(req.method === 'HEAD' ? undefined : lines.join('\n') + '\n');
+}
 const musicMeta = require('./music-meta').createMetaFetcher({
   store, dataDir: DATA_DIR, upstream, version: APP_VERSION,
   getConfig: () => musicOnlineConfig(),
@@ -135,7 +200,7 @@ const DEFAULT_CONFIG = {
   autoAdd: { intervalMinutes: 5, minRuntime: 0 },
   libraryCache: { enabled: true, intervalMinutes: 360 },
   notify: { enabled: false, targets: [], events: { added: true, downloaded: true, pastDownloaded: true, rss: true, blocked: true, jobs: true, errors: true, serviceDown: true, login: false } },
-  music: { folders: [], scanIntervalHours: 12, transcodeKbps: 256, online: { enabled: true, musicbrainz: true, deezer: true, preferOnlineArt: false } },   // music player (2.7): folders scanned recursively for audio
+  music: { folders: [], scanIntervalHours: 12, transcodeKbps: 256, online: { enabled: true, musicbrainz: true, deezer: true, preferOnlineArt: false }, links: { enabled: true, maxDays: 30, defaultDays: 7 } },   // music player (2.7): folders scanned recursively for audio
   sab: { url: '', apiKey: '' },   // SABnzbd — queue + history, visible to every signed-in user
   backup: { onChange: true, everyDays: 7, keep: 20 },   // auto-snapshot of all settings
   shell: { enabled: false, commands: [] },   // admin-defined restart/maintenance commands
@@ -245,7 +310,7 @@ function sanitize (c) {
   out.ui = { loginTheme: (c.ui && c.ui.loginTheme) || 'tron' };
   out.donate = { url: (c.donate && c.donate.url) || '', label: (c.donate && c.donate.label) || '' };
   out.sab = { url: c.sab.url, hasKey: !!c.sab.apiKey };
-  { const m = c.music || {}; out.music = { folders: normalizeMusicFolders(m.folders), scanIntervalHours: Number.isFinite(Number(m.scanIntervalHours)) ? Number(m.scanIntervalHours) : 12, transcodeKbps: Number(m.transcodeKbps) || 256, online: musicOnlineConfig(c), configured: normalizeMusicFolders(m.folders).length > 0 }; }
+  { const m = c.music || {}; out.music = { folders: normalizeMusicFolders(m.folders), scanIntervalHours: Number.isFinite(Number(m.scanIntervalHours)) ? Number(m.scanIntervalHours) : 12, transcodeKbps: Number(m.transcodeKbps) || 256, online: musicOnlineConfig(c), links: musicLinksPolicy(c), configured: normalizeMusicFolders(m.folders).length > 0 }; }
   out.backup = { onChange: !(c.backup && c.backup.onChange === false),
                  everyDays: Math.max(0, Number((c.backup && c.backup.everyDays)) || 0),
                  keep: Math.max(1, Number((c.backup && c.backup.keep)) || 20) };
@@ -2732,7 +2797,21 @@ function localTarget (rel) {
   if (full !== root && !full.startsWith(rootWithSep)) return null;   // escape attempt
   return full;
 }
-function localList (rel, res) {
+// Files that aren't listed as playable videos, and why: a broken link (common with
+// debrid/rclone setups whose mount isn't inside the MEDIARR container), no permission,
+// an unfinished download, or simply not a video (subtitles, .nfo, artwork).
+function hiddenSummary (hidden, isAdmin) {
+  const reasons = {};
+  for (const h of hidden) reasons[h.reason] = (reasons[h.reason] || 0) + 1;
+  return {
+    count: hidden.length, reasons,
+    // problems are listed by name; ordinary non-video files only as a count
+    items: hidden.filter(h => h.reason !== 'not-video').slice(0, 50).map(h => isAdmin ? h : { name: h.name, reason: h.reason }),
+    other: hidden.filter(h => h.reason === 'not-video').slice(0, 12).map(h => h.name)
+  };
+}
+const PARTIAL_EXT = new Set(['part', 'partial', 'crdownload', 'tmp', '!qb', 'download', 'aria2']);
+function localList (rel, res, me) {
   const dir = localTarget(rel);
   if (!dir) return sendJSON(res, 400, { message: 'Local folder is not configured' });
   let entries;
@@ -2743,28 +2822,37 @@ function localList (rel, res) {
     logError('downloads', e.message, 'reading ' + dir);
     return sendJSON(res, 502, { message: 'Could not read folder: ' + e.message });
   }
-  const folders = [], files = [];
+  const folders = [], files = [], hidden = [];
   for (const ent of entries) {
     const name = ent.name;
     if (name.startsWith('.')) continue;
+    const full = path.join(dir, name);
+    const ext = (name.split('.').pop() || '').toLowerCase();
     try {
       // follow symlinks so linked folders/files behave like real ones
       let isDir = ent.isDirectory(), isFile = ent.isFile();
       if (ent.isSymbolicLink()) {
-        const st2 = fs.statSync(path.join(dir, name));
+        let st2;
+        try { st2 = fs.statSync(full); }
+        catch (e) {
+          let target = ''; try { target = fs.readlinkSync(full); } catch (_) {}
+          hidden.push({ name, reason: e.code === 'EACCES' ? 'no-permission' : 'broken-link', target, video: VIDEO_EXT.includes(ext) });
+          continue;
+        }
         isDir = st2.isDirectory(); isFile = st2.isFile();
       }
       if (isDir) { folders.push({ name }); continue; }
       if (!isFile) continue;
-      const ext = (name.split('.').pop() || '').toLowerCase();
-      if (!VIDEO_EXT.includes(ext)) continue;          // same as WebDAV: only list playable videos
-      const st = fs.statSync(path.join(dir, name));
+      if (!VIDEO_EXT.includes(ext)) { hidden.push({ name, reason: PARTIAL_EXT.has(ext) ? 'incomplete' : 'not-video' }); continue; }   // same as WebDAV: only list playable videos
+      const st = fs.statSync(full);
+      try { fs.accessSync(full, fs.constants.R_OK); } catch (_) { hidden.push({ name, reason: 'no-permission', video: true }); continue; }
       files.push({ name, size: st.size });
-    } catch (e) { /* skip unreadable entries */ }
+    } catch (e) { hidden.push({ name, reason: e.code === 'EACCES' ? 'no-permission' : 'unreadable', video: VIDEO_EXT.includes(ext) }); }
   }
   folders.sort((a, b) => a.name.localeCompare(b.name));
   files.sort((a, b) => a.name.localeCompare(b.name));
-  sendJSON(res, 200, { path: safeSegments(rel).join('/'), folders, files });
+  hidden.sort((a, b) => a.name.localeCompare(b.name));
+  sendJSON(res, 200, { path: safeSegments(rel).join('/'), folders, files, hidden: hiddenSummary(hidden, me && me.role === 'admin'), source: 'local' });
 }
 function localSendFile (rel, req, res, asAttachment) {
   const file = localTarget(rel);
@@ -2812,7 +2900,10 @@ function mediaInput (cfg, rel) {
   } catch (e) { return null; }
 }
 function webdavAuthHeader (cfg) { return 'Basic ' + Buffer.from((cfg.username || '') + ':' + (cfg.password || '')).toString('base64'); }
-function encodePath (p) { return p.split('/').map(s => encodeURIComponent(s)).join('/'); }
+// Strict percent-encoding: also ( ) ! ' * — WebDAV servers spell them %28 %29 …, and some
+// redirect a raw "(" to that spelling, which used to make such folders look empty.
+const encSeg = s => encodeURIComponent(s).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+function encodePath (p) { return p.split('/').map(encSeg).join('/'); }
 // turn a user-supplied relative path into safe segments (no traversal)
 function safeSegments (rel) {
   return String(rel || '').split('/').map(s => s.trim()).filter(s => s && s !== '.' && s !== '..');
@@ -2830,7 +2921,7 @@ function parsePropfind (xml) {
   for (const b of blocks) {
     const hrefM = b.match(/<(?:\w+:)?href[^>]*>([\s\S]*?)<\/(?:\w+:)?href>/i);
     if (!hrefM) continue;
-    let href = hrefM[1].trim();
+    let href = xmlText(hrefM[1]).trim();
     let pathname = href;
     try { pathname = new URL(href, 'http://x').pathname; } catch (e) {}
     let decoded; try { decoded = decodeURIComponent(pathname); } catch (e) { decoded = pathname; }
@@ -2838,35 +2929,65 @@ function parsePropfind (xml) {
     const name = decoded.replace(/\/+$/, '').split('/').pop() || '';
     const lenM = b.match(/<(?:\w+:)?getcontentlength[^>]*>(\d+)<\/(?:\w+:)?getcontentlength>/i);
     const ctM  = b.match(/<(?:\w+:)?getcontenttype[^>]*>([\s\S]*?)<\/(?:\w+:)?getcontenttype>/i);
-    out.push({ name, isDir, path: decoded.replace(/\/+$/, ''), size: lenM ? Number(lenM[1]) : 0, ctype: ctM ? ctM[1].trim() : '' });
+    out.push({ name, isDir, path: decoded.replace(/\/+$/, ''), size: lenM ? Number(lenM[1]) : 0, ctype: ctM ? xmlText(ctM[1]).trim() : '' });
   }
   return out;
 }
-async function webdavList (rel, res) {
-  if (isLocalSource()) return localList(rel, res);
+// XML text: CDATA and character entities ("Tom &amp; Jerry", "&#40;")
+function xmlText (s) {
+  s = String(s || '').replace(/^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/, '$1');
+  return s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (m, e) => {
+    const k = e.toLowerCase();
+    if (k === 'amp') return '&'; if (k === 'lt') return '<'; if (k === 'gt') return '>'; if (k === 'quot') return '"'; if (k === 'apos') return "'";
+    const n = k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10);
+    try { return String.fromCodePoint(n); } catch (_) { return m; }
+  });
+}
+async function webdavList (rel, res, me) {
+  if (isLocalSource()) return localList(rel, res, me);
   const cfg = readConfig().webdav;
   if (!cfg.url || !cfg.username) return sendJSON(res, 400, { message: 'WebDAV is not configured yet' });
-  const target = webdavTarget(cfg, rel);
+  let target = webdavTarget(cfg, rel);
+  if (!target.endsWith('/')) target += '/';
   try {
-    const up = await upstream(target.endsWith('/') ? target : target + '/', {
-      method: 'PROPFIND',
-      headers: { Authorization: webdavAuthHeader(cfg), Depth: '1', 'Content-Type': 'application/xml', Accept: 'application/xml' }
-    });
+    let up;
+    // some servers answer a folder request with a redirect (to their own spelling of the
+    // address, or to add a slash): follow it on the same server
+    for (let hop = 0; hop < 4; hop++) {
+      up = await upstream(target, {
+        method: 'PROPFIND',
+        headers: { Authorization: webdavAuthHeader(cfg), Depth: '1', 'Content-Type': 'application/xml', Accept: 'application/xml' }
+      });
+      if ([301, 302, 307, 308].includes(up.status) && up.headers.location) {
+        const next = new URL(up.headers.location, target);
+        if (next.origin !== new URL(target).origin) return sendJSON(res, 502, { message: 'The WebDAV server redirected this folder to another server (' + next.origin + '). Use that address in Settings.' });
+        target = next.toString(); continue;
+      }
+      break;
+    }
     if (up.status === 401) return sendJSON(res, 502, { message: 'WebDAV unauthorized — check username/password' });
     if (up.status === 404) return sendJSON(res, 502, { message: 'Folder not found on the WebDAV server' });
-    if (up.status >= 400)  return sendJSON(res, 502, { message: 'WebDAV returned HTTP ' + up.status });
-    let entries = parsePropfind(up.body.toString('utf8'));
-    // drop the folder itself (the depth-0 self entry) — it's the one whose name matches the last requested segment or is empty
+    if (up.status >= 300)  return sendJSON(res, 502, { message: 'WebDAV returned HTTP ' + up.status });
+    const xml = up.body.toString('utf8');
+    let entries = parsePropfind(xml);
+    if (!entries.length) {
+      logError('downloads', 'WebDAV listing could not be read', 'HTTP ' + up.status + ' ' + String(up.headers['content-type'] || '') + ' ' + xml.slice(0, 200));
+      return sendJSON(res, 502, { message: 'The WebDAV server answered (HTTP ' + up.status + '), but not with a folder listing MEDIARR can read. Check the WebDAV address in Settings.' });
+    }
+    // drop the folder itself (the depth-0 self entry): match it by path, fall back to the old name rule
+    let selfPath = ''; try { selfPath = decodeURIComponent(new URL(target).pathname).replace(/\/+$/, ''); } catch (_) {}
     const reqSegs = safeSegments(readConfig().webdav.folder).concat(safeSegments(rel));
     const selfName = reqSegs.length ? reqSegs[reqSegs.length - 1] : '';
-    let seenSelf = false;
-    entries = entries.filter(e => { if (!seenSelf && (e.name === selfName || e.name === '')) { seenSelf = true; return false; } return true; });
+    let selfIdx = entries.findIndex(e => selfPath && e.path === selfPath);
+    if (selfIdx < 0) selfIdx = entries.findIndex(e => e.isDir && (e.name === selfName || e.name === ''));
+    if (selfIdx >= 0) entries.splice(selfIdx, 1);
     const folders = entries.filter(e => e.isDir).map(e => ({ name: e.name }));
     const isVideo = e => VIDEO_EXT.includes((e.name.split('.').pop() || '').toLowerCase()) || /^video\//i.test(e.ctype);
     const files = entries.filter(e => !e.isDir && isVideo(e)).map(e => ({ name: e.name, size: e.size }));
+    const hidden = entries.filter(e => !e.isDir && !isVideo(e)).map(e => ({ name: e.name, reason: PARTIAL_EXT.has((e.name.split('.').pop() || '').toLowerCase()) ? 'incomplete' : 'not-video' }));
     folders.sort((a, b) => a.name.localeCompare(b.name));
     files.sort((a, b) => a.name.localeCompare(b.name));
-    return sendJSON(res, 200, { path: safeSegments(rel).join('/'), folders, files });
+    return sendJSON(res, 200, { path: safeSegments(rel).join('/'), folders, files, hidden: hiddenSummary(hidden, me && me.role === 'admin'), source: 'webdav' });
   } catch (e) {
     return sendJSON(res, 502, { message: 'Could not reach WebDAV: ' + e.message });
   }
@@ -2946,11 +3067,19 @@ function webdavStream (rel, req, res, streamOpts) {
   if (wantTranscode && FFMPEG) return webdavTranscode(cfg, rel, name, { ac: q.get('ac'), vc: q.get('vc'), aidx }, req, res);
   if (local) return localSendFile(rel, req, res, false);   // direct play straight off disk (range-seekable)
   let u; try { u = new URL(webdavTarget(cfg, rel)); } catch (e) { res.writeHead(400); return res.end('Bad path'); }
-  const lib = u.protocol === 'https:' ? https : http;
   const headers = { Authorization: webdavAuthHeader(cfg) };
   if (req.headers.range) headers.Range = req.headers.range;   // forward range for seeking
+  const origin = u.origin;
+  const fetchFrom = (u, hops) => {
+  const lib = u.protocol === 'https:' ? https : http;
   const rq = lib.request({ method: req.method === 'HEAD' ? 'HEAD' : 'GET', hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search, headers, timeout: 30000 }, up => {
-    if (up.statusCode >= 400) { up.resume(); res.writeHead(up.statusCode === 404 ? 404 : 502, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: 'WebDAV returned HTTP ' + up.statusCode })); }
+    // follow a redirect on the same server (some servers re-spell the address)
+    if ([301, 302, 303, 307, 308].includes(up.statusCode) && up.headers.location && hops < 3) {
+      up.resume();
+      let next; try { next = new URL(up.headers.location, u); } catch (_) { next = null; }
+      if (next && next.origin === origin) return fetchFrom(next, hops + 1);
+    }
+    if (up.statusCode >= 300) { up.resume(); res.writeHead(up.statusCode === 404 ? 404 : 502, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ message: 'WebDAV returned HTTP ' + up.statusCode })); }
     const ext = (name.split('.').pop() || '').toLowerCase();
     const h = {
       'Content-Type': up.headers['content-type'] || VIDEO_MIME[ext] || 'application/octet-stream',
@@ -2967,6 +3096,8 @@ function webdavStream (rel, req, res, streamOpts) {
   rq.on('timeout', () => rq.destroy(new Error('Connection timed out')));
   req.on('close', () => rq.destroy());   // stop pulling from WebDAV if the player disconnects
   rq.end();
+  };
+  fetchFrom(u, 0);
 }
 /* ---------- TV casting: Google Cast media URLs + DLNA/UPnP fallback ---------- */
 const CAST_TTL_MS = 6 * 3600 * 1000;
@@ -6664,6 +6795,7 @@ async function musicApi (p, u, req, res, me) {
   if (p === '/api/music/status' && req.method === 'GET') {
     const st = musicLib.status();
     st.online = musicOnlineConfig();
+    st.links = { enabled: musicLinksPolicy().enabled };
     if (me.role === 'admin') st.meta = musicMeta.status();
     if (me.role !== 'admin') { delete st.folders; if (st.last) delete st.last.failedFiles; }
     return sendPlain(200, Object.assign(st, { isAdmin: me.role === 'admin', prefs, username: me.username }));
@@ -6744,6 +6876,38 @@ async function musicApi (p, u, req, res, me) {
     if (musicLib.isScanning()) return sendPlain(200, { ok: true, running: true, message: 'A scan is already running' });
     musicLib.scan({ full: !!b.full, reason: b.full ? 'full rescan' : 'manual' }).catch(() => {});
     return sendPlain(200, { ok: true, started: true });
+  }
+  // direct link keys: everyone manages their own; admins can see and revoke all
+  if (p === '/api/music/keys' && req.method === 'GET') {
+    const policy = musicLinksPolicy();
+    const out = { policy, keys: store.musicKeys.forUser(me.username).map(k => musicKeyOut(k, true)) };
+    if (me.role === 'admin' && q.get('all') === '1') out.all = store.musicKeys.all().map(k => musicKeyOut(k, false));
+    return sendPlain(200, out);
+  }
+  if (p === '/api/music/keys' && req.method === 'POST') {
+    const policy = musicLinksPolicy();
+    if (!policy.enabled) return sendPlain(400, { message: 'Direct links are turned off. An admin can turn them on in Music settings.' });
+    const b = await body();
+    if (store.musicKeys.forUser(me.username).length >= 20) return sendPlain(400, { message: 'You have 20 link keys already. Revoke one first.' });
+    const e = linkExpiryFor(b.hours == null ? policy.defaultDays * 24 : b.hours, policy);
+    if (e.error) return sendPlain(400, { message: e.error });
+    const k = { id: crypto.randomBytes(8).toString('hex'), username: me.username, label: String(b.label || 'Direct links').trim().slice(0, 80) || 'Direct links', key: 'ml_' + crypto.randomBytes(24).toString('hex'), created: Date.now(), expires: e.expires };
+    store.musicKeys.create(k);
+    return sendPlain(200, { ok: true, key: musicKeyOut(store.musicKeys.byId(k.id), true) });
+  }
+  if ((m = p.match(/^\/api\/music\/keys\/([a-f0-9]{16})$/))) {
+    const k = store.musicKeys.byId(m[1]);
+    const mine = k && String(k.username).toLowerCase() === String(me.username).toLowerCase();
+    if (!k || (!mine && me.role !== 'admin')) return sendPlain(404, { message: 'Key not found' });
+    if (req.method === 'DELETE') { store.musicKeys.remove(k.id); return sendPlain(200, { ok: true }); }
+    if (req.method === 'POST') {
+      if (!mine) return sendPlain(403, { message: 'Only the key’s owner can change it. You can revoke it.' });
+      const b = await body(), f = {};
+      if (b.label != null) f.label = String(b.label).trim().slice(0, 80) || k.label;
+      if (b.hours != null) { const e = linkExpiryFor(b.hours, musicLinksPolicy()); if (e.error) return sendPlain(400, { message: e.error }); f.expires = e.expires; }
+      store.musicKeys.update(k.id, f);
+      return sendPlain(200, { ok: true, key: musicKeyOut(store.musicKeys.byId(k.id), true) });
+    }
   }
   // online metadata (admin)
   if (p.startsWith('/api/music/meta/') && me.role !== 'admin') return sendPlain(403, { message: 'Admin only' });
@@ -6975,6 +7139,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Radarr/Sonarr Connect webhooks authenticate with their own generated token.
+    if (p.startsWith('/music/d/') && (req.method === 'GET' || req.method === 'HEAD')) return musicDirect(req, res, u);
     if (p === '/api/webhooks/radarr' && req.method === 'POST') return handleArrWebhook('radarr', req, res, u);
     if (p === '/api/webhooks/sonarr' && req.method === 'POST') return handleArrWebhook('sonarr', req, res, u);
     if (p === '/api/webhooks/lidarr' && req.method === 'POST') return handleArrWebhook('lidarr', req, res, u);
@@ -7867,7 +8032,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       // ---- WebDAV: browse a folder and download files (counts against the daily limit) ----
-      if (p === '/api/webdav/list' && req.method === 'GET') return webdavList(u.searchParams.get('path') || '', res);
+      if (p === '/api/webdav/list' && req.method === 'GET') return webdavList(u.searchParams.get('path') || '', res, me);
       // Any media activity keeps the session alive for another hour.
       if (p.startsWith('/api/webdav/') || p === '/api/streams') {
         const what = p.includes('/download') ? 'downloading' : p.includes('/hls') || p.includes('/stream') ? 'streaming' : '';
@@ -7936,6 +8101,7 @@ const server = http.createServer(async (req, res) => {
         if (u.role === 'admin' && data.users.filter(x => x.role === 'admin').length <= 1) return sendJSON(res, 400, { message: "Can't remove the last admin" });
         if (u.username === me.username) return sendJSON(res, 400, { message: "You can't remove yourself" });
         data.users = data.users.filter(x => x !== u); writeUsers(data);
+        try { store.musicKeys.removeForUser(u.username); } catch (_) {}
         return sendJSON(res, 200, { ok: true });
       }
       if (p === '/api/admin/adds' && req.method === 'GET') {
@@ -8095,6 +8261,15 @@ const server = http.createServer(async (req, res) => {
         }
         if (m.scanIntervalHours != null) { const h = Number(m.scanIntervalHours); if (Number.isFinite(h)) cur.music.scanIntervalHours = Math.min(168, Math.max(0, Math.round(h))); }
         if (m.transcodeKbps != null && [128, 192, 256, 320].includes(Number(m.transcodeKbps))) cur.music.transcodeKbps = Number(m.transcodeKbps);
+        if (m.links && typeof m.links === 'object') {
+          const cur2 = musicLinksPolicy(cur), next = Object.assign({}, cur2);
+          if (m.links.enabled != null) next.enabled = !!m.links.enabled;
+          if (m.links.maxDays != null && LINK_MAX_DAYS.includes(Number(m.links.maxDays))) next.maxDays = Number(m.links.maxDays);
+          if (m.links.defaultDays != null && [1, 7, 30, 90, 365, 0].includes(Number(m.links.defaultDays))) next.defaultDays = Number(m.links.defaultDays);
+          cur.music.links = musicLinksPolicy({ music: { links: next } });
+          // a shorter limit also shortens keys that already run longer
+          if (cur.music.links.maxDays) try { store.musicKeys.capAll(Date.now() + cur.music.links.maxDays * 86400000); } catch (_) {}
+        }
         if (m.online && typeof m.online === 'object') {
           const before = musicOnlineConfig(cur), next = Object.assign({}, before);
           for (const k of Object.keys(MUSIC_ONLINE_DEFAULTS)) if (m.online[k] != null) next[k] = !!m.online[k];
@@ -8236,6 +8411,9 @@ server.listen(PORT, HOST, () => {
   console.log('  Stop with Ctrl+C\n');
   // music player: load the scanned library, then check the folders for changes
   try { musicLib.load(); musicLib.startSchedule(); musicLib.scheduleScan(15000, 'startup'); } catch (e) { console.error('  [music] ' + e.message); }
+  // forget music link keys 30 days after they expire (until then they can still be extended)
+  const pruneKeys = () => { try { store.musicKeys.prune(Date.now(), 30 * 86400000); } catch (_) {} };
+  pruneKeys(); setInterval(pruneKeys, 86400000).unref();
   // background health monitoring: first run shortly after boot, then on an interval
   setTimeout(() => { runAllChecks().catch(() => {}); }, 2500);
   setInterval(() => { runAllChecks().catch(() => {}); }, HEALTH_INTERVAL_MS);

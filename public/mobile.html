@@ -2259,14 +2259,26 @@ async function loadDownloads(){
     renderDownloads(j.data||{folders:[],files:[]});
   }catch(e){ panelErr('Couldn’t list files: '+e.message); }
 }
+
+// Files this folder has that aren't listed as playable videos, and why (2.10)
+function dlHiddenReason(h, admin){
+  if(h.reason==='broken-link') return admin&&h.target ? 'Link to '+h.target+', which MEDIARR can’t open. If MEDIARR runs in Docker, mount that folder into the container at the same path.' : 'Not available: the file it links to can’t be reached right now.';
+  if(h.reason==='no-permission') return admin ? 'MEDIARR isn’t allowed to read this file. Check its permissions (or PUID/PGID in Docker).' : 'Not available: MEDIARR can’t read this file.';
+  if(h.reason==='incomplete') return 'Still downloading.';
+  return 'Couldn’t read this file.';
+}
 function renderDownloads(d){
-  const folders=d.folders||[], files=d.files||[];
+  const folders=d.folders||[], files=d.files||[], hid=d.hidden||{items:[],other:[],count:0};
+  const admin=!!(me&&me.role==='admin'), otherN=(hid.count||0)-(hid.items||[]).length;
   let html='<div class="small text-secondary mb-2">📂 /'+esc((d.path||'').split('/').filter(Boolean).join(' / '))+'</div>';
   if(dlPath) html+='<button class="btn btn-outline-secondary btn-sm mb-2" id="dlUp">⬆️ Up one level</button>';
-  if(folders.length || files.length) html+='<input id="dlFilter" class="form-control form-control-sm mb-2" placeholder="Filter this folder…" autocomplete="off">';
-  if(!folders.length && !files.length){ html+='<div class="state">No sub-folders or videos in this folder.</div>'; }
+  if(folders.length || files.length || (hid.items||[]).length) html+='<input id="dlFilter" class="form-control form-control-sm mb-2" placeholder="Filter this folder…" autocomplete="off">';
+  if(!folders.length && !files.length && !(hid.items||[]).length){ html+='<div class="state">No sub-folders or videos in this folder.'+(otherN>0?'<div class="small mt-2">'+otherN+' other file'+(otherN===1?' is':'s are')+' here, but '+(otherN===1?'it isn’t a video':'none of them are videos')+'.</div>':'')+'</div>'; }
   folders.forEach(f=> html+='<div class="d-flex align-items-center gap-2 py-1 dlfolder dlrow" data-folder="'+esc(f.name)+'" data-name="'+esc(f.name.toLowerCase())+'" style="border-bottom:1px solid var(--bs-border-color);cursor:pointer"><span>📁</span><div class="flex-grow-1 small fw-bold text-truncate">'+esc(f.name)+'</div><span class="text-secondary">›</span></div>');
   files.forEach(f=> html+='<div class="d-flex align-items-center gap-2 py-1 dlrow" data-name="'+esc(f.name.toLowerCase())+'" style="border-bottom:1px solid var(--bs-border-color)"><span>🎬</span><div class="flex-grow-1" style="min-width:0"><div class="small fw-bold text-truncate">'+esc(f.name)+'</div><div class="small text-secondary">'+fmtSize(f.size)+'</div></div><button class="btn btn-outline-gold btn-sm" data-play="'+esc(f.name)+'">▶</button><button class="btn btn-gold btn-sm" data-dl="'+esc(f.name)+'">⬇️</button></div>');
+  (hid.items||[]).forEach(h=> html+='<div class="d-flex align-items-start gap-2 py-1 dlrow" data-name="'+esc(h.name.toLowerCase())+'" style="border-bottom:1px solid var(--bs-border-color)"><span>⚠️</span><div class="flex-grow-1" style="min-width:0"><div class="small fw-bold text-truncate">'+esc(h.name)+'</div><div class="small text-secondary" style="overflow-wrap:anywhere">'+esc(dlHiddenReason(h,admin))+'</div></div></div>');
+  if(!files.length&&(hid.items||[]).some(h=>h.reason==='broken-link')) html+='<div class="small text-secondary mt-2">'+(admin?'These videos are links to another folder (common with debrid or rclone mounts). MEDIARR needs to see that folder too.':'Ask your admin to check this folder.')+'</div>';
+  if(otherN>0&&(folders.length||files.length||(hid.items||[]).length)) html+='<div class="small text-secondary mt-2">'+otherN+' other file'+(otherN===1?'':'s')+' here aren’t videos and aren’t shown.</div>';
   if(files.length) html+='<div class="small text-secondary mt-2">Each download counts toward your daily limit.</div>';
   $('panelBody').innerHTML=html;
   if($('dlUp')) $('dlUp').onclick=()=>{ const s=dlPath.split('/').filter(Boolean); s.pop(); dlPath=s.join('/'); loadDownloads(); };

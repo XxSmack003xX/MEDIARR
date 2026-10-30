@@ -490,6 +490,9 @@
   .trailer-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
   .dl-list{display:flex;flex-direction:column}
   .dl-row{display:flex;align-items:center;gap:12px;padding:11px 6px;border-bottom:1px solid var(--line)}
+  .dl-unavail{opacity:.85}.dl-unavail svg{color:#f0a35c}
+  .dl-unavail .dl-name{display:flex;flex-direction:column;min-width:0}
+  .dl-why{font-size:12px;color:var(--muted);font-weight:500;white-space:normal;overflow-wrap:anywhere}
   .dl-row svg{color:var(--muted);flex:none}
   .dl-folder{cursor:pointer}
   .dl-folder:hover{background:rgba(255,255,255,.03)}
@@ -2435,14 +2438,28 @@ async function loadDownloadsD(){
     renderDownloadsD(data);
   }catch(e){ body.innerHTML='<div class="state"><div class="big">Couldn\'t list files</div>'+esc(e.message)+'</div>'; }
 }
+
+// Files this folder has that aren't listed as playable videos, and why (2.10)
+function dlHiddenReason(h, admin){
+  if(h.reason==='broken-link') return admin&&h.target ? 'Link to '+h.target+', which MEDIARR can’t open. If MEDIARR runs in Docker, mount that folder into the container at the same path.' : 'Not available: the file it links to can’t be reached right now.';
+  if(h.reason==='no-permission') return admin ? 'MEDIARR isn’t allowed to read this file. Check its permissions (or PUID/PGID in Docker).' : 'Not available: MEDIARR can’t read this file.';
+  if(h.reason==='incomplete') return 'Still downloading.';
+  return 'Couldn’t read this file.';
+}
 function renderDownloadsD(d){
   const body=document.getElementById('downloadsBody');
-  const folders=d.folders||[], files=d.files||[];
-  if(!folders.length && !files.length){ body.innerHTML='<div class="state">No sub-folders or videos in this folder.</div>'; return; }
+  const folders=d.folders||[], files=d.files||[], hid=d.hidden||{items:[],other:[],count:0};
+  const admin=!!(currentUser&&currentUser.role==='admin');
+  const otherN=(hid.count||0)-(hid.items||[]).length;
+  const otherNote=otherN>0?'<div class="small" style="margin-top:10px;color:var(--muted)">'+otherN+' other file'+(otherN===1?'':'s')+' here aren’t videos and aren’t shown'+((hid.other||[]).length?': '+esc(hid.other.slice(0,6).join(', '))+(otherN>6?', …':''):'')+'.</div>':'';
+  if(!folders.length && !files.length && !(hid.items||[]).length){ body.innerHTML='<div class="state">No sub-folders or videos in this folder.'+(otherN>0?'<div class="small" style="margin-top:8px">'+otherN+' other file'+(otherN===1?' is':'s are')+' here, but '+(otherN===1?'it isn’t a video':'none of them are videos')+((hid.other||[]).length?': '+esc(hid.other.slice(0,6).join(', '))+(otherN>6?', …':''):'')+'.</div>':'')+'</div>'; return; }
   let html='<div class="dl-list">';
   folders.forEach(f=>{ html+='<div class="dl-row dl-folder" data-folder="'+esc(f.name)+'" data-name="'+esc(f.name.toLowerCase())+'"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="dl-name">'+esc(f.name)+'</span><span class="dl-meta">folder ›</span></div>'; });
   files.forEach(f=>{ html+='<div class="dl-row" data-name="'+esc(f.name.toLowerCase())+'"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 9l5 3-5 3z"/></svg><span class="dl-name">'+esc(f.name)+'</span><span class="dl-meta">'+dlSize(f.size)+'</span><button class="btn btn-ghost dl-btn" data-play="'+esc(f.name)+'">▶ Play</button><button class="btn btn-primary dl-btn" data-dl="'+esc(f.name)+'">Download</button></div>'; });
+  (hid.items||[]).forEach(h=>{ html+='<div class="dl-row dl-unavail" data-name="'+esc(h.name.toLowerCase())+'" title="'+esc(dlHiddenReason(h,admin))+'"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg><span class="dl-name"><span>'+esc(h.name)+'</span><span class="dl-why">'+esc(dlHiddenReason(h,admin))+'</span></span><span class="dl-meta">'+(h.reason==='incomplete'?'downloading':'unavailable')+'</span></div>'; });
   html+='</div>';
+  if(!files.length&&(hid.items||[]).some(h=>h.reason==='broken-link')) html+='<div class="small" style="margin-top:10px;color:var(--muted)">'+(admin?'These videos are links to another folder (common with debrid or rclone mounts). MEDIARR needs to see that folder too.':'Ask your admin to check this folder.')+'</div>';
+  html+=otherNote;
   if(files.length) html+='<div class="small" style="margin-top:10px;color:var(--muted)">Each download counts toward your daily limit.</div>';
   body.innerHTML=html;
   body.querySelectorAll('[data-folder]').forEach(el=> el.onclick=()=>{ dlPathD=(dlPathD?dlPathD+'/':'')+el.dataset.folder; loadDownloadsD(); });

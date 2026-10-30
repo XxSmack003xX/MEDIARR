@@ -1,6 +1,6 @@
 {
   "name": "mediarr",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "description": "Self-hosted media intelligence and automation platform unifying Radarr, Sonarr, Plex, SABnzbd, playback, requests, notifications, PWA access, and library health.",
   "main": "server.js",
   "scripts": {
