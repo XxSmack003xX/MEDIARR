@@ -14,6 +14,7 @@
 <link rel="apple-touch-icon" href="/icons/mediarr-icon-192.png">
 <title>MEDIARR</title>
 <script>try{document.documentElement.setAttribute('data-bs-theme', localStorage.getItem('mediarr-theme')||'dark');}catch(e){}</script>
+<script src="/appearance.js"></script>
 <!-- Bootstrap 5 — bundled locally for offline use. Drop these two files into /public:
        bootstrap.min.css  and  bootstrap.bundle.min.js
      (from https://github.com/twbs/bootstrap/releases  →  dist/ , or
@@ -28,6 +29,7 @@
   #mBrandHome:focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:6px}
   :root{ --gold:#d4af6d; --bg:#0c0c0f; --bg2:#141418; }
   [data-bs-theme=dark]{
+    --txt:#e9e9ee; --muted:#9a9aa6; --line:#26262e; --panel:#141418; --panel2:#1c1c22;
     --bs-body-bg:var(--bg); --bs-body-color:#e9e9ee;
     --bs-primary:var(--gold); --bs-primary-rgb:212,175,109;
     --bs-border-color:#26262e; --bs-secondary-color:#9a9aa6;
@@ -35,6 +37,7 @@
   }
   [data-bs-theme=light]{
     --gold:#a9762a; --bg:#f4f2f8; --bg2:#ffffff;
+    --txt:#211c2a; --muted:#6c6480; --line:#e0d9ea; --panel:#ffffff; --panel2:#f3eef9;
     --bs-body-bg:var(--bg); --bs-body-color:#211c2a;
     --bs-primary:var(--gold); --bs-primary-rgb:169,118,42;
     --bs-border-color:#e0d9ea; --bs-secondary-color:#6c6480;
@@ -197,7 +200,7 @@
     <div class="small text-secondary mt-2">More</div>
     <button id="mPlexMe" class="btn btn-outline-gold text-start">▶️ My Plex</button>
     <button id="mQueue" class="btn btn-outline-gold text-start" style="display:none">📥 Queue</button>
-    <button id="mProfile" class="btn btn-outline-gold text-start">🎨 My profile</button>
+    <button id="mProfile" class="btn btn-outline-gold text-start">🎨 Appearance &amp; profile</button>
     <button id="mHealth" class="btn btn-outline-gold text-start">💓 Health</button>
     <button id="mUpdate" class="btn btn-outline-gold text-start">⬆️ System Update <span id="mUpdateBadge" class="badge text-bg-warning float-end d-none">NEW</span></button>
     <button id="mTranscodes" class="btn btn-outline-gold text-start">🎛️ Transcode Dashboard</button>
@@ -300,7 +303,14 @@ const $=id=>document.getElementById(id);
   const MOON='<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>';
   const tc={dark:'#0c0c0f',light:'#f4f2f8'};
   function paint(){ const t=root.getAttribute('data-bs-theme')||'dark'; if(icon) icon.innerHTML=(t==='dark'?SUN:MOON); const mt=document.querySelector('meta[name=theme-color]'); if(mt) mt.setAttribute('content', tc[t]||tc.dark); }
-  if(btn) btn.onclick=()=>{ const t=(root.getAttribute('data-bs-theme')==='light')?'dark':'light'; root.setAttribute('data-bs-theme',t); try{localStorage.setItem('mediarr-theme',t);}catch(e){} try{ applyThemeVarsM(t); }catch(e){} paint(); };
+  if(btn) btn.onclick=()=>{
+    const t=(root.getAttribute('data-bs-theme')==='light')?'dark':'light';
+    try{localStorage.setItem('mediarr-theme',t);}catch(e){}
+    // on a named theme the toggle switches to MEDIARR's own light or dark look
+    if(window.MediarrAppearance&&MediarrAppearance.isPalette()){ MediarrAppearance.set({theme:'mediarr'}); paint(); return; }
+    root.setAttribute('data-bs-theme',t); try{ applyThemeVarsM(t); }catch(e){} paint();
+  };
+  window._paintThemeToggleM=paint;
   paint();
 })();
 let me=null, config=null, mode='title', q='', searchTimer=null, homeItems=null;
@@ -424,6 +434,7 @@ async function onAuthed(){
   { const md=$('mDonate'), url=(config&&config.donate&&config.donate.url)||''; if(md){ if(url){ md.href=url; md.style.display=''; const l=$('mDonateLabel'); if(l) l.textContent=((config.donate.label||'').trim())||'Donate'; } else md.style.display='none'; } }
   await loadFavoritesM(); loadPlexSeenM(); await refreshPlexMeM();
   loadMyThemeM();
+  if(window.MediarrAppearance) MediarrAppearance.load();
   pollAutoM();
   await loadLibrary(); showHome();
   if(window.MEDIARR2 && window.MEDIARR2.refresh) window.MEDIARR2.refresh();
@@ -771,6 +782,7 @@ function currentModeM(){
   return (myThemeM&&myThemeM.base==='light')?'light':'dark';
 }
 function applyThemeVarsM(mode){
+  if(window.MediarrAppearance&&MediarrAppearance.isPalette()) return;   // a named theme owns the colours
   const root=document.documentElement;
   SKIN_FIELDS_M.forEach(([k])=>root.style.removeProperty('--'+k));
   ['--bs-body-bg','--bs-body-color','--bs-border-color'].forEach(v=>root.style.removeProperty(v));
@@ -783,10 +795,12 @@ function applyThemeVarsM(mode){
 function applyThemeM(t){
   if(t) myThemeM=t;
   if(myThemeM&&!myThemeM.modes) myThemeM.modes={dark:{},light:{}};
+  if(window.MediarrAppearance&&MediarrAppearance.isPalette()) return;
   const mode=currentModeM();
   document.documentElement.setAttribute('data-bs-theme',mode);
   applyThemeVarsM(mode);
 }
+if(window.MediarrAppearance) MediarrAppearance.onChange(p=>{ if(p.theme==='mediarr'){ try{ applyThemeVarsM(currentModeM()); }catch(e){} } if(window._paintThemeToggleM) window._paintThemeToggleM(); });
 async function loadMyThemeM(){ try{ const j=await readJson(await fetch('/api/me/theme')); myThemeM=j.data||myThemeM; applyThemeM(myThemeM); }catch(e){} }
 function cssVarNowM(n){ return getComputedStyle(document.documentElement).getPropertyValue('--'+n).trim(); }
 function toHexM(c){ c=(c||'').trim(); if(/^#[0-9a-f]{6}$/i.test(c))return c;
@@ -799,17 +813,21 @@ async function openProfileM(){
   let key='';
   try{ const j=await readJson(await fetch('/api/me/apikey')); key=(j.data&&j.data.apiKey)||''; }catch(e){}
   const base=window.location.origin;
-  let h='<div class="fw-bold mb-1">Appearance</div><div class="small text-secondary mb-2">Your personal colours.</div>';
+  const palette=!!(window.MediarrAppearance&&MediarrAppearance.isPalette());
+  let h='<div class="fw-bold mb-2">Appearance</div><div id="mApBox" class="mb-3"></div><hr class="my-3">';
+  h+='<div class="fw-bold mb-1">Custom colours (MEDIARR theme)</div><div class="small text-secondary mb-2">'+(palette?'You’re using a named theme. Choose <b>MEDIARR</b> above to recolour MEDIARR’s own light and dark looks.':'Your personal colours for MEDIARR’s light and dark looks.')+'</div>';
+  h+='<div'+(palette?' style="display:none"':'')+'>';
   h+='<label class="form-label small">Base theme</label><select class="form-select form-select-sm mb-2" id="mSkBase"><option value="dark">Dark</option><option value="light">Light</option></select>';
   h+='<div class="row g-2" id="mSkinGrid"></div>';
   h+='<div class="d-flex gap-2 mt-2"><button class="btn btn-gold btn-sm flex-grow-1" id="mSkSave">Save skin</button><button class="btn btn-outline-secondary btn-sm" id="mSkReset">Reset</button></div>';
-  h+='<div class="small mt-1" id="mSkMsg"></div>';
+  h+='<div class="small mt-1" id="mSkMsg"></div></div>';
   h+='<hr class="my-3"><div class="fw-bold mb-1">Personal API key</div>';
   h+='<div class="small text-secondary mb-2">Acts as you — your daily limit applies and adds are logged under your name.</div>';
   h+='<div class="small p-2 mb-2" style="background:var(--bg2);border-radius:.5rem;word-break:break-all" id="mKeyBox">'+(key?esc(key):'No key yet.')+'</div>';
   h+='<div class="d-flex gap-2">'+(key?'<button class="btn btn-outline-gold btn-sm" id="mKeyCopy">Copy</button>':'')+'<button class="btn btn-gold btn-sm" id="mKeyGen">'+(key?'Regenerate':'Generate')+'</button>'+(key?'<button class="btn btn-outline-secondary btn-sm" id="mKeyDel">Revoke</button>':'')+'</div>';
   h+='<div class="small mt-2 text-secondary" style="font-family:monospace;white-space:pre-wrap">GET  '+esc(base)+'/api/v1/search?q=dune\nPOST '+esc(base)+'/api/v1/add\nheader: X-API-Key</div>';
   $('panelBody').innerHTML=h;
+  if(window.MediarrAppearance){ let was=MediarrAppearance.get().theme; MediarrAppearance.render($('mApBox'),{onChange:p=>{ const flip=(p.theme==='mediarr')!==(was==='mediarr'); was=p.theme; if(flip) openProfileM(); }}); }
   $('mSkBase').value=currentModeM();
   const grid=$('mSkinGrid');
   grid.innerHTML=SKIN_FIELDS_M.map(([k,l])=>{

@@ -88,6 +88,7 @@ jobs:
           grep -q 'moved adds.json (1)' <<< "$LOGS" || { echo "migration log line missing" >&2; exit 1; }
           MUSIC="$(curl -fsS http://127.0.0.1:7599/music)"
           grep -q 'id="au"' <<< "$MUSIC" || { echo "music player page missing" >&2; exit 1; }
+          curl -fsS http://127.0.0.1:7599/appearance.js -o /dev/null || { echo "appearance.js missing" >&2; exit 1; }
           docker rm -f mediarr-smoke >/dev/null
           echo "Smoke test passed"
 
@@ -133,7 +134,7 @@ jobs:
           IMAGE="ghcr.io/${{ steps.meta.outputs.repo_lc }}:$VERSION"
           mkdir -p "dist/mediarr-$VERSION/public"
           cp package.json server.js store.js music.js music-tags.js music-meta.js update-helper.js docker-recreate.js README.md CHANGELOG.md SECURITY.md Caddyfile.example Dockerfile docker-entrypoint.sh docker-compose.yml "dist/mediarr-$VERSION/"
-          cp public/index.html public/mobile.html public/music.html public/v140.js public/v150.js public/v160.js public/v170.js public/v180.js public/v200.js public/nav.js public/manifest.webmanifest public/sw.js "dist/mediarr-$VERSION/public/"
+          cp public/index.html public/mobile.html public/music.html public/v140.js public/v150.js public/v160.js public/v170.js public/v180.js public/v200.js public/nav.js public/appearance.js public/manifest.webmanifest public/sw.js "dist/mediarr-$VERSION/public/"
           mkdir -p "dist/mediarr-$VERSION/public/icons"
           cp public/icons/mediarr-icon.svg public/icons/mediarr-icon-192.png public/icons/mediarr-icon-512.png "dist/mediarr-$VERSION/public/icons/"
           cat > "dist/mediarr-$VERSION/docker-compose.release.yml" <<YAML

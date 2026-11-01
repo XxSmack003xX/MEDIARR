@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.11.0
+
+### Appearance settings for every user
+
+- New **Appearance** settings, saved per user and applied on every device: in **Profile** (desktop), **🎨 Appearance & profile** (phone, renamed from My profile) and the music player's **Music settings**.
+- **Theme**: MEDIARR's original look or one of 35 themes (Abyss, Acid, Aqua, Autumn, Black, Bumblebee, Business, Caramellatte, Cmyk, Coffee, Corporate, Cupcake, Cyberpunk, Dark, Dim, Dracula, Emerald, Fantasy, Forest, Garden, Halloween, Lemonade, Light, Lofi, Luxury, Night, Nord, Pastel, Retro, Silk, Sunset, Synthwave, Valentine, Winter, Wireframe), shown as a gallery with each theme's colours. Every theme keeps text, accents and muted text readable.
+- **Font**: Default, System UI, Serif, Monospace, Classic Sans. **Font size**: Small, Medium, Large, Extra Large (the whole interface scales).
+- **Grid hover delay** (Instant to Extra Long) for posters and album covers lifting and showing their play button, and **Grid cover size** (Smallest to Largest) for the desktop, phone and music player grids, with rows kept full.
+- Themes apply to the dashboard, the phone app, the music player and the Hub; the Hub now also follows MEDIARR's light mode.
+- On a named theme, the header's light/dark button switches back to MEDIARR's own look. Custom colours still recolour the MEDIARR theme.
+- Pages open in the right look straight away (the choice is remembered by the browser too), and `appearance.js` is versioned like MEDIARR's other scripts.
+
 ## 2.10.0
 
 ### Direct music links

@@ -2,6 +2,18 @@
 
 # MEDIARR
 
+## MEDIARR 2.11
+
+MEDIARR 2.11 lets everyone make MEDIARR look the way they like. In **Profile → Appearance** (desktop), **🎨 Appearance & profile** (phone) or the music player's **Music settings**:
+
+- **Theme** — MEDIARR's original look or one of 35 themes (Abyss, Acid, Aqua, Autumn, Black, Bumblebee, Business, Caramellatte, Cmyk, Coffee, Corporate, Cupcake, Cyberpunk, Dark, Dim, Dracula, Emerald, Fantasy, Forest, Garden, Halloween, Lemonade, Light, Lofi, Luxury, Night, Nord, Pastel, Retro, Silk, Sunset, Synthwave, Valentine, Winter, Wireframe), each shown with its colours.
+- **Font** — Default, System UI, Serif, Monospace or Classic Sans.
+- **Font size** — Small, Medium, Large or Extra Large; the whole interface scales.
+- **Grid hover delay** — how long you hover over a poster or album cover before it lifts and shows its play button, from Instant to Extra Long.
+- **Grid cover size** — posters and album covers from Smallest to Largest, with rows kept full.
+
+Settings are saved to your account, so they follow you to every device and browser, and apply to the dashboard, the phone app, the music player and the Hub. See [Appearance](#appearance).
+
 ## MEDIARR 2.10
 
 MEDIARR 2.10 adds direct music links and fixes "empty" folders in Downloads.
@@ -128,7 +140,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.10.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.11.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -147,7 +159,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.10.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.11.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -167,6 +179,7 @@ This README is written against the **v2.10.0 source in this repository**. Featur
 - [Configuration and persistent data](#configuration-and-persistent-data)
 - [Networking with Docker](#networking-with-docker)
 - [Accounts, roles, quotas, and API keys](#accounts-roles-quotas-and-api-keys)
+- [Appearance](#appearance)
 - [User home pages](#user-home-pages)
 - [Playback intelligence and path mapping](#playback-intelligence-and-path-mapping)
 - [Movie and TV discovery](#movie-and-tv-discovery)
@@ -759,6 +772,27 @@ Since 2.2, sessions are stored in `mediarr.db` (only a SHA-256 hash of each toke
 ### Per-user API keys
 
 Users can create/revoke their own API key for MEDIARR's external `/api/v1` interface. See [External API](#external-api).
+
+---
+
+## Appearance
+
+Each person chooses how MEDIARR looks for them. The settings live in their account (not just the browser), so they follow them to every device, and they apply to the desktop dashboard, the phone app, the music player and the Hub.
+
+Open them from **Profile** in the desktop menu (**Appearance**), **🎨 Appearance & profile** in the phone menu, or **Music settings → Appearance** in the music player.
+
+| Setting | Choices |
+| --- | --- |
+| **Theme** | **MEDIARR** (the original look: light or dark with the header toggle, plus your custom colours) or one of 35 themes, each previewed with its colours |
+| **Font** | Default, System UI, Serif, Monospace, Classic Sans (the MEDIARR wordmark keeps its own lettering) |
+| **Font size** | Small, Medium (default), Large, Extra Large — the whole interface scales, like browser zoom |
+| **Grid hover delay** | Instant, Short, Normal (default), Long, Extra Long — how long you hover over a poster or album cover before it lifts and shows its play button |
+| **Grid cover size** | Smallest, Small, Default, Large, Largest — posters and album covers in grids; rows stay full and evenly spaced |
+
+- Changes apply straight away and are saved within a moment; **Reset appearance** goes back to the defaults.
+- On a named theme, the header's light/dark button switches back to MEDIARR's own light or dark look.
+- **Custom colours** (the per-colour editor) recolour the MEDIARR theme's light and dark looks, as before.
+- The last choice is also remembered by the browser, so pages open in the right look before you're signed in.
 
 ---
 

@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <script>try{document.documentElement.setAttribute('data-theme', localStorage.getItem('mediarr-theme')||'dark');}catch(e){}</script>
+<script src="/appearance.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0c0b0e">
 <meta name="application-name" content="MEDIARR Music">
@@ -96,8 +97,8 @@
   .empty svg{color:var(--gold);opacity:.8}
 
   /* album grid */
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(172px,1fr));gap:22px 18px}
-  .row-scroll{display:grid;grid-auto-flow:column;grid-auto-columns:172px;gap:18px;overflow-x:auto;padding-bottom:8px;scrollbar-width:thin}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(calc(172px*var(--ap-cover,1)),1fr));gap:22px 18px}
+  .row-scroll{display:grid;grid-auto-flow:column;grid-auto-columns:calc(172px*var(--ap-cover,1));gap:18px;overflow-x:auto;padding-bottom:8px;scrollbar-width:thin}
   .card{min-width:0;cursor:pointer;border-radius:12px;position:relative}
   .card .cover{position:relative;border-radius:10px;overflow:hidden;box-shadow:0 8px 24px -10px rgba(0,0,0,.6)}
   .card .cover .play{position:absolute;right:9px;bottom:9px;width:42px;height:42px;border-radius:50%;background:var(--gold);color:var(--on-gold);display:flex;align-items:center;justify-content:center;opacity:0;transform:translateY(6px);transition:.15s;box-shadow:0 6px 18px rgba(0,0,0,.45)}
@@ -404,7 +405,7 @@
     #queue{bottom:0;top:0;width:100%;z-index:70}
     .view{padding:18px 14px 30px}
     .vhead h1{font-size:25px}
-    .grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:18px 12px}
+    .grid{grid-template-columns:repeat(auto-fill,minmax(calc(140px*var(--ap-cover,1)),1fr));gap:18px 12px}
     .row-scroll{grid-auto-columns:140px;gap:12px}
     .hero{flex-direction:column;align-items:center;text-align:center;gap:16px}
     .hero .cover{width:min(260px,70vw)}
@@ -613,6 +614,7 @@ $('#loginForm').onsubmit=async e=>{
 };
 async function boot(){
   try{ S.me=await api('/api/me'); }catch(_){ return; }
+  if(window.MediarrAppearance) MediarrAppearance.load();
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
   buildChrome();
   await loadStatus();
@@ -819,6 +821,7 @@ async function viewHome(){
   const v=$('#view');
   v.innerHTML='<div class="vhead"><div class="grow"><h1>Listen Now</h1></div></div><div class="muted">Loading…</div>';
   const d=await api(withMode('/api/music/home'));
+  if(S.route!=='home')return;   // moved on while it loaded
   const st=d.stats;
   const row=(title,albums,link)=>albums.length?'<div class="section"><h2>'+title+'</h2>'+(link?'<a href="'+link+'">See all</a>':'')+'</div><div class="row-scroll">'+albums.map(a=>albumCard(a)).join('')+'</div>':'';
   regList('most',d.mostPlayed,{name:'Most played'});
@@ -857,6 +860,7 @@ function viewAlbums(kind){
 async function viewAlbum(id){
   const v=$('#view');
   const d=await api(withMode('/api/music/album/'+id));
+  if(S.routeKey!==(location.hash||'#/home'))return;   // moved on while it loaded
   const a=d.album;
   regList('album',d.tracks,{name:a.t,albumId:a.id});
   const codecs=[...new Set(d.tracks.map(t=>quality(t).txt.split(' ')[0]))].join(', ');
@@ -882,6 +886,7 @@ function viewArtists(){
 async function viewArtist(id){
   const v=$('#view');
   const d=await api(withMode('/api/music/artist/'+id));
+  if(S.routeKey!==(location.hash||'#/home'))return;   // moved on while it loaded
   const a=d.artist;
   regList('top',d.top,{name:a.name}); regList('appears',d.appears,{name:a.name});
   v.innerHTML='<div class="hero round"><div class="cover" style="width:200px">'+(a.art?art(a.art,a.name,600):ph(a.name,initials(a.name)))+'</div><div class="info"><div class="kicker">Artist</div><h1>'+esc(a.name)+'</h1><div class="meta">'+plural(a.albums,'album')+' · '+plural(a.n,'song')+'</div><div class="tools"><button class="btn primary" id="arPlay">'+I.play+'Play</button><button class="btn" id="arShuf">'+I.shuffle+'Shuffle</button>'+(metaMenuItems('artist',a.id,d.info).length?'<button class="iconbtn" id="arMore" aria-label="More">'+I.more+'</button>':'')+'</div>'+creditLine(d.info,true)+'</div></div>'
@@ -928,6 +933,7 @@ function viewGenres(){
 async function viewGenre(id){
   const v=$('#view');
   const d=await api(withMode('/api/music/genre/'+id));
+  if(S.routeKey!==(location.hash||'#/home'))return;   // moved on while it loaded
   v.innerHTML='<div class="vhead"><div class="grow"><div class="sub" style="text-transform:uppercase;font-weight:900;letter-spacing:1.2px;font-size:11px">Genre</div><h1>'+esc(d.genre.name)+'</h1><div class="sub">'+plural(d.albums.length,'album')+' · '+plural(d.genre.n,'song')+'</div></div><div class="tools"><button class="btn primary" id="gShuf">'+I.shuffle+'Shuffle '+esc(d.genre.name)+'</button></div></div><div class="grid">'+d.albums.map(a=>albumCard(a)).join('')+'</div>';
   $('#gShuf').onclick=()=>shuffleScope('genre:'+id,d.genre.name);
 }
@@ -943,6 +949,7 @@ function viewPlaylists(){
 async function viewPlaylist(id){
   const v=$('#view');
   const d=await api(withMode('/api/music/playlists/'+id));
+  if(S.routeKey!==(location.hash||'#/home'))return;   // moved on while it loaded
   regList('pl',d.tracks,{name:d.name,playlistId:id,draggable:!NARROW.matches});
   const dur=d.tracks.reduce((s,t)=>s+t.d,0);
   const covers=[...new Set(d.tracks.map(t=>t.art).filter(Boolean))].slice(0,4);
@@ -963,6 +970,7 @@ async function viewSmart(kind){
   const names={'recently-played':'Recently Played','most-played':'Top 100 Most Played','recently-added':'Recently Added Songs'};
   const v=$('#view');
   const d=await api(withMode('/api/music/smart/'+kind));
+  if(S.routeKey!==(location.hash||'#/home'))return;   // moved on while it loaded
   regList('smart',d.tracks,{name:names[kind]});
   v.innerHTML='<div class="vhead"><div class="grow"><div class="sub" style="text-transform:uppercase;font-weight:900;letter-spacing:1.2px;font-size:11px">Smart playlist</div><h1>'+esc(names[kind]||'Playlist')+'</h1><div class="sub">'+plural(d.tracks.length,'song')+'</div></div><div class="tools"><button class="btn primary" id="smPlay"'+(d.tracks.length?'':' disabled')+'>'+I.play+'Play</button><button class="btn" id="smShuf"'+(d.tracks.length?'':' disabled')+'>'+I.shuffle+'Shuffle</button></div></div>'
     +(d.tracks.length?trackTable(d.tracks,{listId:'smart',mini:true,plays:kind!=='recently-added'}):'<div class="empty"><p>'+(kind==='recently-added'?'No songs yet.':'Play some music and it will show up here.')+'</p></div>');
@@ -1032,6 +1040,7 @@ async function viewSettings(){
   if(admin){ try{ cfg=(await api('/api/config')).music; }catch(_){} }
   const tg=(id,title,help,on,dis)=>'<label class="tog"><span class="grow"><b>'+title+'</b><small>'+help+'</small></span><span class="sw"><input type="checkbox" id="'+id+'"'+(on?' checked':'')+(dis?' disabled':'')+'><i></i></span></label>';
   v.innerHTML='<div class="vhead"><div class="grow"><h1>Music settings</h1><div class="sub">Your listening preferences'+(admin?' and the music library':'')+'</div></div></div>'
+    +(window.MediarrAppearance?'<section class="card-s" id="apCard"><h2>Appearance</h2><p>Theme, font, size and grid settings for your account. They apply everywhere in MEDIARR, on every device.</p><div id="apBox"></div></section>':'')
     +'<section class="card-s"><h2>Albums &amp; playback</h2><p>These apply to your account on every device.</p>'
     +tg('pKeep','Keep albums together','Treat each folder of songs as one album, the way they’re organised on disk. Disc 1 / CD2 sub-folders join their album, and folders that hold songs from many albums are sorted by their album tags instead. Turn off to group songs only by their album tags.',p.keepAlbums)
     +tg('pStrict','Every folder is one album','Stricter: always group by folder, even when a folder’s songs have different album tags.',p.strictFolders,!p.keepAlbums)
@@ -1064,6 +1073,7 @@ async function viewSettings(){
     try{ const np=await api('/api/music/prefs',{method:'POST',body}); const modeChanged=np.mode!==S.mode; S.prefs=np; S.mode=np.mode; if(modeChanged){ await loadLibrary(true); toast('Albums regrouped'); } else toast('Saved'); }catch(e){ toast(e.message); }
   };
   ['#pKeep','#pStrict','#pAlbumShuffle','#pContinue'].forEach(s=>$(s).onchange=savePrefs);
+  if(window.MediarrAppearance&&$('#apBox')) MediarrAppearance.render($('#apBox'));
   paintKeys(admin);
   if(!admin)return;
   let folders=(cfg&&cfg.folders)||[];
@@ -1117,7 +1127,7 @@ async function viewSettings(){
 async function paintKeys(admin){
   const box=$('#keysBox'); if(!box)return;
   let d; try{ d=await api('/api/music/keys'+(admin?'?all=1':'')); }catch(e){ box.innerHTML='<div class="fmsg">'+esc(e.message)+'</div>'; return; }
-  if(S.route!=='settings')return;
+  if(S.route!=='settings'||!box.isConnected)return;
   const pol=d.policy, ch=linkChoices(pol);
   const chSel=(id,cls)=>'<select class="sel sm '+(cls||'')+'" data-k="'+id+'" aria-label="Change how long it works"><option value="">Change expiry…</option>'+ch.map(([h,l])=>'<option value="'+h+'">'+(h?'Works for '+l+' from now':'Never expires')+'</option>').join('')+'</select>';
   let h='';
@@ -1144,7 +1154,8 @@ async function paintKeys(admin){
   };
   if(admin){
     const savePol=async()=>{ try{ await api('/api/config',{method:'POST',body:{music:{links:{enabled:$('#lOn').checked,maxDays:Number($('#lMax').value),defaultDays:Number($('#lDef').value)}}}}); await loadStatus(); toast('Saved'); paintKeys(admin); }catch(e){ toast(e.message); } };
-    $('#lOn').onchange=$('#lMax').onchange=$('#lDef').onchange=savePol;
+    const lOn=box.querySelector('#lOn'), lMax=box.querySelector('#lMax'), lDef=box.querySelector('#lDef');
+    if(lOn) lOn.onchange=lMax.onchange=lDef.onchange=savePol;
   }
 }
 let metaTimer=null;

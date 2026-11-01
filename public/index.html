@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <script>try{document.documentElement.setAttribute('data-theme', localStorage.getItem('mediarr-theme')||'dark');}catch(e){}</script>
+<script src="/appearance.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0c0b0e">
 <meta name="application-name" content="MEDIARR">
@@ -191,7 +192,7 @@
   .toggle-pill.active{background:rgba(74,222,128,.16);border-color:rgba(74,222,128,.45);color:var(--green)}
   .toggle-pill .box{width:14px;height:14px;border-radius:4px;border:2px solid currentColor;display:flex;align-items:center;justify-content:center;font-size:10px;line-height:1}
   .hint{font-size:12px;color:var(--muted);margin:0 2px 22px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(calc(150px*var(--ap-cover,1)),1fr));gap:18px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;transition:.2s;position:relative}
   .card:hover{transform:translateY(-4px);border-color:var(--gold);box-shadow:var(--shadow)}
   .poster{aspect-ratio:2/3;width:100%;object-fit:cover;background:var(--panel2);display:block}
@@ -272,7 +273,7 @@
   .modeswitch button.active{background:var(--sonarr);color:#012230}
   .backlink{display:inline-flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted);font-weight:700;font-size:13px;margin-bottom:14px}
   .backlink:hover{color:var(--gold)}
-  .person-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px}
+  .person-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(calc(150px*var(--ap-cover,1)),1fr));gap:16px}
   .person-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;transition:.2s;text-align:center;padding-bottom:14px}
   .person-card:hover{transform:translateY(-4px);border-color:var(--sonarr);box-shadow:var(--shadow)}
   .person-photo{aspect-ratio:2/3;width:100%;object-fit:cover;background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:34px;font-weight:800}
@@ -359,7 +360,7 @@
   .plex-tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
   .plex-tabs button{font-size:12px;font-weight:800;padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer}
   .plex-tabs button.on{background:#e5a00d;color:#1a1206;border-color:#e5a00d}
-  .plex-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px}
+  .plex-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(calc(140px*var(--ap-cover,1)),1fr));gap:14px}
   .pcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;position:relative;display:flex;flex-direction:column}
   .pcard img,.pcard .ph{width:100%;aspect-ratio:2/3;object-fit:cover;background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px}
   .pcard .pb{padding:8px 9px 10px}
@@ -775,7 +776,7 @@
     <section class="side-nav-section">
       <div class="side-nav-section-title">Account</div>
       <div class="side-nav-section-sub">Your MEDIARR account</div>
-      <div class="settings-btn" id="openProfile" title="Your theme and API key">
+      <div class="settings-btn" id="openProfile" title="Your theme, font, size and API key">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
       Profile
       </div>
@@ -1256,7 +1257,7 @@
 </div>
 
 <div class="overlay" id="profileOverlay">
-  <div class="modal" style="max-width:900px">
+  <div class="modal" style="max-width:1100px">
     <div class="modal-head"><h2>My profile</h2><button class="x" id="closeProfile">&times;</button></div>
     <div class="modal-body" id="profileBody"></div>
   </div>
@@ -1914,6 +1915,7 @@ function currentMode(){
 }
 // Paint only the palette for the mode we're actually in, so the light/dark toggle keeps working.
 function applyThemeVars(mode){
+  if(window.MediarrAppearance&&MediarrAppearance.isPalette()) return;   // a named theme owns the colours
   const root=document.documentElement;
   SKIN_FIELDS.forEach(([k])=> root.style.removeProperty('--'+k));
   const v=(myTheme&&myTheme.modes&&myTheme.modes[mode])||{};
@@ -1922,10 +1924,13 @@ function applyThemeVars(mode){
 function applyTheme(t){
   if(t) myTheme=t;
   if(myTheme&&!myTheme.modes) myTheme.modes={dark:{},light:{}};
+  if(window.MediarrAppearance&&MediarrAppearance.isPalette()) return;
   const mode=currentMode();
   document.documentElement.setAttribute('data-theme', mode);
   applyThemeVars(mode);
 }
+// back on the MEDIARR theme: put this user's custom colours back; keep the header toggle's icon right
+if(window.MediarrAppearance) MediarrAppearance.onChange(p=>{ if(p.theme==='mediarr') applyThemeVars(currentMode()); if(window._paintThemeToggle) window._paintThemeToggle(); });
 async function loadMyTheme(){
   try{ const r=await fetch('/api/me/theme'); if(r.ok){ myTheme=await r.json(); applyTheme(myTheme); } }catch(e){}
 }
@@ -1944,9 +1949,15 @@ async function renderProfile(){
   let key='';
   try{ const r=await fetch('/api/me/apikey'); if(r.ok) key=(await r.json()).apiKey||''; }catch(e){}
   const base=window.location.origin;
+  const palette=!!(window.MediarrAppearance&&MediarrAppearance.isPalette());
   b.innerHTML=`
     <div class="admin-sec" style="margin-bottom:26px">
-      <h3>Appearance — your personal skin</h3>
+      <h3>Appearance</h3>
+      <div id="apBox"></div>
+    </div>
+    <div class="admin-sec" style="margin-bottom:26px">
+      <h3>Custom colours (MEDIARR theme)</h3>
+      ${palette?'<div class="small" style="color:var(--muted)">You’re using a named theme. Choose <b>MEDIARR</b> above to recolour MEDIARR’s own light and dark looks.</div></div><div style="display:none">':''}
       <div class="small" style="color:var(--muted);margin-bottom:12px">These colours apply to your account only. <b>Light and dark keep separate palettes</b> — pick a mode below, recolour it, and the header toggle still switches between them.</div>
       <div class="field" style="max-width:260px"><label>Editing which mode</label>
         <select id="skBase"><option value="dark">Dark</option><option value="light">Light</option></select>
@@ -1982,6 +1993,7 @@ curl -X POST -H "X-API-Key: YOUR_KEY" -H "Content-Type: application/json" \\
      -d '{"type":"movie","tmdbId":438631}' ${esc(base)}/api/v1/add</pre>
       </div>
     </div>`;
+  if(window.MediarrAppearance){ let was=MediarrAppearance.get().theme; MediarrAppearance.render(document.getElementById('apBox'),{onChange:p=>{ if((p.theme==='mediarr')!==(was==='mediarr')){ was=p.theme; renderProfile(); } else was=p.theme; }}); }
   document.getElementById('skBase').value=currentMode();
   const grid=document.getElementById('skinGrid');
   grid.innerHTML=SKIN_FIELDS.map(([k,label])=>{
@@ -2415,7 +2427,14 @@ function upRow(i){
   const SUN='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
   const MOON='<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/>';
   function paint(){ const t=root.getAttribute('data-theme')||'dark'; if(icon) icon.innerHTML=(t==='dark'?SUN:MOON); if(btn) btn.title=(t==='dark'?'Switch to light mode':'Switch to dark mode'); const l=document.getElementById('themeLabel'); if(l) l.textContent=(t==='dark'?'Light mode':'Dark mode'); }
-  if(btn) btn.onclick=()=>{ const t=(root.getAttribute('data-theme')==='light')?'dark':'light'; root.setAttribute('data-theme',t); try{localStorage.setItem('mediarr-theme',t);}catch(e){} try{ applyThemeVars(t); }catch(e){} paint(); };
+  if(btn) btn.onclick=()=>{
+    const t=(root.getAttribute('data-theme')==='light')?'dark':'light';
+    try{localStorage.setItem('mediarr-theme',t);}catch(e){}
+    // on a named theme the toggle switches to MEDIARR's own light or dark look
+    if(window.MediarrAppearance&&MediarrAppearance.isPalette()){ MediarrAppearance.set({theme:'mediarr'}); paint(); return; }
+    root.setAttribute('data-theme',t); try{ applyThemeVars(t); }catch(e){} paint();
+  };
+  window._paintThemeToggle=paint;
   paint();
 })();
 let dlPathD = '';
@@ -7048,6 +7067,7 @@ async function onAuthed(){
   pollAuto();       // pick up any auto-add job still running on the server
   refreshPlexMe();  // enables the ★ watchlist button when the user has linked Plex
   loadMyTheme();    // apply this user's personal colours
+  if(window.MediarrAppearance) MediarrAppearance.load();   // and their theme, font, size and grid settings
   // v1.4+ first-run configuration is handled by the shared setup wizard.
   qInput.focus();
   showHome();   // greet with recently released movies

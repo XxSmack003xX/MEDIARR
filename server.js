@@ -961,7 +961,7 @@ function staticEntry (full) {
     let raw = fs.readFileSync(full);
     // Stamp the release onto MEDIARR's own scripts (/v200.js → /v200.js?v=2.7.0) so a
     // browser, proxy or CDN holding an old copy must fetch the new one after an update.
-    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
+    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
     e = { mtimeMs: st.mtimeMs, size: st.size, raw, etag: '"' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20) + '"', gzip: null, br: null };
     _staticCache.set(full, e);
   }
@@ -1651,6 +1651,19 @@ function sanitizeTheme (t) {
   return out;
 }
 function userTheme (username) { const u = findUser(username); return (u && u.theme) ? sanitizeTheme(u.theme) : { base: 'dark', modes: { dark: {}, light: {} } }; }
+const APPEARANCE_DEFAULTS = { theme: 'mediarr', font: 'default', size: 'md', hoverDelay: 'normal', coverSize: 'default' };
+const APPEARANCE_CHOICES = {
+  font: ['default', 'system', 'serif', 'mono', 'classic'], size: ['sm', 'md', 'lg', 'xl'],
+  hoverDelay: ['instant', 'short', 'normal', 'long', 'xlong'], coverSize: ['smallest', 'small', 'default', 'large', 'largest']
+};
+function sanitizeAppearance (b) {
+  b = b && typeof b === 'object' ? b : {};
+  const out = Object.assign({}, APPEARANCE_DEFAULTS);
+  if (typeof b.theme === 'string' && /^[a-z0-9-]{1,32}$/.test(b.theme)) out.theme = b.theme;   // theme names live in appearance.js
+  for (const k of Object.keys(APPEARANCE_CHOICES)) if (APPEARANCE_CHOICES[k].includes(b[k])) out[k] = b[k];
+  return out;
+}
+function userAppearance (username) { const u = findUser(username); return sanitizeAppearance(u && u.appearance); }
 function setUserField (username, field, value) {
   const data = readUsers();
   const u = data.users.find(x => x.username.toLowerCase() === String(username).toLowerCase());
@@ -7814,6 +7827,14 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { started: true });
       }
 
+      // ---- per-user appearance (2.11): theme, font, font size, grid hover delay, grid cover size ----
+      if (p === '/api/me/appearance' && req.method === 'GET') { res.setHeader('Cache-Control', 'no-store'); return sendJSON(res, 200, userAppearance(me.username)); }
+      if (p === '/api/me/appearance' && req.method === 'POST') {
+        let b = {}; try { b = JSON.parse((await readBody(req)) || '{}'); } catch (e) {}
+        const a = sanitizeAppearance(b);
+        setUserField(me.username, 'appearance', a);
+        return sendJSON(res, 200, a);
+      }
       // ---- per-user theme + personal API key ----
       if (p === '/api/me/theme' && req.method === 'GET') return sendJSON(res, 200, userTheme(me.username));
       if (p === '/api/me/theme' && req.method === 'POST') {
