@@ -2,6 +2,16 @@
 
 # MEDIARR
 
+## MEDIARR 2.12
+
+MEDIARR 2.12 adds **lyrics** to the Music player. Press the speech-bubble button (or **L**) to see the words of the song playing; timed lyrics highlight each line as it's sung, follow along by themselves and jump to a line when you click it. On phones, and in Now Playing on any screen, the lyrics replace or sit beside the cover.
+
+- **Your own lyrics first**: a `.lrc` or `.txt` file with the same name next to the song, or lyrics embedded in it (MP3, FLAC, Ogg/Opus, M4A, WMA and more, timed or plain).
+- **LRCLIB for the rest**: songs without timed lyrics of their own are looked up on [LRCLIB](https://lrclib.net), a free and open lyrics library, the first time someone opens them. Only the title, artist, album and length are sent, and the answer is remembered.
+- **Admins can fix them**: search LRCLIB and pick different lyrics, type or paste your own (with an **Insert time** button to time each line while the song plays), make them appear earlier or later, or hide them for a song.
+
+See [Lyrics](#lyrics).
+
 ## MEDIARR 2.11
 
 MEDIARR 2.11 lets everyone make MEDIARR look the way they like. In **Profile → Appearance** (desktop), **🎨 Appearance & profile** (phone) or the music player's **Music settings**:
@@ -140,7 +150,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.11.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.12.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -159,7 +169,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.11.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.12.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1028,7 +1038,7 @@ Compilations are shown as **Various Artists**, featured artists ("feat.", "&", �
 - Shuffle (optionally whole albums at a time), repeat all, repeat one, and **Keep playing the album** after a song chosen from Songs or search.
 - Playlists per person, play counts, and smart playlists: Recently Played, Top 100 Most Played, Recently Added Songs.
 - The queue and position are remembered on each device. Phones get lock-screen and headphone controls.
-- Keyboard: Space play/pause, ← → seek, Shift+← → previous/next, ↑ ↓ volume, S shuffle, R repeat, M mute, Q Up Next, / search.
+- Keyboard: Space play/pause, ← → seek, Shift+← → previous/next, ↑ ↓ volume, S shuffle, R repeat, M mute, Q Up Next, L lyrics, / search.
 
 On desktop, **Music player** opens in its own tab so music keeps playing while you use the rest of MEDIARR.
 
@@ -1063,6 +1073,28 @@ Candidate covers in the search load through MEDIARR, which only fetches pictures
 
 MEDIARR needs outbound internet access to `musicbrainz.org`, `coverartarchive.org` (which redirects to `archive.org`) and `api.deezer.com` and Deezer's image servers.
 
+### Lyrics
+
+The speech-bubble button in the player bar (or **L**) opens the lyrics of the song playing beside your library. In **Now Playing**, the same button shows the lyrics beside the cover on wide screens and in place of it on phones; Now Playing remembers which you chose.
+
+- **Timed lyrics** highlight the line being sung and scroll by themselves. Click or tap a line to jump there. Scroll by hand and the lyrics stay put for a few seconds.
+- **Plain lyrics** are shown as text.
+
+Where lyrics come from, best first:
+
+| | Source |
+| --- | --- |
+| 1 | Lyrics an admin picked or typed for the song |
+| 2 | Timed lyrics stored with the song: `Song.lrc` next to `Song.flac` (same name), or timed lyrics embedded in the file |
+| 3 | Timed lyrics from LRCLIB |
+| 4 | Plain lyrics stored with the song: embedded in the file, or `Song.txt` next to it |
+| 5 | Plain lyrics from LRCLIB |
+
+- **Files MEDIARR reads**: `.lrc` files (UTF-8, UTF-16 or Windows code pages; several times on one line, `[offset:]` and word timings are understood) and `.txt` files next to the song; ID3 USLT and SYLT, Vorbis/FLAC `LYRICS`, `UNSYNCEDLYRICS` and `SYNCEDLYRICS`, MP4 `©lyr` and APE `LYRICS` tags, and anything else ffprobe can read. Lyrics in tags may themselves be LRC text with times.
+- **LRCLIB** ([lrclib.net](https://lrclib.net)) is free and needs no account. MEDIARR asks it only when someone opens the lyrics of a song that has no timed lyrics of its own, one request at a time, sending the title, artist, album and length. It tries an exact match first, then a search that ignores "(Remastered 2011)", "feat." and the like and checks the artist and length. The answer is remembered in `mediarr.db`: songs with no lyrics are tried again after a month, plain-only lyrics are checked for timed ones after a month, and when LRCLIB is busy or unreachable MEDIARR keeps what it had and tries again later. MEDIARR needs outbound access to `lrclib.net` for this.
+- **Fixing lyrics (admins)**: the **⋯** button under a song's lyrics has **Search for lyrics…** (LRCLIB results with a preview, likely matches first, and a warning when the length differs), **Edit lyrics… / Add lyrics…** (type or paste plain text or LRC; play the song and press **Insert time** as each line starts to time it), **Lyrics are early / late** (moves them ½ second at a time; works for lyrics from files too), **Go back to automatic lyrics**, **Look up again** and **Hide lyrics for this song**. Changes apply for everyone. Music files are never changed.
+- **Settings (admins)**: **Music settings → Lyrics** turns lyrics on or off for everyone and turns LRCLIB lookups on or off (both on by default; with LRCLIB off only lyrics stored with your music are shown). **Forget online lyrics** clears what was found online but keeps lyrics you picked, typed, retimed or hid.
+
 ### Direct music links
 
 Each person can make **link keys** in the player's **Music settings → Direct links**. A key only plays music (it can't sign in or use anything else in MEDIARR) and has its own expiry, which its owner can change at any time, even after it has expired, or revoke.
@@ -1076,7 +1108,7 @@ Link URLs look like `https://your-server/music/d/ml_…/t/<song>/<Artist - Title
 
 ### What's stored
 
-The scanned library, online album info and resized cover art are caches (`mediarr.db` and `cache/music-art/` in the data folder) that a rescan rebuilds. Link keys are kept in `mediarr.db`; they aren't part of configuration backups, so restoring a backup on a new server means making new keys. Playlists and play counts are kept in `mediarr.db` and included in configuration backups as `music.json`.
+The scanned library, online album info, lyrics found online and resized cover art are caches (`mediarr.db` and `cache/music-art/` in the data folder) that a rescan or a new lookup rebuilds. Lyrics an admin picked, typed or retimed are kept in `mediarr.db` too, but aren't part of configuration backups. Link keys are kept in `mediarr.db`; they aren't part of configuration backups, so restoring a backup on a new server means making new keys. Playlists and play counts are kept in `mediarr.db` and included in configuration backups as `music.json`.
 
 ---
 
@@ -2157,6 +2189,7 @@ MEDIARR/
 ├── music.js                     # Music library: folder scanning, album grouping, audio streaming, cover art
 ├── music-tags.js                # Audio tag reader (ID3, Vorbis comments, MP4, RIFF/AIFF; ffprobe fallback)
 ├── music-meta.js                # Online album info: MusicBrainz, Cover Art Archive, Deezer
+├── music-lyrics.js              # Lyrics: .lrc/.txt files, embedded lyrics, LRCLIB, admin fixes
 ├── store.js                     # SQLite storage (mediarr.db) + migration from pre-2.2 JSON files
 └── update-helper.js             # One-shot Docker update/rollback helper
 ```

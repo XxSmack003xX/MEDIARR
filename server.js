@@ -92,6 +92,13 @@ function musicOnlineConfig (c) {
   for (const k of Object.keys(MUSIC_ONLINE_DEFAULTS)) o[k] = !!o[k];
   return o;
 }
+/* Lyrics (2.12): shown in the music player; looked up on LRCLIB when the song has none of its own. */
+const MUSIC_LYRICS_DEFAULTS = { enabled: true, online: true };
+function musicLyricsConfig (c) {
+  const o = Object.assign({}, MUSIC_LYRICS_DEFAULTS, ((c || readConfig()).music || {}).lyrics || {});
+  for (const k of Object.keys(MUSIC_LYRICS_DEFAULTS)) o[k] = !!o[k];
+  return o;
+}
 /* Direct music links (2.10): per-user keys that only play music, each with an adjustable expiry. */
 const LINK_HOURS = [1, 24, 168, 720, 2160, 8760, 0];   // 1 hour … 1 year, 0 = never
 const LINK_MAX_DAYS = [1, 7, 30, 90, 365, 0];          // admin limit, 0 = no limit
@@ -173,6 +180,11 @@ const musicLib = require('./music').createMusicLibrary({
     if (r.error) try { logError('music', 'Music library scan failed', r.error); } catch (_) {}
   }
 });
+const musicLyrics = require('./music-lyrics').createLyrics({
+  store, upstream, version: APP_VERSION, tags: require('./music-tags'),
+  ffprobe: () => FFPROBE, getConfig: () => musicLyricsConfig(),
+  log: m => console.log('  ' + m)
+});
 const PUBLIC_DIR  = path.join(ROOT, 'public');
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const USERS_PATH  = path.join(DATA_DIR, 'users.json');
@@ -200,7 +212,7 @@ const DEFAULT_CONFIG = {
   autoAdd: { intervalMinutes: 5, minRuntime: 0 },
   libraryCache: { enabled: true, intervalMinutes: 360 },
   notify: { enabled: false, targets: [], events: { added: true, downloaded: true, pastDownloaded: true, rss: true, blocked: true, jobs: true, errors: true, serviceDown: true, login: false } },
-  music: { folders: [], scanIntervalHours: 12, transcodeKbps: 256, online: { enabled: true, musicbrainz: true, deezer: true, preferOnlineArt: false }, links: { enabled: true, maxDays: 30, defaultDays: 7 } },   // music player (2.7): folders scanned recursively for audio
+  music: { folders: [], scanIntervalHours: 12, transcodeKbps: 256, online: { enabled: true, musicbrainz: true, deezer: true, preferOnlineArt: false }, links: { enabled: true, maxDays: 30, defaultDays: 7 }, lyrics: { enabled: true, online: true } },   // music player (2.7): folders scanned recursively for audio
   sab: { url: '', apiKey: '' },   // SABnzbd — queue + history, visible to every signed-in user
   backup: { onChange: true, everyDays: 7, keep: 20 },   // auto-snapshot of all settings
   shell: { enabled: false, commands: [] },   // admin-defined restart/maintenance commands
@@ -310,7 +322,7 @@ function sanitize (c) {
   out.ui = { loginTheme: (c.ui && c.ui.loginTheme) || 'tron' };
   out.donate = { url: (c.donate && c.donate.url) || '', label: (c.donate && c.donate.label) || '' };
   out.sab = { url: c.sab.url, hasKey: !!c.sab.apiKey };
-  { const m = c.music || {}; out.music = { folders: normalizeMusicFolders(m.folders), scanIntervalHours: Number.isFinite(Number(m.scanIntervalHours)) ? Number(m.scanIntervalHours) : 12, transcodeKbps: Number(m.transcodeKbps) || 256, online: musicOnlineConfig(c), links: musicLinksPolicy(c), configured: normalizeMusicFolders(m.folders).length > 0 }; }
+  { const m = c.music || {}; out.music = { folders: normalizeMusicFolders(m.folders), scanIntervalHours: Number.isFinite(Number(m.scanIntervalHours)) ? Number(m.scanIntervalHours) : 12, transcodeKbps: Number(m.transcodeKbps) || 256, online: musicOnlineConfig(c), links: musicLinksPolicy(c), lyrics: musicLyricsConfig(c), configured: normalizeMusicFolders(m.folders).length > 0 }; }
   out.backup = { onChange: !(c.backup && c.backup.onChange === false),
                  everyDays: Math.max(0, Number((c.backup && c.backup.everyDays)) || 0),
                  keep: Math.max(1, Number((c.backup && c.backup.keep)) || 20) };
@@ -6809,7 +6821,8 @@ async function musicApi (p, u, req, res, me) {
     const st = musicLib.status();
     st.online = musicOnlineConfig();
     st.links = { enabled: musicLinksPolicy().enabled };
-    if (me.role === 'admin') st.meta = musicMeta.status();
+    st.lyrics = musicLyricsConfig();
+    if (me.role === 'admin') { st.meta = musicMeta.status(); st.lyricsStats = musicLyrics.status(); }
     if (me.role !== 'admin') { delete st.folders; if (st.last) delete st.last.failedFiles; }
     return sendPlain(200, Object.assign(st, { isAdmin: me.role === 'admin', prefs, username: me.username }));
   }
@@ -6856,6 +6869,35 @@ async function musicApi (p, u, req, res, me) {
     return musicLib.stream(req, res, m[1], q);
   }
   if ((m = p.match(/^\/api\/music\/art\/([a-f0-9]{20})$/)) && (req.method === 'GET' || req.method === 'HEAD')) return musicLib.sendArt(req, res, m[1], q.get('s'));
+  // lyrics (2.12): everyone can read them; admins can pick, edit, retime or hide them
+  if (p === '/api/music/lyrics/clear' && req.method === 'POST') {
+    if (me.role !== 'admin') return sendPlain(403, { message: 'Admin only' });
+    musicLyrics.clearOnline(); return sendPlain(200, { ok: true, stats: musicLyrics.status() });
+  }
+  if ((m = p.match(/^\/api\/music\/lyrics\/([a-f0-9]{16})(\/search)?$/))) {
+    const t = musicLib.getTrack(m[1]);
+    if (!t || !t.ok) return sendPlain(404, { message: 'That song isn’t in the music library any more.' });
+    const isAdmin = me.role === 'admin';
+    const out = async force => Object.assign(await musicLyrics.get(t, force), { id: t.id, canEdit: isAdmin });
+    if (!m[2] && req.method === 'GET') return sendPlain(200, await out(false));
+    if (!isAdmin) return sendPlain(403, { message: 'Only admins can change lyrics.' });
+    try {
+      if (m[2] && req.method === 'GET') return sendPlain(200, await musicLyrics.search(t, String(q.get('q') || '').trim()));
+      if (!m[2] && req.method === 'POST') {
+        const b = await body();
+        const a = String(b.action || '');
+        if (a === 'choose') await musicLyrics.choose(t, b.id);
+        else if (a === 'text') musicLyrics.setText(t, b.text);
+        else if (a === 'shift') musicLyrics.setShift(t, b.shift);
+        else if (a === 'hide' || a === 'show') musicLyrics.setHidden(t, a === 'hide');
+        else if (a === 'reset') musicLyrics.reset(t);
+        else if (a === 'refresh') { musicLyrics.refresh(t); return sendPlain(200, await out(true)); }
+        else return sendPlain(400, { message: 'Unknown action' });
+        return sendPlain(200, await out(false));
+      }
+    } catch (e) { return sendPlain(e.code === 400 ? 400 : e.code === 404 ? 404 : 502, { message: e.message }); }
+    return sendPlain(405, { message: 'Method not allowed' });
+  }
   // playlists
   if (p === '/api/music/playlists' && req.method === 'GET') return sendPlain(200, { playlists: store.music.playlists(me.username) });
   if (p === '/api/music/playlists' && req.method === 'POST') {
@@ -8290,6 +8332,11 @@ const server = http.createServer(async (req, res) => {
           cur.music.links = musicLinksPolicy({ music: { links: next } });
           // a shorter limit also shortens keys that already run longer
           if (cur.music.links.maxDays) try { store.musicKeys.capAll(Date.now() + cur.music.links.maxDays * 86400000); } catch (_) {}
+        }
+        if (m.lyrics && typeof m.lyrics === 'object') {
+          const next = musicLyricsConfig(cur);
+          for (const k of Object.keys(MUSIC_LYRICS_DEFAULTS)) if (m.lyrics[k] != null) next[k] = !!m.lyrics[k];
+          cur.music.lyrics = next;
         }
         if (m.online && typeof m.online === 'object') {
           const before = musicOnlineConfig(cur), next = Object.assign({}, before);

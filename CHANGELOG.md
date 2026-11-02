@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.12.0
+
+### Lyrics in the Music player
+
+- New **Lyrics** button in the player bar and Now Playing (shortcut **L**). Timed lyrics highlight the line being sung, scroll along, and jump to a line when you click it; plain lyrics are shown as text. On wide screens Now Playing shows the cover and lyrics side by side; on phones the lyrics replace the cover. Now Playing remembers whether lyrics were showing.
+- Lyrics stored with your music come first: `.lrc` and `.txt` files with the same name next to a song (UTF-8, UTF-16 or Windows code pages; `[offset:]`, several times per line and word timings understood), and lyrics embedded in the file (ID3 USLT/SYLT/TXXX, Vorbis/FLAC LYRICS, UNSYNCEDLYRICS and SYNCEDLYRICS, MP4 ©lyr, APE LYRICS, and others through ffprobe).
+- Songs without timed lyrics of their own are looked up on **LRCLIB** (lrclib.net, free and open) the first time someone opens them: exact match first, then a search that ignores "(Remastered …)", "feat." and similar and checks artist and length. Only title, artist, album and length are sent; answers are cached in `mediarr.db` (schema 5), "busy" answers are waited out, and lyrics already found are kept when LRCLIB can't be reached.
+- Admins can search LRCLIB and pick different lyrics, type or paste their own (with **Insert time** to time each line while the song plays), make lyrics appear ½ second earlier or later, go back to automatic lyrics, look up again, or hide lyrics for a song. Changes apply for everyone; music files are never changed.
+- **Music settings → Lyrics** (admins): turn lyrics on or off, turn LRCLIB lookups on or off, and **Forget online lyrics** (keeps admins' picks, edits, timing fixes and hidden songs).
+
 ## 2.11.0
 
 ### Appearance settings for every user

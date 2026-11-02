@@ -20,6 +20,7 @@
  *                   per-user playlists and play counts (included in backups)
  *   music_meta      online album/artist matches, years, genres and downloaded art (a cache)
  *   music_keys      per-user keys for direct music links, each with its own expiry
+ *   music_lyrics    lyrics found online, plus an admin's picks, edits and timing fixes
  *
  * Uses Node's built-in node:sqlite (Node.js 22.13+), so MEDIARR still needs no
  * npm install. On first launch, migrateLegacy() imports the old JSON files, verifies
@@ -30,7 +31,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 
-const SCHEMA_VERSION = 4;   // 2 (v2.7): music library, playlists and play counts; 3 (v2.8): online music metadata; 4 (v2.10): music link keys
+const SCHEMA_VERSION = 5;   // 2 (v2.7): music library, playlists and play counts; 3 (v2.8): online music metadata; 4 (v2.10): music link keys; 5 (v2.12): lyrics
 const LIMITS = { activity: 50000, errors: 2000, blocks: 5000, inbox: 2000, watchPerUser: 1000 };
 // Old JSON files this store replaces. Deleted after a verified migration.
 const LEGACY_FILES = ['adds.json', 'watch-progress.json', 'v2-state.json', 'errors.json', 'health.json', 'blocked.json'];
@@ -396,6 +397,25 @@ function open (dataDir, opts) {
     capAll (maxExpires) { prep('mkCap', 'UPDATE music_keys SET expires=? WHERE expires=0 OR expires>?').run(num(maxExpires), num(maxExpires)); }
   };
 
+  /* ---------- music lyrics (v2.12) ---------- */
+  const row2lyr = r => r && ({ trackId: r.track_id, status: r.status || '', source: r.source || '', extId: r.ext_id || '', manual: r.manual ? 1 : 0, hidden: r.hidden ? 1 : 0, shift: r.shift || 0, synced: r.synced || '', plain: r.plain || '', info: parse(r.info, {}), checked: r.checked || 0 });
+  const musicLyrics = {
+    get (id) { return row2lyr(prep('lyGet', 'SELECT * FROM music_lyrics WHERE track_id=?').get(String(id))) || null; },
+    put (r) {
+      prep('lyPut', 'INSERT INTO music_lyrics(track_id,status,source,ext_id,manual,hidden,shift,synced,plain,info,checked) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(track_id) DO UPDATE SET status=excluded.status, source=excluded.source, ext_id=excluded.ext_id, manual=excluded.manual, hidden=excluded.hidden, shift=excluded.shift, synced=excluded.synced, plain=excluded.plain, info=excluded.info, checked=excluded.checked')
+        .run(String(r.trackId), str(r.status, 20) || '', str(r.source, 20) || '', str(r.extId, 40) || '', r.manual ? 1 : 0, r.hidden ? 1 : 0, num(r.shift), String(r.synced || '').slice(0, 200000), String(r.plain || '').slice(0, 200000), j(r.info || {}), num(r.checked));
+    },
+    remove (id) { prep('lyDel', 'DELETE FROM music_lyrics WHERE track_id=?').run(String(id)); },
+    // forget what was looked up online, but keep an admin's picks, edits, hidden songs and timing fixes
+    clearAuto () {
+      tx(() => {
+        db.exec('DELETE FROM music_lyrics WHERE manual=0 AND hidden=0 AND shift=0');
+        db.exec("UPDATE music_lyrics SET status='', source='', ext_id='', synced='', plain='', info='{}', checked=0 WHERE manual=0");
+      });
+    },
+    count () { return prep('lyCount', "SELECT count(*) c FROM music_lyrics WHERE status IN ('found','instrumental')").get().c; }
+  };
+
   /* ---------- legacy import shared by migration and backup restore ---------- */
   function importLegacyDoc (name, doc) {
     switch (name) {
@@ -551,7 +571,7 @@ function open (dataDir, opts) {
 
   function close () { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (_) {} try { db.close(); } catch (_) {} }
 
-  return { db, file, kv, activity, watch, inbox, errors, blocks, sessions, music, musicMeta, musicKeys, importLegacyDoc, restoreLegacyDoc, migrateLegacy, close, sha256, LIMITS, LEGACY_FILES };
+  return { db, file, kv, activity, watch, inbox, errors, blocks, sessions, music, musicMeta, musicKeys, musicLyrics, importLegacyDoc, restoreLegacyDoc, migrateLegacy, close, sha256, LIMITS, LEGACY_FILES };
 }
 
 function migrateSchema (db) {
@@ -614,6 +634,13 @@ function migrateSchema (db) {
       created INTEGER, expires INTEGER, last_used INTEGER, uses INTEGER, last_ip TEXT);
     CREATE INDEX IF NOT EXISTS music_keys_user ON music_keys(username);
     PRAGMA user_version = 4;
+    COMMIT;`);
+  if (v < 5) db.exec(`
+    BEGIN;
+    CREATE TABLE IF NOT EXISTS music_lyrics (
+      track_id TEXT PRIMARY KEY, status TEXT, source TEXT, ext_id TEXT, manual INTEGER DEFAULT 0, hidden INTEGER DEFAULT 0,
+      shift INTEGER DEFAULT 0, synced TEXT, plain TEXT, info TEXT, checked INTEGER);
+    PRAGMA user_version = 5;
     COMMIT;`);
 }
 

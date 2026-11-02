@@ -11,6 +11,9 @@
  *   MP4 / M4A      iTunes ilst atoms (AAC, ALAC, …), mvhd duration, covr art
  *   WAV, AIFF      fmt/COMM, LIST INFO and embedded ID3 chunks
  *
+ * readLyrics() (v2.12) reads embedded lyrics the same way: ID3 USLT/SYLT and
+ * TXXX:LYRICS, Vorbis LYRICS/UNSYNCEDLYRICS/SYNCEDLYRICS, MP4 ©lyr and APE LYRICS.
+ *
  * Everything else (WMA, APE, WavPack, Musepack, DSD, Matroska, …) is read with
  * ffprobe when it is installed. MEDIARR's Docker image includes it.
  */
@@ -75,6 +78,48 @@ function id3Text (enc, b) {
   }
   s = enc === 3 ? b.toString('utf8') : b.toString('latin1');
   return s.split('\0').map(clean).filter(Boolean);
+}
+// Lyrics keep their line breaks, so they get their own decoder (clean() collapses whitespace).
+function rawText (enc, b) {
+  const s = enc === 1 ? utf16(b, false) : enc === 2 ? utf16(b, true) : enc === 3 ? b.toString('utf8') : b.toString('latin1');
+  return s.replace(/^\ufeff/, '').replace(/\u0000+$/g, '').replace(/\u0000/g, '\n').replace(/\r\n?/g, '\n');
+}
+// End of a NUL-terminated string starting at p: [end, next]. UTF-16 terminators are two aligned zero bytes.
+function termAt (b, p, enc) {
+  if (enc === 1 || enc === 2) { for (let i = p; i + 1 < b.length; i += 2) if (b[i] === 0 && b[i + 1] === 0) return [i, i + 2]; return [b.length, b.length]; }
+  const z = b.indexOf(0, p); return z < 0 ? [b.length, b.length] : [z, z + 1];
+}
+const LYRIC_KEYS = new Set(['LYRICS', 'USLT', 'UNSYNCEDLYRICS', 'UNSYNCEDLYRIC', 'SYNCEDLYRICS', 'LYRICSSYNCED', 'LYRIC']);
+const LYRIC_FRAMES = new Set(['USLT', 'ULT', 'SYLT', 'SLT', 'TXXX', 'TXX']);
+function id3Lyrics (id, d, out) {
+  if (d.length < 2) return;
+  const enc = d[0];
+  if (id === 'TXXX' || id === 'TXX') {
+    const [e, n] = termAt(d, 1, enc);
+    const desc = rawText(enc, d.subarray(1, e)).toUpperCase().replace(/[_ \n-]/g, '');
+    if (LYRIC_KEYS.has(desc)) out.lyrics.push({ kind: 'text', text: rawText(enc, d.subarray(n)) });
+    return;
+  }
+  if (d.length < 5) return;
+  const lang = d.toString('latin1', 1, 4).replace(/[^a-z]/gi, '').toLowerCase();
+  if (id === 'USLT' || id === 'ULT') {
+    const [, n] = termAt(d, 4, enc);
+    out.lyrics.push({ kind: 'text', lang, text: rawText(enc, d.subarray(n)) });
+    return;
+  }
+  // SYLT: [enc][lang×3][time format][content type][descriptor\0] then (text\0 + 32-bit time)…
+  if (d.length < 7) return;
+  const fmt = d[4];
+  if (fmt !== 2) return;   // 1 = MPEG frames, which can't be turned into times without decoding
+  let [, p] = termAt(d, 6, enc);
+  const lines = [];
+  while (p < d.length && lines.length < 20000) {
+    const [e, n] = termAt(d, p, enc);
+    if (n + 4 > d.length) break;
+    lines.push([d.readUInt32BE(n), rawText(enc, d.subarray(p, e))]);
+    p = n + 4;
+  }
+  if (lines.length) out.lyrics.push({ kind: 'sylt', lang, lines });
 }
 function clean (s) { return String(s == null ? '' : s).replace(/[\u0000-\u001f﻿]/g, ' ').replace(/\s+/g, ' ').trim(); }
 function intOf (v) { const m = /^\s*(\d{1,4})/.exec(String(v == null ? '' : v)); return m ? Number(m[1]) : 0; }
@@ -152,6 +197,11 @@ async function parseId3v2 (r, base, out) {
     const packed = ver === 4 ? (fflags & 0x000c) : ver === 3 ? (fflags & 0x00c0) : 0;   // compressed or encrypted
     const dli = (ver === 4 && (fflags & 0x0001)) ? 4 : 0;
     const frameUnsync = ver === 4 && (fflags & 0x0002);
+    if (!packed && out.wantLyrics && LYRIC_FRAMES.has(id) && fsz < 2097152) {
+      let d = await rd(dataPos + dli, fsz - dli);
+      if (frameUnsync) d = deunsync(d);
+      id3Lyrics(id, d, out);
+    }
     if (!packed) {
       if (id === 'APIC' || id === 'PIC') {
         const head = await rd(dataPos + dli, Math.min(fsz - dli, 1024));
@@ -215,6 +265,7 @@ function parseApeItems (b, count, out, fileOff) {
       const v = b.toString('utf8', vp, vp + len).split('\0');
       const k = { TITLE: 'title', ARTIST: 'artist', ALBUM: 'album', ALBUMARTIST: 'albumartist', GENRE: 'genre', YEAR: 'year', TRACK: 'track', DISC: 'disc', COMPILATION: 'compilation' }[key];
       if (k) setTag(out.tags, k, v, k === 'artist' ? ', ' : null);
+      else if (out.wantLyrics && LYRIC_KEYS.has(key)) out.lyrics.push({ kind: 'text', text: b.toString('utf8', vp, vp + len).replace(/\r\n?/g, '\n') });
     } else if (key === 'COVERART(FRONT)' && !out.art) {
       const zz = b.indexOf(0, vp);
       if (zz > 0 && zz < vp + len) out.art = { kind: 'range', off: fileOff + zz + 1, len: vp + len - zz - 1, mime: '' };
@@ -287,6 +338,7 @@ function parseVorbisComments (b, p, out) {
       const key = b.toString('latin1', p, eq).toUpperCase().replace(/[_ ]/g, '');
       if (key === 'METADATABLOCKPICTURE') { if (!out.art) out.art = { kind: 'embed' }; }
       else if (key === 'COVERART') { if (!out.art) out.art = { kind: 'embed' }; }
+      else if (out.wantLyrics && LYRIC_KEYS.has(key)) out.lyrics.push({ kind: 'text', text: b.toString('utf8', eq + 1, p + len).replace(/\r\n?/g, '\n') });
       else if (VC_MAP[key]) (multi[VC_MAP[key]] || (multi[VC_MAP[key]] = [])).push(b.toString('utf8', eq + 1, p + len));
     }
     p += len;
@@ -404,7 +456,7 @@ async function parseOgg (r, out, wantPicture) {
 
 /* ---------- MP4 / M4A ---------- */
 const MP4_CONTAINERS = new Set(['moov', 'trak', 'mdia', 'minf', 'stbl', 'udta', 'ilst']);
-const MP4_ITEMS = { '\xa9nam': 'title', '\xa9ART': 'artist', 'aART': 'albumartist', '\xa9alb': 'album', '\xa9gen': 'genre', '\xa9day': 'year', 'trkn': 'track', 'disk': 'disc', 'cpil': 'compilation', 'gnre': 'gnre', 'covr': 'covr' };
+const MP4_ITEMS = { '\xa9nam': 'title', '\xa9ART': 'artist', 'aART': 'albumartist', '\xa9alb': 'album', '\xa9gen': 'genre', '\xa9day': 'year', 'trkn': 'track', 'disk': 'disc', 'cpil': 'compilation', 'gnre': 'gnre', 'covr': 'covr', '\xa9lyr': 'lyrics' };
 async function parseMp4 (r, out, wantPicture) {
   const ft = await r.read(4, 4);
   if (ft.toString('latin1') !== 'ftyp') return false;
@@ -459,6 +511,7 @@ async function parseMp4 (r, out, wantPicture) {
           }
           return;
         }
+        if (key === 'lyrics') { if (out.wantLyrics && !wantPicture && vl < 2097152) out.lyrics.push({ kind: 'text', text: (await r.read(vs, vl)).toString('utf8').replace(/\r\n?/g, '\n') }); return; }
         if (wantPicture || vl > 65536) return;
         const v = await r.read(vs, vl);
         if (key === 'track' || key === 'disc') { if (v.length >= 6) { const n = v.readUInt16BE(2), t = v.readUInt16BE(4); setTag(out.tags, key, n ? n + (t ? '/' + t : '') : ''); } }
@@ -552,6 +605,7 @@ function applyProbe (j, out) {
   setTag(out.tags, 'genre', genreName(String(pick('genre')).split(/[;\0]/)[0])); setTag(out.tags, 'year', pick('date', 'year', 'originaldate', 'wm/year'));
   setTag(out.tags, 'track', pick('track', 'tracknumber', 'wm/tracknumber')); setTag(out.tags, 'disc', pick('disc', 'discnumber', 'wm/partofset'));
   setTag(out.tags, 'compilation', pick('compilation', 'itunescompilation'));
+  if (out.wantLyrics) for (const [k, v] of Object.entries(tags)) if (/^(lyrics|unsyncedlyrics|syncedlyrics|wm\/lyrics)(?:$|-)/.test(k) && v) out.lyrics.push({ kind: 'text', lang: (/-([a-z]{3})$/.exec(k) || [])[1] || '', text: String(v).replace(/\r\n?/g, '\n') });
   if (!out.duration) out.duration = Number(a.duration) || Number(j.format && j.format.duration) || 0;
   if (!out.codec || out.codec === 'unknown') out.codec = String(a.codec_name || '').toLowerCase();
   out.sampleRate = out.sampleRate || Number(a.sample_rate) || 0;
@@ -573,6 +627,7 @@ async function readTags (file, opts) {
   opts = opts || {};
   const ext = (String(file).split('.').pop() || '').toLowerCase();
   const out = { tags: {}, duration: 0, codec: '', container: ext, bitrate: 0, sampleRate: 0, channels: 0, bits: 0, art: null };
+  if (opts.lyrics) { out.wantLyrics = true; out.lyrics = []; }
   let ok = false, r;
   try {
     r = await openReader(file);
@@ -593,8 +648,16 @@ async function readTags (file, opts) {
     if (applyProbe(j, out)) ok = true;
   }
   out.ok = ok && out.duration > 0;
-  delete out.hasId3v2; delete out.truncatedComments;
+  delete out.hasId3v2; delete out.truncatedComments; delete out.wantLyrics;
   return out;
+}
+/*
+ * readLyrics(file, { ffprobe }) → [{ kind:'text', text, lang? } | { kind:'sylt', lines:[[ms, text], …], lang? }]
+ * Every lyrics block the file carries; music-lyrics.js decides which one to show.
+ */
+async function readLyrics (file, opts) {
+  const out = await readTags(file, Object.assign({}, opts || {}, { lyrics: true }));
+  return (out.lyrics || []).filter(l => l.kind === 'sylt' ? l.lines.length : String(l.text || '').trim());
 }
 /* Read embedded art bytes without ffmpeg (Ogg pictures, MP4 covr). */
 async function readEmbeddedPicture (file) {
@@ -623,4 +686,4 @@ async function readEmbeddedPicture (file) {
   return null;
 }
 
-module.exports = { readTags, readEmbeddedPicture, ffprobe, intOf, pairOf, genreName, clean, ID3_GENRES, _internal: { mpegHeader, parseId3v2, bufReader, deunsync } };
+module.exports = { readTags, readLyrics, readEmbeddedPicture, ffprobe, intOf, pairOf, genreName, clean, ID3_GENRES, _internal: { mpegHeader, parseId3v2, bufReader, deunsync } };
