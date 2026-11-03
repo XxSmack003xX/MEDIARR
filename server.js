@@ -6780,7 +6780,40 @@ setTimeout(() => { const cfg = readConfig().libraryCache; if (cfg.enabled) scanA
    Every signed-in user can browse and play the music library; only admins choose
    the folders, browse the server's directories and start scans. Audio and art are
    addressed by opaque ids from the scanned library, never by file path. */
-const MUSIC_PREF_DEFAULTS = { keepAlbums: true, strictFolders: false, albumShuffle: true, continueAlbum: true };
+const MUSIC_PREF_DEFAULTS = { keepAlbums: true, strictFolders: false, albumShuffle: true, continueAlbum: true, sync: true };
+/*
+ * Listening sync (2.13): each of a user's devices reports what it's playing; the others
+ * can "Continue here" from the same song and second, which pauses the device it came from.
+ * One state per user (the device that played last), kept in memory and in mediarr.db.
+ */
+const musicSyncClients = new Map();   // username → Set<{ res, device }>
+const musicNow = new Map();           // username → state | null
+const musicNowSaved = new Map();      // username → { at, timer }
+const syncKey = u => String(u || '').toLowerCase();
+function musicNowGet (username) {
+  const k = syncKey(username);
+  if (!musicNow.has(k)) { let s = null; try { s = store.kv.get('music.now.' + k, null); } catch (_) {} musicNow.set(k, s && typeof s === 'object' && s.device ? s : null); }
+  return musicNow.get(k);
+}
+function musicNowSet (username, st, now) {
+  const k = syncKey(username);
+  musicNow.set(k, st);
+  const sv = musicNowSaved.get(k) || { at: 0, timer: null };
+  musicNowSaved.set(k, sv);
+  const write = () => { sv.at = Date.now(); clearTimeout(sv.timer); sv.timer = null; try { if (musicNow.get(k)) store.kv.set('music.now.' + k, musicNow.get(k)); else store.kv.del('music.now.' + k); } catch (_) {} };
+  if (now || Date.now() - sv.at > 15000) write();
+  else if (!sv.timer) { sv.timer = setTimeout(write, 15000); if (sv.timer.unref) sv.timer.unref(); }
+}
+function musicNowOut (st) {
+  if (!st) return null;
+  return { device: st.device, name: st.name, q: st.q, i: st.i, trackId: st.q[st.i] || '', pos: st.pos, playing: st.playing, shuffle: st.shuffle, repeat: st.repeat, from: st.from, at: st.at, age: Math.max(0, Date.now() - st.at) };
+}
+function musicSyncSend (username, ev, exceptDevice) {
+  const set = musicSyncClients.get(syncKey(username)); if (!set) return;
+  const msg = 'event: sync\ndata: ' + JSON.stringify(ev) + '\n\n';
+  for (const c of [...set]) { if (c.device === exceptDevice) continue; try { c.res.write(msg); } catch (_) { set.delete(c); } }
+}
+function musicNowForget (username) { const k = syncKey(username); musicNow.set(k, null); try { store.kv.del('music.now.' + k); } catch (_) {} }
 function musicPrefs (username) {
   const p = Object.assign({}, MUSIC_PREF_DEFAULTS, store.kv.get('music.prefs.' + String(username).toLowerCase(), {}) || {});
   for (const k of Object.keys(MUSIC_PREF_DEFAULTS)) p[k] = !!p[k];
@@ -6830,7 +6863,54 @@ async function musicApi (p, u, req, res, me) {
     const b = await body(), cur = musicPrefs(me.username), next = {};
     for (const k of Object.keys(MUSIC_PREF_DEFAULTS)) next[k] = b[k] != null ? !!b[k] : cur[k];
     store.kv.set('music.prefs.' + String(me.username).toLowerCase(), next);
+    if (cur.sync && !next.sync) { musicNowForget(me.username); musicSyncSend(me.username, { type: 'off' }); }
     return sendPlain(200, musicPrefs(me.username));
+  }
+  // listening sync (2.13)
+  if (p === '/api/music/sync' && req.method === 'GET') {
+    if (!prefs.sync) return sendPlain(200, { off: true, state: null });
+    return sendPlain(200, { state: musicNowOut(musicNowGet(me.username)) });
+  }
+  if (p === '/api/music/sync/stream' && req.method === 'GET') {
+    const device = String(q.get('device') || '').toLowerCase();
+    if (!/^[a-f0-9]{8,48}$/.test(device)) return sendPlain(400, { message: 'Bad device' });
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+    res.write('retry: 4000\n\n');
+    const k = syncKey(me.username);
+    let set = musicSyncClients.get(k); if (!set) { set = new Set(); musicSyncClients.set(k, set); }
+    for (const c of [...set]) if (c.device === device) { set.delete(c); try { c.res.end(); } catch (_) {} }   // one stream per device
+    if (set.size >= 30) { const old = set.values().next().value; set.delete(old); try { old.res.end(); } catch (_) {} }
+    const client = { res, device }; set.add(client);
+    const hb = setInterval(() => { try { res.write(': hb\n\n'); } catch (_) {} }, 25000); if (hb.unref) hb.unref();
+    const close = () => { clearInterval(hb); set.delete(client); if (!set.size && musicSyncClients.get(k) === set) musicSyncClients.delete(k); };
+    req.on('close', close); res.on('close', close);
+    return;
+  }
+  if (p === '/api/music/sync' && req.method === 'POST') {
+    if (!prefs.sync) return sendPlain(200, { ok: true, off: true, accepted: false });
+    const b = await body();
+    const device = String(b.device || '').toLowerCase();
+    if (!/^[a-f0-9]{8,48}$/.test(device)) return sendPlain(400, { message: 'Bad device' });
+    const cur = musicNowGet(me.username);
+    let qIds = Array.isArray(b.q) ? b.q.map(String).filter(x => /^[a-f0-9]{16}$/.test(x)).slice(0, 1000) : null;
+    if (!qIds) { if (cur && cur.device === device) qIds = cur.q; else return sendPlain(409, { message: 'Send the queue too', needQueue: true }); }
+    if (!qIds.length) return sendPlain(200, { ok: true, accepted: false });
+    const takeover = !!b.takeover, playing = !!b.playing;
+    // a device that isn't playing can't push aside one that is (until that one goes quiet)
+    const accept = takeover || !cur || cur.device === device || playing || !cur.playing || Date.now() - cur.at > 90000;
+    if (!accept) return sendPlain(200, { ok: true, accepted: false, state: musicNowOut(cur) });
+    const i = Math.max(0, Math.min(qIds.length - 1, Math.floor(Number(b.i) || 0)));
+    const st = {
+      device, name: String(b.name || 'Another device').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 60) || 'Another device',
+      q: qIds, i, pos: Math.max(0, Math.min(86400, Number(b.pos) || 0)), playing,
+      shuffle: !!b.shuffle, repeat: ['off', 'all', 'one'].includes(b.repeat) ? b.repeat : 'off', from: String(b.from || '').slice(0, 120), at: Date.now()
+    };
+    const prevOwner = cur && cur.device !== device ? cur.device : '';
+    const big = !cur || prevOwner || takeover || cur.playing !== st.playing || (cur.q[cur.i] !== st.q[st.i]);
+    musicNowSet(me.username, st, big);
+    musicSyncSend(me.username, { type: 'now', state: musicNowOut(st) }, device);
+    if (takeover && prevOwner) musicSyncSend(me.username, { type: 'takeover', from: prevOwner, by: { device, name: st.name } }, device);
+    return sendPlain(200, { ok: true, accepted: true });
   }
   if (p === '/api/music/library' && req.method === 'GET') {
     const etag = '"music-' + musicLib.gen + '-' + mode + '"';
@@ -8165,6 +8245,7 @@ const server = http.createServer(async (req, res) => {
         if (u.username === me.username) return sendJSON(res, 400, { message: "You can't remove yourself" });
         data.users = data.users.filter(x => x !== u); writeUsers(data);
         try { store.musicKeys.removeForUser(u.username); } catch (_) {}
+        try { musicNowForget(u.username); } catch (_) {}
         return sendJSON(res, 200, { ok: true });
       }
       if (p === '/api/admin/adds' && req.method === 'GET') {

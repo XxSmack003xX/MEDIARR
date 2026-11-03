@@ -2,6 +2,15 @@
 
 # MEDIARR
 
+## MEDIARR 2.13
+
+MEDIARR 2.13 lets your music follow you between devices. Start a song or an album on your computer, open the Music player on your phone, and a card offers **Play here** (or **Continue**, if you'd paused): the phone picks up the same song, Up Next list, shuffle and repeat from the same second, and the computer pauses. It works the other way round too, and between any of your signed-in browsers.
+
+- Changes reach your other devices straight away while they have the player open, and when you come back to it.
+- Turn it off, or name each device ("Continue from Living room PC"), in **Music settings → Your devices**. Only your own account sees what you're playing.
+
+See [Continue on another device](#continue-on-another-device).
+
 ## MEDIARR 2.12
 
 MEDIARR 2.12 adds **lyrics** to the Music player. Press the speech-bubble button (or **L**) to see the words of the song playing; timed lyrics highlight each line as it's sung, follow along by themselves and jump to a line when you click it. On phones, and in Now Playing on any screen, the lyrics replace or sit beside the cover.
@@ -150,7 +159,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.12.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.13.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -169,7 +178,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.12.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.13.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1037,7 +1046,7 @@ Compilations are shown as **Various Artists**, featured artists ("feat.", "&", �
 - **Up Next** queue (drag to reorder on desktop), Play Next, Add to Up Next, and Save as playlist.
 - Shuffle (optionally whole albums at a time), repeat all, repeat one, and **Keep playing the album** after a song chosen from Songs or search.
 - Playlists per person, play counts, and smart playlists: Recently Played, Top 100 Most Played, Recently Added Songs.
-- The queue and position are remembered on each device. Phones get lock-screen and headphone controls.
+- The queue and position are remembered on each device, and can follow you to your other devices (see below). Phones get lock-screen and headphone controls.
 - Keyboard: Space play/pause, ← → seek, Shift+← → previous/next, ↑ ↓ volume, S shuffle, R repeat, M mute, Q Up Next, L lyrics, / search.
 
 On desktop, **Music player** opens in its own tab so music keeps playing while you use the rest of MEDIARR.
@@ -1072,6 +1081,18 @@ Admins fix wrong or missing matches the way Plex does:
 Candidate covers in the search load through MEDIARR, which only fetches pictures from the Cover Art Archive, archive.org and Deezer's image servers.
 
 MEDIARR needs outbound internet access to `musicbrainz.org`, `coverartarchive.org` (which redirects to `archive.org`) and `api.deezer.com` and Deezer's image servers.
+
+### Continue on another device
+
+What you're playing follows you between your devices, like Spotify Connect:
+
+- **On the device you pick up**, a card above the player shows the song: **Playing on Chrome on Windows** with **Play here** while the other device is playing, or **Continue from iPhone** with **Continue** after you paused there. Press it, or just press play, and this device takes over the same Up Next list, song, second, shuffle and repeat. **×** hides the card until you play something new.
+- **The device you came from** pauses and shows **Playing on …** with **Play here**, so you can hand it back.
+- Updates reach your other devices straight away while the Music player is open there (MEDIARR keeps a small live connection), and phones catch up as soon as you return to the player.
+- A device that only opens the player, without playing, never replaces what you were playing elsewhere, and a paused device can't push aside one that's playing.
+- **Music settings → Your devices**: **Continue listening on other devices** (on by default, per account; turning it off forgets what was shared) and **This device's name** (MEDIARR guesses one, such as "iPhone" or "Chrome on Windows"). Two tabs in one browser count as two players.
+
+Only your own signed-in devices see what you're playing. MEDIARR remembers the last state in `mediarr.db`, so a server restart doesn't lose it.
 
 ### Lyrics
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.13.0
+
+### Continue listening on another device
+
+- What you're playing now follows you between devices. Open the Music player on another device and a card shows the song with **Play here** (while the first device is still playing) or **Continue** (after you paused it). This device then takes over the same Up Next list, song, position, shuffle and repeat, and the first device pauses and offers **Play here** to hand it back. Pressing play with nothing queued continues too; **×** hides the card until something new is played.
+- Updates arrive straight away over a small per-account live connection (`/api/music/sync/stream`), and again whenever you return to the player. Positions are reported on play, pause, seek, song change and about every 10 seconds while playing, and when a tab closes.
+- A device that only opens the player never overwrites what you played elsewhere, and a paused device can't push aside one that's playing.
+- **Music settings → Your devices**: turn **Continue listening on other devices** on or off (on by default, per account; off forgets what was shared) and name this device. Only your own account sees it. The last state is kept in `mediarr.db` across restarts and removed when the account is deleted.
+
 ## 2.12.0
 
 ### Lyrics in the Music player
