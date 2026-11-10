@@ -206,6 +206,7 @@ const DEFAULT_CONFIG = {
   plex:   { url: '', token: '', clientId: '' },
   webdav: { source: 'webdav', localPath: '', url: '', username: '', password: '', folder: '', mode: 'redirect', transcode: false, encSpeed: 'balanced', hwAccel: 'auto' },   // source: 'webdav' | 'local'   // encSpeed: balanced|faster|fastest|quality; hwAccel: auto|off
   playback: { autoSelect: true, pathMappings: [] },   // automatic playback + Arr-root -> media-source path mappings
+  player: { seekPreviews: true, watchTogether: true, subLangs: 'en', opensubtitles: { apiKey: '', username: '', password: '' } },   // video player extras (2.14)
   realtime: { webhookToken: '', setupComplete: false },
   ui:     { loginTheme: 'tron' },  // login background theme: 'tron' | 'earth' | 'rain' | 'random'
   donate: { url: '', label: '' },  // PayPal donate link; when set, a Donate button appears for everyone
@@ -250,6 +251,7 @@ function readConfig () {
       plex:   Object.assign({}, DEFAULT_CONFIG.plex, c.plex),
       webdav: Object.assign({}, DEFAULT_CONFIG.webdav, c.webdav),
       playback: Object.assign({}, DEFAULT_CONFIG.playback, c.playback),
+      player: Object.assign({}, DEFAULT_CONFIG.player, c.player),
       realtime: Object.assign({}, DEFAULT_CONFIG.realtime, c.realtime),
       ui:     Object.assign({}, DEFAULT_CONFIG.ui, c.ui),
       donate: Object.assign({}, DEFAULT_CONFIG.donate, c.donate),
@@ -973,7 +975,7 @@ function staticEntry (full) {
     let raw = fs.readFileSync(full);
     // Stamp the release onto MEDIARR's own scripts (/v200.js → /v200.js?v=2.7.0) so a
     // browser, proxy or CDN holding an old copy must fetch the new one after an update.
-    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
+    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance|player)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
     e = { mtimeMs: st.mtimeMs, size: st.size, raw, etag: '"' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20) + '"', gzip: null, br: null };
     _staticCache.set(full, e);
   }
@@ -3679,6 +3681,12 @@ async function testWebdav (url, username, password, folder, source, localPath) {
   const vids = entries.filter(e => !e.isDir && (VIDEO_EXT.includes((e.name.split('.').pop() || '').toLowerCase()))).length;
   return { name: 'WebDAV', videos: vids, folders: entries.filter(e => e.isDir).length };
 }
+
+const playerExtras = require('./player-extras').createPlayerExtras({
+  readConfig, writeConfig, isLocalSource, localTarget, mediaInput, webdavTarget, webdavAuthHeader, upstream, safeSegments, parsePropfind,
+  VIDEO_EXT, ffmpeg: () => FFMPEG, ffprobe: () => FFPROBE, dataDir: DATA_DIR, sendJSON, readBody, version: APP_VERSION,
+  log: m => console.log('  ' + m)
+});
 
 /* ---------- auto add queue (server-side, survives page reloads) ---------- */
 async function arrPost (svc, subPath, bodyObj) {
@@ -7119,7 +7127,7 @@ const server = http.createServer(async (req, res) => {
       // Installed PWA launches use ?pwa=1 from the manifest start_url. Keep the
       // full desktop UI even when the installed app is running on a phone.
       const pwaDesktop = /[?&]pwa=1(?:&|$)/.test(req.url || '');
-      if (isMobileUA && !forceDesktop && !pwaDesktop) { res.writeHead(302, { Location: '/m' }); return res.end(); }
+      if (isMobileUA && !forceDesktop && !pwaDesktop) { const pm = /[?&]party=([A-Za-z0-9]{6})\b/.exec(req.url || ''); res.writeHead(302, { Location: '/m' + (pm ? '?party=' + pm[1] : '') }); return res.end(); }   // keep a Watch Together invite
       return serveStatic(res, 'index.html');
     }
     if (req.method === 'GET' && (p === '/m' || p === '/m/' || p === '/mobile' || p === '/mobile.html')) return serveStatic(res, 'mobile.html');
@@ -8182,6 +8190,12 @@ const server = http.createServer(async (req, res) => {
         keepSessionAlive(req, res, what || 'browsing');
         if (what) markMediaActivity(me, what, u.searchParams.get('path') || '');
       }
+      // video player extras (2.14): chapters, next episode, seek previews, subtitles, Watch Together
+      if (p.startsWith('/api/player/') || p === '/api/party' || p.startsWith('/api/party/')) {
+        if (p === '/api/player/thumb' || p.startsWith('/api/party')) keepSessionAlive(req, res, 'streaming');
+        if (await playerExtras.handle(req, res, u, me)) return;
+        return sendJSON(res, 404, { message: 'Not found' });
+      }
       if (p === '/api/webdav/stream' && req.method === 'GET') return webdavStream(u.searchParams.get('path') || '', req, res);
       if (p === '/api/webdav/playback-plan' && req.method === 'GET') return browserPlaybackPlan(u.searchParams.get('path') || '', res);
       if (p === '/api/webdav/tracks' && req.method === 'GET') return webdavTracks(u.searchParams.get('path') || '', res);
@@ -8561,6 +8575,8 @@ server.listen(PORT, HOST, () => {
   // music player: load the scanned library, then check the folders for changes
   try { musicLib.load(); musicLib.startSchedule(); musicLib.scheduleScan(15000, 'startup'); } catch (e) { console.error('  [music] ' + e.message); }
   // forget music link keys 30 days after they expire (until then they can still be extended)
+  const prunePreviews = () => { playerExtras.prune().catch(() => {}); };
+  setTimeout(prunePreviews, 60000).unref(); setInterval(prunePreviews, 86400000).unref();
   const pruneKeys = () => { try { store.musicKeys.prune(Date.now(), 30 * 86400000); } catch (_) {} };
   pruneKeys(); setInterval(pruneKeys, 86400000).unref();
   // background health monitoring: first run shortly after boot, then on an interval

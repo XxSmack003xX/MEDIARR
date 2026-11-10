@@ -2,6 +2,17 @@
 
 # MEDIARR
 
+## MEDIARR 2.14
+
+MEDIARR 2.14 gives the video player its own controls, on the computer and the phone, and four things that streaming apps have and plain browser players don't:
+
+- **Up Next, Skip intro and Skip recap.** At the credits (or the last seconds of an episode) a card offers the next episode and starts it after a countdown; **Skip intro** and **Skip recap** appear when the video marks those parts with chapters.
+- **Picture previews on the seek bar.** Move along the bar to see the scene, the chapter name and the time before you jump.
+- **Subtitles, found for you.** Subtitle files next to the video are picked up by themselves, you can add your own file, or search OpenSubtitles from the player. Fix the timing and size without leaving the video.
+- **Watch Together.** Start a watch party, send the link, and everyone's player stays in step: play, pause, jump and next episode, with chat and reactions.
+
+See [The video player](#the-video-player).
+
 ## MEDIARR 2.13
 
 MEDIARR 2.13 lets your music follow you between devices. Start a song or an album on your computer, open the Music player on your phone, and a card offers **Play here** (or **Continue**, if you'd paused): the phone picks up the same song, Up Next list, shuffle and repeat from the same second, and the computer pauses. It works the other way round too, and between any of your signed-in browsers.
@@ -159,7 +170,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.13.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.14.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -178,7 +189,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.13.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.14.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -213,6 +224,7 @@ This README is written against the **v2.13.0 source in this repository**. Featur
 - [Spotify linking](#spotify-linking)
 - [SABnzbd activity](#sabnzbd-activity)
 - [WebDAV and local media playback](#webdav-and-local-media-playback)
+- [The video player](#the-video-player)
 - [Automatic playback selection and Transcode Dashboard](#automatic-playback-selection-and-transcode-dashboard)
 - [Calendar, health, and activity](#calendar-health-and-activity)
 - [Favorites and automation](#favorites-and-automation)
@@ -1500,6 +1512,49 @@ The application can probe for supported H.264 hardware encoders and use them whe
 
 MEDIARR can inspect media tracks using ffprobe and expose detected audio/subtitle options to the player.
 
+### The video player
+
+Since 2.14 MEDIARR draws its own controls over the video on the desktop and phone pages. Playback itself (direct play, HLS, transcoding, resume, casting) is unchanged; the engine's **Audio, quality and casting** options sit in a drawer under the video, and audio track and quality can also be picked from the player's **Settings**.
+
+**Controls.** Play/pause, previous and next episode, volume, time, Watch Together, subtitles, settings (speed, autoplay, previews), picture-in-picture and full screen. The controls fade away while you watch and come back when you move the pointer or tap. On a phone, double-tap the left or right side to jump 10 seconds; on an iPhone, full screen fills the page so MEDIARR's controls stay available.
+
+| Key | Does |
+| --- | --- |
+| Space / K | Play or pause |
+| ← → (with Shift) | Back / forward 10 s (30 s) |
+| ↑ ↓ | Volume |
+| F · M · C | Full screen · mute · subtitles |
+| N · S | Next episode · skip intro or recap |
+| Esc | Close the open panel, then the player |
+
+**Up Next and skipping.**
+
+- The **next episode** is the next video in the same folder (natural order, so *E2* comes before *E10*), and after a season's last episode the first one in the next *Season* folder. Files named *sample* are ignored, and unrelated movies that merely share a folder are never chained together.
+- When a video has **chapters** named like *Recap*, *Intro* / *Opening* or *Credits* / *Ending*, MEDIARR shows **Skip recap** and **Skip intro** during those parts and marks them on the seek bar. **Settings → Skip intros and recaps** skips them without asking.
+- **Up Next** appears when the credits chapter starts, with a 10-second countdown; without chapters it appears in the last seconds and the next episode starts when this one ends. **Watch credits** / **Not now** keeps the current episode. **Settings → Play the next episode** turns autoplay off for this browser.
+- The file name is read for a friendly title: `Show.Name.S01E02.The.Title.1080p.mkv` is shown as **The Title**, *S1 · E2 · Show Name*.
+
+**Picture previews.** MEDIARR makes small frames with ffmpeg the first time a video is played, a few at a time and only while someone is watching it, and keeps them in `cache/thumbs` in the data folder (never in your media folder; removed a month after the video was last opened). Admins can turn them off for the server, and each person can turn them off for their browser. Needs ffmpeg.
+
+**Subtitles.** The subtitles button lists, in one place:
+
+- text subtitle tracks inside the video;
+- subtitle files next to it with the same name, such as `Movie.en.srt` or `Movie.es.forced.srt` (`.srt`, `.vtt`, `.ass`, `.ssa`; the language is read from the name);
+- files you add with **Add a file**, and subtitles picked from **Search online**. These are kept in `subtitles/` in the data folder and offered to everyone who plays that video. The person who added one, or an admin, can remove it.
+
+For added subtitles you can move the **timing** earlier or later in quarter-second steps, and everyone can pick a **size**. Your choice of language carries over to the next episode, and subtitles move up out of the way while the controls are showing.
+
+**Search online** uses [OpenSubtitles](https://www.opensubtitles.com). An admin adds a free API key under **Settings (in the player) → Player settings for everyone**; an OpenSubtitles username and password are optional and raise the daily download allowance. MEDIARR searches by show, season and episode (or movie and year) and, for local files, by the file's fingerprint, so subtitles made for exactly your file are listed first and labelled. A subtitle that was already downloaded for a video isn't downloaded again. Needs outbound access to `api.opensubtitles.com`.
+
+**Watch Together.** Press the people button and **Start a watch party**: MEDIARR shows a six-letter code and copies an invite link (`https://your-mediarr/?party=CODE`). Friends with an account on your MEDIARR open the link, or type the code under **or join one**, and their player opens the same video at the same moment.
+
+- Play, pause and jumping on any device happens for everyone, with a short note saying who did it. Players that drift are pulled back in step.
+- Starting the next episode (or any other video) takes the whole party along.
+- The panel shows who is watching, a small chat and reactions that float over the picture.
+- Closing the player leaves the party; a party ends shortly after the last person leaves. Admins can turn the feature off under **Player settings for everyone**.
+
+Like the Live Dashboard, Watch Together keeps a small live connection open; see [Reverse proxies](#reverse-proxies).
+
 ### Download modes
 
 WebDAV download behavior can be configured for different deployment constraints, including direct browser access or proxying through MEDIARR.
@@ -2211,6 +2266,7 @@ MEDIARR/
 ├── music-tags.js                # Audio tag reader (ID3, Vorbis comments, MP4, RIFF/AIFF; ffprobe fallback)
 ├── music-meta.js                # Online album info: MusicBrainz, Cover Art Archive, Deezer
 ├── music-lyrics.js              # Lyrics: .lrc/.txt files, embedded lyrics, LRCLIB, admin fixes
+├── player-extras.js             # Video player: chapters, next episode, seek previews, subtitles, Watch Together
 ├── store.js                     # SQLite storage (mediarr.db) + migration from pre-2.2 JSON files
 └── update-helper.js             # One-shot Docker update/rollback helper
 ```

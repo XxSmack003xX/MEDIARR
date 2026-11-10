@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.14.0
+
+### A new video player
+
+- MEDIARR now draws its own player controls on the desktop and phone pages: a seek bar with chapter marks, play/pause, previous and next episode, volume, speed, picture-in-picture and full screen, with keyboard shortcuts and double-tap to jump on phones. The playback engine (direct play, HLS, transcoding, resume, casting) is unchanged; its audio, quality and casting options moved into a drawer under the video. The player window is wider and shows a readable title (the episode title with "S1 · E2 · Show Name") instead of the file name.
+- **Up Next**: at the credits chapter, or in an episode's last seconds, a card offers the next episode and plays it after a countdown. The next episode is the next video in the folder (natural order), then the first of the next Season folder. Autoplay can be turned off per browser.
+- **Skip intro / Skip recap** when the video has chapters named for them, with an option to skip without asking. Those parts and the credits are marked on the seek bar.
+- **Picture previews** while moving along the seek bar, with chapter name and time. Frames are made with ffmpeg on demand, cached in `cache/thumbs` in the data folder and removed a month after a video was last opened. Admins can turn them off.
+- **Subtitles panel**: tracks in the video, subtitle files next to it (`.srt`, `.vtt`, `.ass`, `.ssa`), your own uploaded file, and **online search through OpenSubtitles** (admin adds a free API key in the player's settings). Timing can be shifted in quarter-second steps and the size changed; the language you chose carries over to the next episode. Added subtitles are kept in `subtitles/` in the data folder; media folders are never written to.
+- **Watch Together**: start a watch party from the player and share the link or six-letter code. Play, pause, jumps and next episode stay in step for everyone, with a list of who's watching, chat and reactions. Invite links also work on phones.
+- Esc closes an open player panel, then the player itself.
+
 ## 2.13.0
 
 ### Continue listening on another device
