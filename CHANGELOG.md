@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.15.0
+
+### Resource Monitor
+
+- New **Resource Monitor** in the menu under Monitoring (phone: 📊 Resource Monitor), for admins.
+- **Overview**: CPU (total, every core, load, model and temperature where available), memory (in use, cache, available, swap, and the container's memory limit if it has one), disk read/write and network download/upload, each with a six-minute chart; storage for every disk (used, free, total, read/write speed; bind mounts of one disk grouped; network shares labelled); and the busiest processes.
+- **Processes**: every process with PID, user, CPU (as a share of the whole computer), memory, threads, running time and state. Search, sort by any column, click for the full command line. Kernel tasks hidden by default. MEDIARR and its ffmpeg transcodes are labelled.
+- **Docker**: CPU, memory (without file cache), memory limit, network and process count for every container, when the Docker socket is mounted.
+- Readings are taken every 2 seconds only while the page is open (`GET /api/admin/monitor`, admins only) and stop a minute after it closes. Linux reads /proc and /sys; macOS uses `ps`/`df`, Windows `tasklist`.
+- The Compose files have a commented `pid: host` line: uncomment it to list every process on the computer from inside Docker.
+
 ## 2.14.0
 
 ### A new video player

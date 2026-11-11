@@ -796,6 +796,10 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H4z"/><path d="M8 20h8M12 16v4"/><path d="m9 8 6 2-6 2z"/></svg>
       Transcodes
       </div>
+      <div class="settings-btn" id="openMonitor" style="display:none" title="CPU, memory, disks and every process on this computer">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M6 13l3-4 3 3 3-5 3 4"/></svg>
+      Resource Monitor
+      </div>
     </section>
     <section class="side-nav-section">
       <div class="side-nav-section-title">Administration</div>
@@ -5723,6 +5727,7 @@ function applyRoleUI(){
   document.getElementById('openAdmin').style.display = admin ? '' : 'none';
   document.getElementById('openUpdate').style.display = admin ? '' : 'none';
   document.getElementById('openTranscodes').style.display = admin ? '' : 'none';
+  { const om=document.getElementById('openMonitor'); if(om) om.style.display = admin ? '' : 'none'; }
   { const na=document.getElementById('navAutomation'); if(na) na.style.display = admin ? '' : 'none'; }
   document.getElementById('logoutBtn').style.display = '';
   document.getElementById('pwBtn').style.display = (currentUser && currentUser.hasPassword===false) ? 'none' : '';
@@ -7118,6 +7123,7 @@ async function onAuthed(){
 <script src="/v180.js"></script>
 <script src="/v200.js"></script>
 <script src="/player.js"></script>
+<script src="/monitor.js"></script>
 <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 <script>
 (function(){

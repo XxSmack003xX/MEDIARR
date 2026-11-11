@@ -4,6 +4,8 @@ services:
     container_name: mediarr
     init: true
     restart: unless-stopped
+    # Resource Monitor: uncomment to list every process on the computer, not just MEDIARR's.
+    # pid: host
     ports:
       - "7575:7575"
     environment:

@@ -2,6 +2,17 @@
 
 # MEDIARR
 
+## MEDIARR 2.15
+
+MEDIARR 2.15 adds a **Resource Monitor** for the computer MEDIARR runs on, in the menu under **Monitoring** (admins only).
+
+- **Live overview**: CPU (with every core, load and temperature), memory, disk activity and network, each with a six-minute chart, updated every 2 seconds.
+- **Storage**: every disk with used, free and total space and its read/write speed.
+- **Processes**: every process with its CPU, memory, threads and running time. Search, sort by any column, and click one to see its full command line.
+- **Docker**: when MEDIARR can reach the Docker socket, the CPU, memory and network of every container.
+
+See [Resource Monitor](#resource-monitor).
+
 ## MEDIARR 2.14
 
 MEDIARR 2.14 gives the video player its own controls, on the computer and the phone, and four things that streaming apps have and plain browser players don't:
@@ -170,7 +181,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.14.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.15.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -189,7 +200,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.14.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.15.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -227,6 +238,7 @@ This README is written against the **v2.14.0 source in this repository**. Featur
 - [The video player](#the-video-player)
 - [Automatic playback selection and Transcode Dashboard](#automatic-playback-selection-and-transcode-dashboard)
 - [Calendar, health, and activity](#calendar-health-and-activity)
+- [Resource Monitor](#resource-monitor)
 - [Favorites and automation](#favorites-and-automation)
 - [RSS auto-add](#rss-auto-add)
 - [Notifications](#notifications)
@@ -1621,6 +1633,28 @@ The dashboard API is administrator-only (`GET /api/admin/transcodes`). MEDIARR d
 
 ---
 
+## Resource Monitor
+
+**Menu → Monitoring → Resource Monitor** (phone: **📊 Resource Monitor**) shows what the computer running MEDIARR is doing. It's for admins only, because it lists every program and its command line.
+
+**Overview**
+
+- **CPU**: total use, each core, the load average, the CPU model and, where the computer reports it, the temperature.
+- **Memory**: in use, available, cache (memory borrowed to speed up files, which is given back when needed) and swap. When MEDIARR's container has a memory limit, that's shown too.
+- **Disk activity** and **Network**: read/write and download/upload speeds.
+- Each has a chart of the last six minutes. A **Busiest processes** list links to the full list.
+- **Storage**: each disk with used, free and total space and its own read/write speed. Folders on the same disk are shown together, and network shares are labelled.
+
+**Processes**: every process with PID, user, CPU, memory, threads, running time and state. CPU is a share of the whole computer, as in Windows Task Manager (one busy core on a 4-core computer is 25%). Search by name, command, user or PID, sort by any column, and click a process for its full command line and details. Kernel tasks are hidden unless you tick **Show kernel tasks**. MEDIARR's own process and its ffmpeg transcodes are labelled.
+
+**Docker**: with the Docker socket mounted (as in the included Compose file), every container with its CPU and memory use, memory limit, network traffic and process count. MEDIARR's own container is marked.
+
+**In Docker.** CPU, memory, disks and network are always for the whole computer. The process list, though, only shows the processes inside MEDIARR's container unless you give the container the host's process list: uncomment `pid: host` in the Compose file and recreate the container. The page tells you when this applies. Disks appear under their paths inside the container (`/data`, `/media` and so on).
+
+**Other systems.** On macOS the page uses `ps` and `df`; on Windows, `tasklist` (memory per process, but no CPU per process). Disk and network speeds and temperatures need Linux.
+
+The monitor only takes readings while the page is open, every 2 seconds, and stops a minute after it's closed; MEDIARR keeps nothing on disk. Pause stops the updates while you read.
+
 ## Calendar, health, and activity
 
 ### Upcoming calendar
@@ -2267,6 +2301,7 @@ MEDIARR/
 ├── music-meta.js                # Online album info: MusicBrainz, Cover Art Archive, Deezer
 ├── music-lyrics.js              # Lyrics: .lrc/.txt files, embedded lyrics, LRCLIB, admin fixes
 ├── player-extras.js             # Video player: chapters, next episode, seek previews, subtitles, Watch Together
+├── system-monitor.js            # Resource Monitor: CPU, memory, disks, network, processes, containers
 ├── store.js                     # SQLite storage (mediarr.db) + migration from pre-2.2 JSON files
 └── update-helper.js             # One-shot Docker update/rollback helper
 ```

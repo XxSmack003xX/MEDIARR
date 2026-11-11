@@ -975,7 +975,7 @@ function staticEntry (full) {
     let raw = fs.readFileSync(full);
     // Stamp the release onto MEDIARR's own scripts (/v200.js → /v200.js?v=2.7.0) so a
     // browser, proxy or CDN holding an old copy must fetch the new one after an update.
-    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance|player)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
+    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance|player|monitor)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
     e = { mtimeMs: st.mtimeMs, size: st.size, raw, etag: '"' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20) + '"', gzip: null, br: null };
     _staticCache.set(full, e);
   }
@@ -6089,6 +6089,11 @@ function detectRuntime () {
   return _runtimeInfo;
 }
 let _selfInspect = null, _selfLookupError = '';
+const systemMonitor = require('./system-monitor').createSystemMonitor({
+  procRoot: PROC_ROOT, fsRoot: FS_ROOT, runtime: () => detectRuntime(),
+  dockerAvailable: () => fs.existsSync(DOCKER_SOCKET), dockerApi: (m, p, t) => dockerApi(m, p, t),
+  selfId: async () => { const i = await dockerSelfInspect(); return i && i.Id; }
+});
 async function dockerInspectOnce (ref) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try { return (await dockerApi('GET', '/containers/' + encodeURIComponent(ref) + '/json', 10000)).data || null; }
@@ -8204,6 +8209,9 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/webdav/hls/stop' && req.method === 'GET') return webdavHlsStop(u.searchParams.get('sid') || '', res);
       { const hm = p.match(/^\/api\/webdav\/hls\/([A-Za-z0-9]+)\/([A-Za-z0-9_.-]+)$/); if (hm && req.method === 'GET') return webdavHlsFile(hm[1], hm[2], res); }
       if (p === '/api/webdav/download' && (req.method === 'GET' || req.method === 'HEAD')) return webdavDownload(u.searchParams.get('path') || '', res, me, req.method === 'HEAD', req);
+
+      // ---- admin: resource monitor (2.15) ----
+      if (p === '/api/admin/monitor' && req.method === 'GET') { return sendJSON(res, 200, await systemMonitor.snapshot({ procs: u.searchParams.get('procs') || '' })); }
 
       // ---- admin: playback / transcode dashboard ----
       if (p === '/api/admin/transcodes' && req.method === 'GET') return sendJSON(res, 200, await transcodeDashboard());
