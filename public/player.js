@@ -625,9 +625,11 @@ function renderSettings(){
     +'<div class="mpx-rowx"><span class="mpx-lbl">Skip intros and recaps<small>Jumps past them without asking, when the video marks them.</small></span>'+sw('autoSkip',PREF.autoSkip)+'</div>'
     +(st.seekPreviews?'<div class="mpx-rowx"><span class="mpx-lbl">Picture previews<small>Shows the scene as you move along the seek bar.</small></span>'+sw('previews',PREF.previews)+'</div>':'')+'</div>'
     +proxy(ids().audio,'Audio')+proxy(ids().qual,'Quality')
+    +(window.MediarrLinks&&X.path?'<div class="mpx-tools one"><button class="mpx-btn ghost" type="button" data-vlink>'+window.MediarrLinks.icon+'Direct link to this video</button></div>':'')
     +(st.admin?'<div class="mpx-tools one"><button class="mpx-btn ghost" type="button" data-admin>'+I.gear+'Player settings for everyone</button></div>':'')
     +'<div class="mpx-note">Shortcuts: Space play/pause · ← → 10 s · ↑ ↓ volume · F full screen · M mute · C subtitles · N next · S skip</div></div>';
   p.innerHTML=h;wireHead();
+  {const vb=p.querySelector('[data-vlink]');if(vb)vb.onclick=()=>{const path=X.path;if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});if(!v.paused)v.pause();openPanel('');window.MediarrLinks.share({path,kind:'file',name:String(path).split('/').pop()});};}
   p.querySelectorAll('[data-rate]').forEach(b=>b.onclick=()=>{v.playbackRate=Number(b.dataset.rate);renderSettings();});
   p.querySelectorAll('[data-sw]').forEach(b=>b.onclick=()=>{const k=b.dataset.sw;PREF[k]=!PREF[k];savePref();b.setAttribute('aria-checked',PREF[k]?'true':'false');if(k==='previews'&&PREF.previews)prefetch();});
   p.querySelectorAll('[data-px]').forEach(b=>b.onclick=()=>{const s=document.getElementById(b.dataset.px);if(!s)return;s.value=b.dataset.val;s.dispatchEvent(new Event('change'));setTimeout(renderSettings,50);});
@@ -806,6 +808,7 @@ function detach(){
 
 /* ---------- keyboard ---------- */
 document.addEventListener('keydown',e=>{
+  if(document.querySelector('.vl-back'))return;   // a direct-link window is open over the player
   if(!X.path||!X.v||!X.wrap||!X.wrap.offsetParent&&!X.wrap.classList.contains('mpx-fs')&&!X.wrap.classList.contains('mpx-fill'))return;
   const tg=e.target,typing=tg&&(/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName)||tg.isContentEditable);
   if(e.key==='Escape'){

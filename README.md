@@ -2,6 +2,17 @@
 
 # MEDIARR
 
+## MEDIARR 2.16
+
+MEDIARR 2.16 brings **direct links** to movies and TV shows, like the music player has had since 2.10. Copy a link to a movie, an episode, a season or a whole show and play it in VLC, Infuse, Kodi, a browser or a smart TV without signing in.
+
+- **Share safely**: a link key can cover just one movie, episode, season or show, so a friend gets that and nothing else. Or make one key for everything for your own devices.
+- **Seasons and shows are playlists**: one M3U link with every episode in order, skipping samples and extras.
+- **Everywhere you find a video**: a 🔗 button next to every video in **Downloads**, a **Folder link** button, **Direct link** on movie and show pages, and **Direct link to this video** in the player's settings.
+- **You stay in control**: each key has its own expiry (1 hour to 1 year), can be extended or revoked, and shows how often it was used. Admins set the longest a key can work, can limit sharing to admins, and can turn every link off at once.
+
+See [Direct movie and TV links](#direct-movie-and-tv-links).
+
 ## MEDIARR 2.15
 
 MEDIARR 2.15 adds a **Resource Monitor** for the computer MEDIARR runs on, in the menu under **Monitoring** (admins only).
@@ -181,7 +192,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.15.1-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.16.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -200,7 +211,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.15.1 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.16.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -236,6 +247,7 @@ This README is written against the **v2.15.1 source in this repository**. Featur
 - [SABnzbd activity](#sabnzbd-activity)
 - [WebDAV and local media playback](#webdav-and-local-media-playback)
 - [The video player](#the-video-player)
+- [Direct movie and TV links](#direct-movie-and-tv-links)
 - [Automatic playback selection and Transcode Dashboard](#automatic-playback-selection-and-transcode-dashboard)
 - [Calendar, health, and activity](#calendar-health-and-activity)
 - [Resource Monitor](#resource-monitor)
@@ -1568,6 +1580,34 @@ For added subtitles you can move the **timing** earlier or later in quarter-seco
 
 Like the Live Dashboard, Watch Together keeps a small live connection open; see [Reverse proxies](#reverse-proxies).
 
+### Direct movie and TV links
+
+A direct link plays a movie or an episode outside MEDIARR (VLC, Infuse, Kodi, MPV, MX Player, a browser, a smart TV) without signing in. Links for a season, a show or any folder are M3U playlists with every video in it.
+
+**Where to get one**
+
+- **Downloads**: the 🔗 button next to a video, or **🔗 Folder link** for the folder you're in (with everything in its sub-folders).
+- **Movie and show pages**: **🔗 Direct link** next to **Play**, when MEDIARR can find the files. For a show, pick the whole show, one season (when the season has its own folder) or one episode.
+- **The player**: **Settings → Direct link to this video**.
+- **Menu → Direct links** (phone: **🔗 Direct links**) lists your link keys.
+
+**Link keys.** Every link is made with a link key. When you share something for the first time, MEDIARR offers a **New key just for this video** (or episode, season, show or folder): that key opens only that file or folder, so it's safe to send to a friend. A **key for everything** opens anything you can browse in Downloads; keep that one for your own devices. A key can't sign in or use anything else in MEDIARR. Each key has its own expiry (1 hour, 1 day, 7, 30 or 90 days, 1 year, or never if the admin allows it), which its owner can change at any time, even after it expired, or revoke. Each key shows how often it was used and when.
+
+**Options.** **Original file** plays the file as it is and supports seeking. **Convert while playing** has MEDIARR convert the video with ffmpeg for players that can't open the original (no seeking). **Download instead of play** makes the browser save the file.
+
+**Playlists** list the videos in a folder and then in each sub-folder, in natural order (Episode 2 before Episode 10), three folder levels deep. Samples and Plex extras folders (`Extras`, `Featurettes`, `Trailers`, `Behind The Scenes`, `Deleted Scenes` and the like) are left out.
+
+**For admins** (**Direct links → For everyone**):
+
+- **Allow direct links**: turning it off stops every movie and TV link at once; turning it back on restores them. Music links have their own switch in the music player.
+- **Let everyone make links**: when off, only admins can share, and links made by other people stop working until it's turned back on.
+- **Longest a key can work** (1 day to 1 year, or no limit) and the **default** for new keys. Lowering the limit also shortens keys that already run longer.
+- Admins see everyone's keys (but not the keys themselves) and can revoke any of them. Deleting a user removes their keys; expired keys are forgotten 30 days after they expire.
+
+**Good to know.** Links work from any device that can reach your MEDIARR, so for friends outside your network MEDIARR needs a public address (see [Reverse proxies](#reverse-proxies)). Links stream from your local folder or WebDAV server through MEDIARR, support seeking and are allowed from other websites (CORS). Playing a link doesn't count toward anyone's daily download limit. Only videos and subtitle files can be opened; hidden files and paths outside the download folder can't.
+
+Link URLs look like `https://your-server/video/d/vl_…/f/Movies/Heat (1995)/Heat.mkv` and `…/folder/TV/Show/Season 1/playlist.m3u8`. Treat them like passwords until they expire. Keys are kept in `mediarr.db` and aren't part of configuration backups.
+
 ### Download modes
 
 WebDAV download behavior can be configured for different deployment constraints, including direct browser access or proxying through MEDIARR.
@@ -2285,6 +2325,7 @@ MEDIARR/
 │   ├── index.html               # Desktop application
 │   ├── music.html               # Music player
 │   ├── nav.js                   # Shared Escape/Back/keyboard handling and address-bar state
+│   ├── vlinks.js                # Direct movie and TV links: share window and key manager
 │   └── mobile.html              # Mobile application
 ├── .dockerignore
 ├── .gitignore
@@ -2304,6 +2345,7 @@ MEDIARR/
 ├── music-lyrics.js              # Lyrics: .lrc/.txt files, embedded lyrics, LRCLIB, admin fixes
 ├── player-extras.js             # Video player: chapters, next episode, seek previews, subtitles, Watch Together
 ├── system-monitor.js            # Resource Monitor: CPU, memory, disks, network, processes, containers
+├── video-links.js               # Direct movie and TV links: link keys, streaming links, folder playlists
 ├── store.js                     # SQLite storage (mediarr.db) + migration from pre-2.2 JSON files
 └── update-helper.js             # One-shot Docker update/rollback helper
 ```

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.16.0
+
+### Direct movie and TV links
+
+- Movies and TV shows get **direct links**, like the music player: a link that plays a movie or an episode in VLC, Infuse, Kodi, MPV, a browser or a smart TV without signing in. A season, a show or any folder is an M3U playlist with every video in order; samples and extras folders are left out.
+- **Link keys can be scoped**: a key can open just one file or one folder (a movie, a season, a whole show), so it's safe to share with a friend, or everything you can browse, for your own devices. The share window offers a key just for what you're sharing, warns when a key opens more, and reuses a show's key for its episodes.
+- Get a link from the 🔗 button next to every video in **Downloads**, **🔗 Folder link** for the current folder, **🔗 Direct link** on movie and show pages (whole show, season or episode), or **Settings → Direct link to this video** in the player. **Menu → Direct links** lists your keys: change their expiry, copy their link or revoke them.
+- Options: the original file (seekable), **Convert while playing** for players that can't open the original, or **Download instead of play**.
+- Each key has its own expiry (1 hour to 1 year, or never if allowed) and counts its uses. Admins choose whether links are allowed, whether everyone or only admins can make them, the longest a key can work and the default; lowering the limit shortens existing keys. Admins see and can revoke everyone's keys. Deleting a user removes their keys.
+- Links stream from the local folder or WebDAV server with seeking (byte ranges), HEAD and CORS. Only videos and subtitle files can be opened; hidden files and anything outside the download folder are refused. Playing a link doesn't use anyone's daily download limit.
+- New: `GET/POST /api/video/keys`, `POST/DELETE /api/video/keys/{id}`, public `/video/d/<key>/f/<path>` and `/video/d/<key>/folder/<path>/playlist.m3u8`, config `videoLinks {enabled, users, maxDays, defaultDays}`. Database schema 6 adds the `video_keys` table.
+
 ## 2.15.1
 
 ### Faster music scans

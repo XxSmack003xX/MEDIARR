@@ -207,6 +207,7 @@ const DEFAULT_CONFIG = {
   webdav: { source: 'webdav', localPath: '', url: '', username: '', password: '', folder: '', mode: 'redirect', transcode: false, encSpeed: 'balanced', hwAccel: 'auto' },   // source: 'webdav' | 'local'   // encSpeed: balanced|faster|fastest|quality; hwAccel: auto|off
   playback: { autoSelect: true, pathMappings: [] },   // automatic playback + Arr-root -> media-source path mappings
   player: { seekPreviews: true, watchTogether: true, subLangs: 'en', opensubtitles: { apiKey: '', username: '', password: '' } },   // video player extras (2.14)
+  videoLinks: { enabled: true, maxDays: 30, defaultDays: 7, users: true },   // direct movie and TV links (2.16); users = non-admins may make them
   realtime: { webhookToken: '', setupComplete: false },
   ui:     { loginTheme: 'tron' },  // login background theme: 'tron' | 'earth' | 'rain' | 'random'
   donate: { url: '', label: '' },  // PayPal donate link; when set, a Donate button appears for everyone
@@ -252,6 +253,7 @@ function readConfig () {
       webdav: Object.assign({}, DEFAULT_CONFIG.webdav, c.webdav),
       playback: Object.assign({}, DEFAULT_CONFIG.playback, c.playback),
       player: Object.assign({}, DEFAULT_CONFIG.player, c.player),
+      videoLinks: Object.assign({}, DEFAULT_CONFIG.videoLinks, c.videoLinks),
       realtime: Object.assign({}, DEFAULT_CONFIG.realtime, c.realtime),
       ui:     Object.assign({}, DEFAULT_CONFIG.ui, c.ui),
       donate: Object.assign({}, DEFAULT_CONFIG.donate, c.donate),
@@ -324,6 +326,7 @@ function sanitize (c) {
   out.ui = { loginTheme: (c.ui && c.ui.loginTheme) || 'tron' };
   out.donate = { url: (c.donate && c.donate.url) || '', label: (c.donate && c.donate.label) || '' };
   out.sab = { url: c.sab.url, hasKey: !!c.sab.apiKey };
+  out.videoLinks = videoLinks.policy(c);
   { const m = c.music || {}; out.music = { folders: normalizeMusicFolders(m.folders), scanIntervalHours: Number.isFinite(Number(m.scanIntervalHours)) ? Number(m.scanIntervalHours) : 12, transcodeKbps: Number(m.transcodeKbps) || 256, online: musicOnlineConfig(c), links: musicLinksPolicy(c), lyrics: musicLyricsConfig(c), configured: normalizeMusicFolders(m.folders).length > 0 }; }
   out.backup = { onChange: !(c.backup && c.backup.onChange === false),
                  everyDays: Math.max(0, Number((c.backup && c.backup.everyDays)) || 0),
@@ -975,7 +978,7 @@ function staticEntry (full) {
     let raw = fs.readFileSync(full);
     // Stamp the release onto MEDIARR's own scripts (/v200.js → /v200.js?v=2.7.0) so a
     // browser, proxy or CDN holding an old copy must fetch the new one after an update.
-    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance|player|monitor)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
+    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance|player|monitor|vlinks)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
     e = { mtimeMs: st.mtimeMs, size: st.size, raw, etag: '"' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20) + '"', gzip: null, br: null };
     _staticCache.set(full, e);
   }
@@ -3682,6 +3685,10 @@ async function testWebdav (url, username, password, folder, source, localPath) {
   return { name: 'WebDAV', videos: vids, folders: entries.filter(e => e.isDir).length };
 }
 
+const videoLinks = require('./video-links').createVideoLinks({
+  store, fs, path, readConfig, readUsers, userApproved, isLocalSource, localTarget, webdavTarget, webdavAuthHeader, upstream,
+  safeSegments, parsePropfind, VIDEO_EXT, webdavStream, requestBaseUrl, clientIp, sendJSON, readBody, linkExpiryFor
+});
 const playerExtras = require('./player-extras').createPlayerExtras({
   readConfig, writeConfig, isLocalSource, localTarget, mediaInput, webdavTarget, webdavAuthHeader, upstream, safeSegments, parsePropfind,
   VIDEO_EXT, ffmpeg: () => FFMPEG, ffprobe: () => FFPROBE, dataDir: DATA_DIR, sendJSON, readBody, version: APP_VERSION,
@@ -7288,6 +7295,7 @@ const server = http.createServer(async (req, res) => {
 
     // Radarr/Sonarr Connect webhooks authenticate with their own generated token.
     if (p.startsWith('/music/d/') && (req.method === 'GET' || req.method === 'HEAD')) return musicDirect(req, res, u);
+    if (p.startsWith('/video/d/') && ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return videoLinks.direct(req, res, u);
     if (p === '/api/webhooks/radarr' && req.method === 'POST') return handleArrWebhook('radarr', req, res, u);
     if (p === '/api/webhooks/sonarr' && req.method === 'POST') return handleArrWebhook('sonarr', req, res, u);
     if (p === '/api/webhooks/lidarr' && req.method === 'POST') return handleArrWebhook('lidarr', req, res, u);
@@ -8187,6 +8195,11 @@ const server = http.createServer(async (req, res) => {
         catch (e) { return sendJSON(res, 502, { message: e.message }); }
       }
 
+      // ---- direct movie and TV links (2.16): everyone manages their own keys; admins see and revoke all ----
+      if (p === '/api/video/keys' || p.startsWith('/api/video/keys/')) {
+        if ((await videoLinks.api(req, res, u, me)) !== false) return;
+        return sendJSON(res, 404, { message: 'Not found' });
+      }
       // ---- WebDAV: browse a folder and download files (counts against the daily limit) ----
       if (p === '/api/webdav/list' && req.method === 'GET') return webdavList(u.searchParams.get('path') || '', res, me);
       // Any media activity keeps the session alive for another hour.
@@ -8267,6 +8280,7 @@ const server = http.createServer(async (req, res) => {
         if (u.username === me.username) return sendJSON(res, 400, { message: "You can't remove yourself" });
         data.users = data.users.filter(x => x !== u); writeUsers(data);
         try { store.musicKeys.removeForUser(u.username); } catch (_) {}
+        videoLinks.removeForUser(u.username);
         try { musicNowForget(u.username); } catch (_) {}
         return sendJSON(res, 200, { ok: true });
       }
@@ -8413,6 +8427,11 @@ const server = http.createServer(async (req, res) => {
           cur.rss.feeds = raw.map(x => String(x).trim()).filter(x => /^https?:\/\//i.test(x)).slice(0, 30);
         }
         setTimeout(scheduleRss, 50);
+      }
+      if (incoming.videoLinks && typeof incoming.videoLinks === 'object') {
+        cur.videoLinks = videoLinks.nextPolicy(videoLinks.policy(cur), incoming.videoLinks);
+        // a shorter limit also shortens keys that already run longer
+        videoLinks.capAll(cur.videoLinks.maxDays);
       }
       let musicFoldersChanged = false, musicOnlineChange = null;
       if (incoming.music) {
@@ -8585,7 +8604,7 @@ server.listen(PORT, HOST, () => {
   // forget music link keys 30 days after they expire (until then they can still be extended)
   const prunePreviews = () => { playerExtras.prune().catch(() => {}); };
   setTimeout(prunePreviews, 60000).unref(); setInterval(prunePreviews, 86400000).unref();
-  const pruneKeys = () => { try { store.musicKeys.prune(Date.now(), 30 * 86400000); } catch (_) {} };
+  const pruneKeys = () => { try { store.musicKeys.prune(Date.now(), 30 * 86400000); } catch (_) {} videoLinks.prune(); };
   pruneKeys(); setInterval(pruneKeys, 86400000).unref();
   // background health monitoring: first run shortly after boot, then on an interval
   setTimeout(() => { runAllChecks().catch(() => {}); }, 2500);
