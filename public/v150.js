@@ -173,6 +173,7 @@ function actionHtml(d,o,fav){
   var first=plays[0],prog=first&&first.progress&&Number(first.progress.progressPct)||0,playLabel=(prog>1&&prog<95)?'▶ Resume':'▶ Play';
   if(plays.length===1)h+='<button class="umd-btn play" data-umd-play="0" title="Play from '+esc(src)+'">'+playLabel+'</button>';
   else if(plays.length>1)h+='<button class="umd-btn play" data-umd-play-toggle title="Choose an episode from '+esc(src)+'">▶ Play</button>';
+  if(plays.length&&window.MediarrLinks)h+='<button class="umd-btn" data-umd-link title="A link that plays '+(kind==='movie'?'this movie':'this show')+' in VLC, Infuse, Kodi, a browser or a TV without signing in">🔗 Direct link</button>';
   if(kind!=='movie')h+='<button class="umd-btn'+(fav&&fav.favorited?' favorite-on':'')+'" data-umd-favorite data-favorited="'+(fav&&fav.favorited?'1':'0')+'">'+(fav&&fav.favorited?'♥ Remove from Favorites':'♡ Add to Favorites')+'</button>';
   if(d.plex&&d.plex.available&&d.plex.webUrl)h+='<a class="umd-btn good" target="_blank" rel="noopener" href="'+esc(d.plex.webUrl)+'">▶ Open in Plex</a>';
   if(o.admin)h+='<button class="umd-btn" data-umd-diag-toggle>🩺 Playback diagnostics</button>';
@@ -190,6 +191,11 @@ function actionHtml(d,o,fav){
 }
 function wireActions(mount,d,o){
   var plays=playbackItems(d);
+  var linkBtn=mount.querySelector('[data-umd-link]');
+  if(linkBtn)linkBtn.onclick=function(){
+    var kind=mediaKind(d),title=(d.arr&&d.arr.title)||(d.identity&&d.identity.title)||'';
+    window.MediarrLinks.share({title:title,targets:window.MediarrLinks.targetsForItems(plays,{kind:kind==='movie'?'movie':'series',title:title})});
+  };
   function startPlay(item){
     if(!item||!item.path)return;
     var name=item.name||item.label||item.path.split('/').pop()||'Media';

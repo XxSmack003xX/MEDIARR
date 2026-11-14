@@ -21,6 +21,8 @@
  *   music_meta      online album/artist matches, years, genres and downloaded art (a cache)
  *   music_keys      per-user keys for direct music links, each with its own expiry
  *   music_lyrics    lyrics found online, plus an admin's picks, edits and timing fixes
+ *   video_keys      per-user keys for direct movie and TV links, each with its own expiry
+ *                   and an optional scope (one file or folder)
  *
  * Uses Node's built-in node:sqlite (Node.js 22.13+), so MEDIARR still needs no
  * npm install. On first launch, migrateLegacy() imports the old JSON files, verifies
@@ -31,7 +33,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 
-const SCHEMA_VERSION = 5;   // 2 (v2.7): music library, playlists and play counts; 3 (v2.8): online music metadata; 4 (v2.10): music link keys; 5 (v2.12): lyrics
+const SCHEMA_VERSION = 6;   // 2 (v2.7): music library, playlists and play counts; 3 (v2.8): online music metadata; 4 (v2.10): music link keys; 5 (v2.12): lyrics; 6 (v2.16): video link keys
 const LIMITS = { activity: 50000, errors: 2000, blocks: 5000, inbox: 2000, watchPerUser: 1000 };
 // Old JSON files this store replaces. Deleted after a verified migration.
 const LEGACY_FILES = ['adds.json', 'watch-progress.json', 'v2-state.json', 'errors.json', 'health.json', 'blocked.json'];
@@ -397,6 +399,28 @@ function open (dataDir, opts) {
     capAll (maxExpires) { prep('mkCap', 'UPDATE music_keys SET expires=? WHERE expires=0 OR expires>?').run(num(maxExpires), num(maxExpires)); }
   };
 
+  /* ---------- direct movie and TV link keys (v2.16) ---------- */
+  const row2vkey = r => r && Object.assign(row2key(r), { scope: r.scope || '', scopeKind: r.scope_kind || '' });
+  const videoKeys = {
+    forUser (username) { return prep('vkUser', 'SELECT * FROM video_keys WHERE username=? ORDER BY created DESC').all(String(username)).map(row2vkey); },
+    all () { return prep('vkAll', 'SELECT * FROM video_keys ORDER BY username, created DESC').all().map(row2vkey); },
+    byKey (key) { return row2vkey(prep('vkByKey', 'SELECT * FROM video_keys WHERE key=?').get(String(key))) || null; },
+    byId (id) { return row2vkey(prep('vkById', 'SELECT * FROM video_keys WHERE id=?').get(String(id))) || null; },
+    create (k) {
+      prep('vkNew', 'INSERT INTO video_keys(id,username,label,key,scope,scope_kind,created,expires,last_used,uses,last_ip) VALUES(?,?,?,?,?,?,?,?,0,0,\'\')')
+        .run(String(k.id), String(k.username), str(k.label, 80) || '', String(k.key), str(k.scope, 2000) || '', str(k.scopeKind, 10) || '', num(k.created) || Date.now(), num(k.expires));
+    },
+    update (id, fields) {
+      if (fields.expires != null) prep('vkExp', 'UPDATE video_keys SET expires=? WHERE id=?').run(num(fields.expires), String(id));
+      if (fields.label != null) prep('vkLabel', 'UPDATE video_keys SET label=? WHERE id=?').run(str(fields.label, 80) || '', String(id));
+    },
+    used (id, ip) { prep('vkUsed', 'UPDATE video_keys SET uses=uses+1, last_used=?, last_ip=? WHERE id=?').run(Date.now(), str(ip, 80) || '', String(id)); },
+    remove (id) { return prep('vkDel', 'DELETE FROM video_keys WHERE id=?').run(String(id)).changes > 0; },
+    removeForUser (username) { prep('vkDelUser', 'DELETE FROM video_keys WHERE username=?').run(String(username)); },
+    prune (now, keepMs) { prep('vkPrune', 'DELETE FROM video_keys WHERE expires>0 AND expires<?').run(now - keepMs); },
+    capAll (maxExpires) { prep('vkCap', 'UPDATE video_keys SET expires=? WHERE expires=0 OR expires>?').run(num(maxExpires), num(maxExpires)); }
+  };
+
   /* ---------- music lyrics (v2.12) ---------- */
   const row2lyr = r => r && ({ trackId: r.track_id, status: r.status || '', source: r.source || '', extId: r.ext_id || '', manual: r.manual ? 1 : 0, hidden: r.hidden ? 1 : 0, shift: r.shift || 0, synced: r.synced || '', plain: r.plain || '', info: parse(r.info, {}), checked: r.checked || 0 });
   const musicLyrics = {
@@ -571,7 +595,7 @@ function open (dataDir, opts) {
 
   function close () { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (_) {} try { db.close(); } catch (_) {} }
 
-  return { db, file, kv, activity, watch, inbox, errors, blocks, sessions, music, musicMeta, musicKeys, musicLyrics, importLegacyDoc, restoreLegacyDoc, migrateLegacy, close, sha256, LIMITS, LEGACY_FILES };
+  return { db, file, kv, activity, watch, inbox, errors, blocks, sessions, music, musicMeta, musicKeys, videoKeys, musicLyrics, importLegacyDoc, restoreLegacyDoc, migrateLegacy, close, sha256, LIMITS, LEGACY_FILES };
 }
 
 function migrateSchema (db) {
@@ -641,6 +665,14 @@ function migrateSchema (db) {
       track_id TEXT PRIMARY KEY, status TEXT, source TEXT, ext_id TEXT, manual INTEGER DEFAULT 0, hidden INTEGER DEFAULT 0,
       shift INTEGER DEFAULT 0, synced TEXT, plain TEXT, info TEXT, checked INTEGER);
     PRAGMA user_version = 5;
+    COMMIT;`);
+  if (v < 6) db.exec(`
+    BEGIN;
+    CREATE TABLE IF NOT EXISTS video_keys (
+      id TEXT PRIMARY KEY, username TEXT NOT NULL, label TEXT, key TEXT NOT NULL UNIQUE, scope TEXT, scope_kind TEXT,
+      created INTEGER, expires INTEGER, last_used INTEGER, uses INTEGER, last_ip TEXT);
+    CREATE INDEX IF NOT EXISTS video_keys_user ON video_keys(username);
+    PRAGMA user_version = 6;
     COMMIT;`);
 }
 
