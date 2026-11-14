@@ -148,8 +148,11 @@ function createMusicLibrary (opts) {
   }
 
   /* ---------- scanning ---------- */
+  // How many folders are listed, files checked and files read at once. Higher numbers
+  // matter most on NAS / network shares, where every file operation is a round trip.
+  const WALK_AT_ONCE = 8, STAT_AT_ONCE = 32, READ_AT_ONCE = Math.max(1, Math.min(64, Number(process.env.MEDIARR_MUSIC_SCAN_THREADS) || 12));
   async function walk (roots, onAudio) {
-    const visited = new Set();
+    const visited = new Set();   // real paths of folders already listed
     const result = { roots: {}, images: new Map() };
     for (const root of roots) {
       const info = { path: root, state: 'ok', files: 0, message: '' };
@@ -157,20 +160,21 @@ function createMusicLibrary (opts) {
       let st;
       try { st = await fsp.stat(root); } catch (e) { info.state = 'missing'; info.message = e.code === 'EACCES' ? 'MEDIARR doesn’t have permission to read this folder' : 'Folder not found. In Docker, mount it into the container first.'; continue; }
       if (!st.isDirectory()) { info.state = 'missing'; info.message = 'This is a file, not a folder'; continue; }
-      // Symlinked folders are walked last, so files are recorded under their real
-      // location and a link back into the library (or a loop) adds nothing.
-      const stack = [{ dir: root, depth: 0 }], linked = [];
+      let rootReal; try { rootReal = await fsp.realpath(root); } catch (_) { rootReal = root; }
+      // Folders are listed several at a time. Symlinked folders wait until everything
+      // else is done, so files are recorded under their real location and a link back
+      // into the library (or a loop) adds nothing. Only symlinks need a realpath call:
+      // an ordinary subfolder's real path is its parent's real path plus its name.
+      const linked = [];
       let readable = false;
-      while (stack.length || linked.length) {
-        const { dir, depth } = stack.length ? stack.pop() : linked.shift();
-        let real; try { real = await fsp.realpath(dir); } catch (_) { continue; }
-        if (visited.has(real)) continue;
+      const listDir = async (dir, real, depth) => {
+        if (visited.has(real)) return [];
         visited.add(real);
         let entries;
         try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
-        catch (e) { if (dir === root) { info.state = 'error'; info.message = e.code === 'EACCES' ? 'MEDIARR doesn’t have permission to read this folder' : e.message; } continue; }
+        catch (e) { if (dir === root) { info.state = 'error'; info.message = e.code === 'EACCES' ? 'MEDIARR doesn’t have permission to read this folder' : e.message; } return []; }
         if (dir === root) readable = true;
-        const imgs = [];
+        const imgs = [], subs = [];
         for (const ent of entries) {
           const name = ent.name;
           if (name.startsWith('.') || SKIP_DIRS.has(name.toLowerCase())) continue;
@@ -178,13 +182,34 @@ function createMusicLibrary (opts) {
           let isDir = ent.isDirectory(), isFile = ent.isFile();
           const link = ent.isSymbolicLink();
           if (link) { try { const s2 = await fsp.stat(full); isDir = s2.isDirectory(); isFile = s2.isFile(); } catch (_) { continue; } }
-          if (isDir) { if (depth < 40) (link ? linked : stack).push({ dir: full, depth: depth + 1 }); continue; }
+          if (isDir) { if (depth < 40) { if (link) linked.push({ dir: full, depth: depth + 1 }); else subs.push({ dir: full, real: path.join(real, name), depth: depth + 1 }); } continue; }
           if (!isFile) continue;
           const ext = (name.split('.').pop() || '').toLowerCase();
           if (AUDIO_EXT.has(ext) && name.includes('.')) { info.files++; onAudio(full, root); }
           else if (IMAGE_EXT.has(ext)) imgs.push(name);
         }
         if (imgs.length) result.images.set(dir, pickArt(dir, imgs));
+        return subs;
+      };
+      const pool = async (start) => {
+        const queue = start.slice(); let active = 0;
+        await new Promise(done => {
+          const pump = () => {
+            if (!queue.length && !active) return done();
+            while (active < WALK_AT_ONCE && queue.length) {
+              const j = queue.pop(); active++;
+              listDir(j.dir, j.real, j.depth).then(subs => { for (const s of subs) queue.push(s); }, () => {}).finally(() => { active--; pump(); });
+            }
+          };
+          pump();
+        });
+      };
+      await pool([{ dir: root, real: rootReal, depth: 0 }]);
+      while (linked.length) {
+        const batch = linked.splice(0);
+        const resolved = [];
+        for (const l of batch) { try { resolved.push(Object.assign(l, { real: await fsp.realpath(l.dir) })); } catch (_) {} }
+        await pool(resolved);
       }
       if (readable && !info.files && [...tracks.values()].some(t => t.root === root)) {
         info.state = 'empty'; info.message = 'The folder is empty. If it’s a network share or mounted drive, it may not be connected.';
@@ -249,7 +274,7 @@ function createMusicLibrary (opts) {
       const firstScan = tracks.size === 0;
       scanState.phase = 'Checking files';
       const seen = new Set(), toRead = [];
-      const statLimit = limiter(16);
+      const statLimit = limiter(STAT_AT_ONCE);
       await Promise.all(found.map(f => statLimit(async () => {
         let st; try { st = await fsp.stat(f.file); } catch (_) { return; }
         const id = sha(f.file); seen.add(id);
@@ -258,11 +283,11 @@ function createMusicLibrary (opts) {
         toRead.push({ f, st, old });
       })));
       scanState.phase = 'Reading tags'; scanState.total = toRead.length; scanState.done = 0;
-      const readLimit = limiter(4), batch = [];
+      const readLimit = limiter(READ_AT_ONCE), batch = [];
       const flush = () => { if (batch.length) { store.music.upsertTracks(batch.splice(0).map(rowOf)); } };
       await Promise.all(toRead.map(x => readLimit(async () => {
         let info;
-        try { info = await tagsLib.readTags(x.f.file, { ffprobe: ffprobe() }); } catch (e) { info = { tags: {}, ok: false, error: e.message }; }
+        try { info = await tagsLib.readTags(x.f.file, { ffprobe: ffprobe(), size: x.st.size }); } catch (e) { info = { tags: {}, ok: false, error: e.message }; }
         const t = buildTrack(x.f.file, x.f.root, x.st, info, firstScan);
         if (!t.ok) { result.failed++; if (result.failedFiles.length < 25) result.failedFiles.push(x.f.file); }
         if (x.old) result.updated++; else result.added++;

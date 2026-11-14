@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.15.1
+
+### Faster music scans
+
+- The music scan is much faster, above all for music on a NAS, network share or spinning disk, where every file operation is a round trip. With 6,000 songs and network-share-like delays, a first scan went from about a minute to under 5 seconds, and a check for new music from about 4 seconds to under one. On a local SSD a first scan is about 2.5 times faster.
+- Tags are now read with read-ahead: the start of each file is fetched in one go and the rest in 64 KiB blocks, so most songs need one or two disk reads instead of 7 to 40 small ones (M4A files were the worst). The file size from the scan is reused instead of being looked up again.
+- 12 songs are read at once instead of 4 (set `MEDIARR_MUSIC_SCAN_THREADS` to change it), files are checked 32 at a time, and folders are listed 8 at a time instead of one by one. Ordinary folders no longer need an extra path lookup; only symbolic links do.
+- What a scan finds is unchanged: the same tracks, tags, folder artwork and folder status, with the same handling of symbolic links and loops.
+
 ## 2.15.0
 
 ### Resource Monitor

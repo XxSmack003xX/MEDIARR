@@ -181,7 +181,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.15.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.15.1-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -200,7 +200,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.15.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.15.1 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1047,7 +1047,8 @@ Every signed-in person can play the library. Only admins see folder paths, brows
 - Every folder inside each music folder is scanned, at any depth. Hidden folders and NAS system folders (`@eaDir`, `#recycle`, `.AppleDouble`, …) are skipped, and symbolic-link loops can't trap the scan.
 - Tags are read straight from the files: ID3v1/v2.2–2.4 and APE for MP3, Vorbis comments for FLAC/OGG/Opus, iTunes atoms for M4A/ALAC, and RIFF/AIFF chunks for WAV and AIFF. Other formats are read with ffprobe.
 - Songs with no tags still appear, named from the file and folder names (`07 - Song Title.mp3` → track 7, "Song Title").
-- Rescans are incremental: only new or changed files are read again. A scan of 6,000 songs takes a few seconds.
+- Rescans are incremental: only new or changed files are read again. Several folders are listed and several songs read at once, and each song's tags are read in one or two disk reads, which matters most for music on a NAS, network share or spinning disk. A first scan of 6,000 songs takes about a second on a local SSD, and a check for new music a fraction of a second.
+- `MEDIARR_MUSIC_SCAN_THREADS` sets how many songs are read at once (default 12, up to 64). A higher number can help a slow network share; a lower one keeps a busy hard disk quieter.
 - If a music folder disappears (a share that isn't mounted), its songs stay in the library until the folder is back, so playlists and play counts aren't lost.
 - New music is picked up on a schedule (every 12 hours by default), about 90 seconds after Lidarr imports something, and when MEDIARR starts.
 - Files that can't be read are listed under **Music settings** so you can find them.
@@ -1997,6 +1998,7 @@ Treat API keys like passwords. Revoke and regenerate a key if it is exposed.
 | `SECURE_COOKIES` | automatic | Force secure-cookie behavior when set appropriately |
 | `TRUST_PROXY` | automatic | `1` always trusts `X-Forwarded-For`, `0` never does. By default it is trusted only from loopback/private-network peers (a reverse proxy on the host or a Docker network) |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | Docker Engine Unix socket inside the container/process |
+| `MEDIARR_MUSIC_SCAN_THREADS` | `12` | How many songs the music scan reads at once (1–64) |
 | `MEDIARR_RUNTIME` | `docker` in the official image | `docker` or `node`: overrides how System Update and System info describe the runtime |
 | `MEDIARR_CONTAINER_NAME` | `mediarr` in the included Compose files | Name of MEDIARR's own container, used by one-click updates when the container ID can't be read; keep it equal to `container_name` |
 | `MEDIARR_VERSION` | package version | Runtime version override, mainly for release images |

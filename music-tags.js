@@ -32,20 +32,48 @@ const ID3_GENRES = ['Blues', 'Classic Rock', 'Country', 'Dance', 'Disco', 'Funk'
   'Electroclash', 'Emo', 'Experimental', 'Garage', 'Global', 'IDM', 'Illbient', 'Industro-Goth', 'Jam Band', 'Krautrock', 'Leftfield', 'Lounge', 'Math Rock', 'New Romantic', 'Nu-Breakz', 'Post-Punk', 'Post-Rock', 'Psytrance', 'Shoegaze', 'Space Rock',
   'Trop Rock', 'World Music', 'Neoclassical', 'Audiobook', 'Audio Theatre', 'Neue Deutsche Welle', 'Podcast', 'Indie Rock', 'G-Funk', 'Dubstep', 'Garage Rock', 'Psybient'];
 
-/* ---------- file access ---------- */
-async function openReader (file) {
+/* ---------- file access ----------
+ * The parsers make many small reads (a header here, a box there: up to ~40 for an M4A).
+ * On a NAS, network share or spinning disk each read is a round trip, so the reader
+ * fetches the start of the file in one go and everything else in 64 KiB blocks, and
+ * answers small reads from memory. Most files need one or two real reads.
+ */
+const BLOCK = 65536, HEAD_BLOCKS = 4, BIG = 1024 * 1024;
+async function openReader (file, knownSize) {
   const fh = await fsp.open(file, 'r');
-  const st = await fh.stat();
+  const size = Number.isFinite(knownSize) && knownSize >= 0 ? knownSize : (await fh.stat()).size;
+  const blocks = new Map();
+  const direct = async (pos, len) => {
+    const b = Buffer.allocUnsafe(len);
+    const { bytesRead } = await fh.read(b, 0, len, pos);
+    return bytesRead === len ? b : b.subarray(0, bytesRead);
+  };
+  async function fill (first, last) {
+    // one read for each run of missing blocks
+    let i = first;
+    while (i <= last) {
+      if (blocks.has(i)) { i++; continue; }
+      let j = i; while (j + 1 <= last && !blocks.has(j + 1)) j++;
+      const start = i * BLOCK, len = Math.min((j + 1) * BLOCK, size) - start;
+      const buf = len > 0 ? await direct(start, len) : Buffer.alloc(0);
+      for (let k = i; k <= j; k++) blocks.set(k, buf.subarray((k - i) * BLOCK, (k - i + 1) * BLOCK));
+      i = j + 1;
+    }
+  }
   return {
-    size: st.size,
+    size,
     async read (pos, len) {
-      if (pos < 0 || pos >= st.size || len <= 0) return Buffer.alloc(0);
-      len = Math.min(len, st.size - pos);
-      const b = Buffer.allocUnsafe(len);
-      const { bytesRead } = await fh.read(b, 0, len, pos);
-      return bytesRead === len ? b : b.subarray(0, bytesRead);
+      if (pos < 0 || pos >= size || len <= 0) return Buffer.alloc(0);
+      len = Math.min(len, size - pos);
+      if (len >= BIG) return direct(pos, len);                 // pictures, whole tags: no point caching
+      const first = Math.floor(pos / BLOCK), last = Math.floor((pos + len - 1) / BLOCK);
+      await fill(first < HEAD_BLOCKS ? 0 : first, Math.max(last, first < HEAD_BLOCKS ? HEAD_BLOCKS - 1 : last));
+      if (first === last) { const b = blocks.get(first); const o = pos - first * BLOCK; return b.subarray(o, Math.min(b.length, o + len)); }
+      const parts = []; for (let k = first; k <= last; k++) parts.push(blocks.get(k));
+      const all = Buffer.concat(parts), o = pos - first * BLOCK;
+      return all.subarray(o, o + len);
     },
-    close () { return fh.close().catch(() => {}); }
+    close () { blocks.clear(); return fh.close().catch(() => {}); }
   };
 }
 function bufReader (buf) {
@@ -630,7 +658,7 @@ async function readTags (file, opts) {
   if (opts.lyrics) { out.wantLyrics = true; out.lyrics = []; }
   let ok = false, r;
   try {
-    r = await openReader(file);
+    r = await openReader(file, opts.size);
     const kind = NATIVE[ext];
     if (kind === 'mpeg' || kind === 'flac' || (!kind && ext !== 'wv' && ext !== 'ape' && ext !== 'mpc')) {
       // ID3v2 may also prefix FLAC, AAC/ADTS and other raw streams
