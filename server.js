@@ -191,7 +191,7 @@ const USERS_PATH  = path.join(DATA_DIR, 'users.json');
 const FAVS_PATH   = path.join(DATA_DIR, 'favorites.json');
 const AUTOADD_PATH = path.join(DATA_DIR, 'autoadd.json');
 const CINEMETA    = 'https://v3-cinemeta.strem.io';
-const TMDB        = 'https://api.themoviedb.org/3';
+const TMDB        = String(process.env.MEDIARR_TMDB_URL || 'https://api.themoviedb.org/3').replace(/\/+$/, '');   // override for tests
 const HEALTH_INTERVAL_MS = 60 * 1000;   // background check cadence
 const MAX_EVENTS  = 300;                // cap stored outage events
 const SESSION_MS  = (Number(process.env.SESSION_HOURS) || 1) * 3600 * 1000;   // login token lifetime (default 1 hour)
@@ -213,7 +213,8 @@ const DEFAULT_CONFIG = {
   donate: { url: '', label: '' },  // PayPal donate link; when set, a Donate button appears for everyone
   autoAdd: { intervalMinutes: 5, minRuntime: 0 },
   libraryCache: { enabled: true, intervalMinutes: 360 },
-  notify: { enabled: false, targets: [], events: { added: true, downloaded: true, pastDownloaded: true, rss: true, blocked: true, jobs: true, errors: true, serviceDown: true, login: false } },
+  notify: { enabled: false, targets: [], events: { added: true, downloaded: true, pastDownloaded: true, rss: true, blocked: true, jobs: true, errors: true, serviceDown: true, login: false },
+            media: { enabled: true, artwork: 'poster', links: { imdb: true, tmdb: true, trakt: true, tvdb: false, letterboxd: false, musicbrainz: true } } },   // media cards (2.17)
   music: { folders: [], scanIntervalHours: 12, transcodeKbps: 256, online: { enabled: true, musicbrainz: true, deezer: true, preferOnlineArt: false }, links: { enabled: true, maxDays: 30, defaultDays: 7 }, lyrics: { enabled: true, online: true } },   // music player (2.7): folders scanned recursively for audio
   sab: { url: '', apiKey: '' },   // SABnzbd — queue + history, visible to every signed-in user
   backup: { onChange: true, everyDays: 7, keep: 20 },   // auto-snapshot of all settings
@@ -919,15 +920,20 @@ function notifyArrDownload (svc, eventType, body, item) {
   const label = arrDownloadLabel(svc, body, item) || libraryTitle;
   const prior = priorAddForDownload(svc, libraryTitle);
   const upgraded = !!body.isUpgrade;
+  const fi = notifyFileInfo(svc, body);
+  const eps = [].concat(body.episode ? [body.episode] : [], Array.isArray(body.episodes) ? body.episodes : []);
+  const media = { svc, item: svc === 'lidarr' ? Object.assign({}, body.artist || {}, item || {}) : (item || {}), episodes: eps,
+    album: svc === 'lidarr' ? (body.album || (Array.isArray(body.albums) && body.albums.length === 1 ? body.albums[0] : null)) : null,
+    quality: fi.quality, size: fi.size };
   if (prior) {
     const who = prior.username && prior.username !== 'RSS' ? (' by ' + prior.username) : (prior.username === 'RSS' ? ' from RSS automation' : '');
     notify('pastDownloaded', '⬇ ' + label,
       (upgraded ? 'Upgrade downloaded for a previously added ' : 'Downloaded a previously added ') +
-      (svc === 'radarr' ? 'movie' : svc === 'lidarr' ? 'music item' : 'TV item') + who + '.', 'good');
+      (svc === 'radarr' ? 'movie' : svc === 'lidarr' ? 'music item' : 'TV item') + who + '.', 'good', media);
   } else {
     notify('downloaded', '⬇ ' + label,
       (upgraded ? 'Upgrade downloaded and imported into ' : 'Downloaded and imported into ') +
-      ARR_META[svc].label + '.', 'good');
+      ARR_META[svc].label + '.', 'good', media);
   }
 }
 async function handleArrWebhook (svc, req, res, urlObj) {
@@ -1518,6 +1524,11 @@ function maskUrl (u) {
   if (s.length <= 24) return s.slice(0, 6) + '…';
   return s.slice(0, 18) + '…' + s.slice(-6);
 }
+// HTTP headers are Latin-1 only; ntfy reads RFC 2047 encoded words, so "⬇ Title" still arrives intact
+function ntfyHeader (v) {
+  v = String(v || '');
+  return /^[\x20-\x7e]*$/.test(v) ? v : '=?UTF-8?B?' + Buffer.from(v, 'utf8').toString('base64') + '?=';
+}
 const NOTIFY_KINDS = ['discord', 'slack', 'telegram', 'ntfy', 'gotify', 'pushover', 'pushbullet', 'webhook', 'email'];
 function notifyPayload (kind, target, ev) {
   const title = ev.title || 'MEDIARR';
@@ -1538,7 +1549,7 @@ function notifyPayload (kind, target, ev) {
     }
     case 'ntfy':
       return { url: target.url, method: 'POST', body: body || title,
-               headers: { Title: title.slice(0, 200), Priority: ev.level === 'bad' ? '4' : ev.level === 'warn' ? '4' : '3', Tags: ev.level === 'bad' ? 'rotating_light' : ev.level === 'good' ? 'white_check_mark' : 'information_source' } };
+               headers: { Title: ntfyHeader(title.slice(0, 200)), Priority: ev.level === 'bad' ? '4' : ev.level === 'warn' ? '4' : '3', Tags: ev.level === 'bad' ? 'rotating_light' : ev.level === 'good' ? 'white_check_mark' : 'information_source' } };
     case 'gotify':
       return { url: target.url, method: 'POST', json: { title, message: body || title, priority: ev.level === 'bad' ? 8 : 4 } };
     case 'pushover':
@@ -1553,7 +1564,35 @@ function notifyPayload (kind, target, ev) {
   }
 }
 async function sendNotification (target, ev) {
-  const spec = notifyPayload(target.kind, target, ev);
+  if (ev.card) {
+    let spec = null;
+    try {
+      const colorMap = { good: 0x4ade80, warn: 0xe8b04b, bad: 0xf4607a, info: 0x35c5f0 };
+      spec = notifyMedia.payload(target.kind, target, ev, { settings: notifyMedia.settings(readConfig()), color: colorMap[ev.level || 'info'] || colorMap.info });
+    } catch (_) { spec = null; }
+    if (spec && spec.url) {
+      if (spec.attachUrl) await attachNotifyImage(spec);
+      const r = await sendNotificationSpec(spec);
+      if (r.ok) return r;
+      // e.g. Telegram couldn't fetch the poster: send the plain notification instead
+      const plain = await sendNotificationSpec(notifyPayload(target.kind, target, Object.assign({}, ev, { card: null })));
+      return plain.ok ? plain : r;
+    }
+  }
+  return sendNotificationSpec(notifyPayload(target.kind, target, ev));
+}
+// Pushover takes the picture itself, not a link to it
+async function attachNotifyImage (spec) {
+  try {
+    const up = await upstream(spec.attachUrl, { method: 'GET', headers: { Accept: 'image/*' }, timeout: 8000 });
+    const type = String(up.headers['content-type'] || '').split(';')[0].trim();
+    if (up.status === 200 && /^image\//.test(type) && up.body.length > 0 && up.body.length < 2500000) {
+      spec.form.attachment_base64 = up.body.toString('base64');
+      spec.form.attachment_type = type;
+    }
+  } catch (_) {}
+}
+async function sendNotificationSpec (spec) {
   if (!spec || !spec.url) return { ok: false, message: 'no url' };
   let body = null;
   const headers = Object.assign({ 'User-Agent': 'MEDIARR/1.0' }, spec.headers || {});
@@ -1568,7 +1607,7 @@ async function sendNotification (target, ev) {
   } catch (e) { return { ok: false, message: e.message }; }
 }
 const notifyRecent = new Map();
-function notify (event, title, message, level) {
+function notify (event, title, message, level, media) {
   try {
     v2InboxPush({ event, title, message, level: level || 'info', ts: Date.now() });
     const cfg = readConfig().notify;
@@ -1582,10 +1621,26 @@ function notify (event, title, message, level) {
     notifyRecent.set(key, Date.now());
     if (notifyRecent.size > 300) { const cut = Date.now() - 900000; for (const [k, t] of notifyRecent) if (t < cut) notifyRecent.delete(k); }
     const ev = { event, title, message, level: level || 'info' };
-    for (const t of targets) {
-      sendNotification(t, ev).then(r => { if (!r.ok) logError('notify:' + t.kind, r.message, t.name || ''); }).catch(() => {});
-    }
+    const send = () => {
+      for (const t of targets) {
+        sendNotification(t, ev).then(r => { if (!r.ok) logError('notify:' + t.kind, r.message, t.name || ''); }).catch(() => {});
+      }
+    };
+    // movies, shows and music: add the poster, details and links (looked up first, at most a few seconds)
+    if (media && media.svc && notifyMedia.settings(readConfig()).enabled) {
+      notifyMedia.build(media).then(card => { ev.card = card; send(); }).catch(send);
+    } else send();
   } catch (e) {}
+}
+const notifyMedia = require('./notify-media').createNotifyMedia({ arrItem: (svc, id) => arrItem(svc, id), tmdbJson: p => tmdbJson(p), readConfig: () => readConfig() });
+// what the notification's card is about: the webhook's quality and size for downloads
+function notifyFileInfo (svc, body) {
+  const f = body.movieFile || body.episodeFile || (Array.isArray(body.episodeFiles) && body.episodeFiles[0]) || (Array.isArray(body.trackFiles) && body.trackFiles[0]) || null;
+  const q = (f && f.quality) || (body.release && body.release.quality) || '';
+  const quality = typeof q === 'string' ? q : (q && q.quality && q.quality.name) || '';
+  let size = f && Number(f.size) || 0;
+  if (Array.isArray(body.episodeFiles) && body.episodeFiles.length > 1) size = body.episodeFiles.reduce((a, x) => a + (Number(x.size) || 0), 0);
+  return { quality: String(quality || '').slice(0, 60), size };
 }
 
 function findUser (username) { return readUsers().users.find(u => u.username.toLowerCase() === String(username || '').toLowerCase()); }
@@ -2745,7 +2800,10 @@ async function proxyArr (svc, subPath, req, res) {
       try { createdItem = JSON.parse(up.body.toString('utf8') || '{}'); } catch (e) {}
       if (svc === 'lidarr') { try { const b = JSON.parse(body || '{}'); title = b.artistName || b.title || title; } catch (e) {} }
       logAdd({ ts: Date.now(), username: user.username, role: user.role, service: svc, type: svc === 'lidarr' ? (cleanPath.endsWith('/album') ? 'album' : 'artist') : (svc === 'radarr' ? 'movie' : 'series'), title, year, ip: clientIp(req) });
-      notify('added', (svc === 'radarr' ? '🎬 ' : svc === 'lidarr' ? '🎵 ' : '📺 ') + title + (year ? ' (' + year + ')' : ''), 'Added to ' + ARR_META[svc].label + ' by ' + user.username, 'good');
+      let addBody = {}; try { addBody = JSON.parse(body || '{}'); } catch (_) {}
+      const isAlbumAdd = svc === 'lidarr' && cleanPath.endsWith('/album');
+      notify('added', (svc === 'radarr' ? '🎬 ' : svc === 'lidarr' ? '🎵 ' : '📺 ') + title + (year ? ' (' + year + ')' : ''), 'Added to ' + ARR_META[svc].label + ' by ' + user.username, 'good',
+        { svc, item: isAlbumAdd ? Object.assign({}, addBody.artist || {}) : Object.assign({}, addBody, createdItem && createdItem.id ? createdItem : {}), album: isAlbumAdd ? Object.assign({}, addBody, createdItem || {}) : null });
       if (createdItem && createdItem.id && !(svc === 'lidarr' && cleanPath.endsWith('/album'))) upsertLibCacheItem(svc, createdItem);
       if (svc === 'lidarr') scheduleLibraryReconcile('lidarr', 1500);
       if (svc === 'sonarr') scheduleLibraryReconcile('sonarr', 1500);
@@ -3787,7 +3845,8 @@ async function autoStep () {
               if (it.tmdbId) rememberExt(isMovie ? 'movie' : 'series', it.tmdbId, obj.imdbId || '', obj.tvdbId || null);
               invalidateLive(svc);
               logAdd({ ts: Date.now(), username: autoJob.username, role: autoJob.role, service: svc, type: isMovie ? 'movie' : 'series', title: it.title || obj.title, year: obj.year || '', ip: autoJob.ip || '' });
-              notify('added', (isMovie ? '🎬 ' : '📺 ') + (obj.title || it.title) + (obj.year ? ' (' + obj.year + ')' : ''), 'Auto added to ' + (isMovie ? 'Radarr' : 'Sonarr'), 'good');
+              notify('added', (isMovie ? '🎬 ' : '📺 ') + (obj.title || it.title) + (obj.year ? ' (' + obj.year + ')' : ''), 'Auto added to ' + (isMovie ? 'Radarr' : 'Sonarr'), 'good',
+                { svc, item: Object.assign({}, obj, r.data && r.data.id ? r.data : {}) });
             } else { autoJob.failed++; autoLog('⚠', it.title, r.message || 'add failed'); }
           }
         }
@@ -4502,11 +4561,12 @@ async function addToArr (b, me, req, opts) {
   invalidateLive(svc);
   realtimePush('arr.added', { service: svc, title: (created.data && created.data.title) || hit.title || b.title || '', user: me && me.username || '', id: created.data && created.data.id || null });
   if (me) logAdd({ ts: Date.now(), username: me.username, role: me.role, service: svc, type: isMovie ? 'movie' : 'series', title: hit.title, year: hit.year || '', ip: clientIp(req) });
+  const mediaItem = Object.assign({}, hit, created.data && created.data.id ? created.data : {});
   if (!quiet) notify('added', (isMovie ? '🎬 ' : '📺 ') + hit.title + (hit.year ? ' (' + hit.year + ')' : ''),
-    'Added to ' + (isMovie ? 'Radarr' : 'Sonarr') + (me ? ' by ' + me.username : ''), 'good');
+    'Added to ' + (isMovie ? 'Radarr' : 'Sonarr') + (me ? ' by ' + me.username : ''), 'good', { svc, item: mediaItem });
   if (b.tmdbId) rememberExt(isMovie ? 'movie' : 'series', b.tmdbId, hit.imdbId || b.imdbId || '', hit.tvdbId || b.tvdbId || null);
   const madeId = created.data && created.data.id;
-  return { status: 201, body: { ok: true, added: true, id: madeId || null, title: (created.data && created.data.title) || hit.title, year: hit.year || '', service: svc, message: 'Added to ' + (isMovie ? 'Radarr' : 'Sonarr') } };
+  return { status: 201, item: mediaItem, body: { ok: true, added: true, id: madeId || null, title: (created.data && created.data.title) || hit.title, year: hit.year || '', service: svc, message: 'Added to ' + (isMovie ? 'Radarr' : 'Sonarr') } };
 }
 
 // Season / episode monitoring, routed through the server so it works on any Sonarr version.
@@ -5631,7 +5691,8 @@ async function musicAdd (b, me, req) {
     return { status: result.status || 502, body: { ok: false, message: 'Lidarr: ' + (result.message || 'add failed') } };
   }
   logAdd({ ts: Date.now(), username: me.username, role: me.role, service: 'lidarr', type: kind, title, year, ip: clientIp(req) });
-  notify('added', '🎵 ' + title + (year ? ' (' + year + ')' : ''), 'Added to Lidarr by ' + me.username, 'good');
+  notify('added', '🎵 ' + title + (year ? ' (' + year + ')' : ''), 'Added to Lidarr by ' + me.username, 'good',
+    { svc: 'lidarr', item: kind === 'artist' ? Object.assign({}, result.data || {}) : Object.assign({}, (result.data && result.data.artist) || {}), album: kind === 'artist' ? null : Object.assign({}, result.data || {}) });
   invalidateLive('lidarr');
   if (kind === 'artist' && result.data && result.data.id) upsertLibCacheItem('lidarr', result.data);
   scheduleLibraryReconcile('lidarr', 1500);
@@ -6479,7 +6540,8 @@ async function rssEnsureDownloaded (kind, id, title, st, stateKey) {
       const prev = st.reconcile[key] || {};
       if (Number(prev.missing) > 0) {
         notify('pastDownloaded', '⬇ ' + (mv.title || title),
-          'A movie that MEDIARR previously found missing is now downloaded and present on disk.', 'good');
+          'A movie that MEDIARR previously found missing is now downloaded and present on disk.', 'good',
+          { svc: 'radarr', item: mv, quality: mv.movieFile && mv.movieFile.quality && mv.movieFile.quality.quality ? mv.movieFile.quality.quality.name : '', size: mv.movieFile && mv.movieFile.size || 0 });
       }
       rssRememberCheck(st, key, { complete: true, missing: 0, title: mv.title || title, service: 'radarr' });
       return { ok: true, complete: true, missing: 0, searched: 0, title: mv.title || title };
@@ -6507,7 +6569,8 @@ async function rssEnsureDownloaded (kind, id, title, st, stateKey) {
     notify('pastDownloaded', '⬇ ' + (got.item.title || title),
       arrived + ' previously missing episode' + (arrived === 1 ? '' : 's') + ' now ' +
       (arrived === 1 ? 'is' : 'are') + ' downloaded and present on disk' +
-      (missing.length ? '; ' + missing.length + ' aired episode' + (missing.length === 1 ? '' : 's') + ' still missing.' : '.'), 'good');
+      (missing.length ? '; ' + missing.length + ' aired episode' + (missing.length === 1 ? '' : 's') + ' still missing.' : '.'), 'good',
+      { svc: 'sonarr', item: got.item });
   }
   if (!missing.length) {
     rssRememberCheck(st, key, { complete: true, missing: 0, title: got.item.title || title, service: 'sonarr', latestEpisodeId: latest && latest.id || null });
@@ -6587,8 +6650,9 @@ async function runRssCheck (manual) {
             // Record RSS additions so later Radarr/Sonarr Download webhooks can identify
             // them as previously-added items.
             logAdd({ ts: Date.now(), username: 'RSS', role: 'automation', service: rel.kind === 'series' ? 'sonarr' : 'radarr', type: rel.kind, title: b.title || rel.title, year: b.year || rel.year || '', ip: 'rss' });
-            notify('added', (rel.kind === 'series' ? '📺 ' : '🎬 ') + (b.title || rel.title),
-              'Added automatically from an RSS feed' + (rel.kind === 'series' ? ' — Sonarr will be checked through the latest aired episode.' : ''), 'good');
+            notify('rss', (rel.kind === 'series' ? '📺 ' : '🎬 ') + (b.title || rel.title) + (b.year ? ' (' + b.year + ')' : ''),
+              'Added automatically from an RSS feed' + (rel.kind === 'series' ? '. Sonarr will be checked through the latest aired episode.' : '.'), 'good',
+              { svc: rel.kind === 'series' ? 'sonarr' : 'radarr', item: r.item || { id: b.id, title: b.title } });
             rssLog('✓', b.title || rel.title, 'added and search requested' + (rel.kind === 'series' ? ' (whole show)' : (rel.year ? ' (' + rel.year + ')' : '')), { kind: rel.kind, release: item.title });
           } else if (b.alreadyInLibrary) {
             have++;
@@ -7568,7 +7632,8 @@ const server = http.createServer(async (req, res) => {
       // ---- notifications ----
       if (p === '/api/admin/notify' && req.method === 'GET') {
         const c = readConfig().notify;
-        return sendJSON(res, 200, { enabled: !!c.enabled, events: c.events || {}, kinds: NOTIFY_KINDS,
+        return sendJSON(res, 200, { enabled: !!c.enabled, events: c.events || {}, kinds: NOTIFY_KINDS, media: notifyMedia.settings(readConfig()),
+          tmdb: !!(readConfig().tmdb || {}).apiKey,
           targets: (c.targets || []).map(t => ({ id: t.id, kind: t.kind, name: t.name, url: maskUrl(t.url), extra: t.extra ? '••••' : '', enabled: t.enabled !== false })) });
       }
       if (p === '/api/admin/notify' && req.method === 'POST') {
@@ -7576,6 +7641,13 @@ const server = http.createServer(async (req, res) => {
         const cur = readConfig();
         if (b.enabled != null) cur.notify.enabled = !!b.enabled;
         if (b.events) cur.notify.events = Object.assign({}, cur.notify.events, b.events);
+        if (b.media && typeof b.media === 'object') {
+          const m = notifyMedia.settings(cur), inc = b.media;
+          if (inc.enabled != null) m.enabled = !!inc.enabled;
+          if (['poster', 'backdrop', 'none'].includes(inc.artwork)) m.artwork = inc.artwork;
+          if (inc.links && typeof inc.links === 'object') for (const k of Object.keys(m.links)) if (inc.links[k] != null) m.links[k] = !!inc.links[k];
+          cur.notify.media = m;
+        }
         if (Array.isArray(b.targets)) {
           const existing = cur.notify.targets || [];
           cur.notify.targets = b.targets.slice(0, 20).map((t, i) => {
@@ -7598,7 +7670,26 @@ const server = http.createServer(async (req, res) => {
         const t = (cur.targets || []).find(x => x.id === String(b.id || ''));
         if (!t) return sendJSON(res, 404, { ok: false, message: 'Save the notification first, then test it' });
         const r = await sendNotification(t, { event: 'test', title: '🔔 MEDIARR test', message: 'If you can read this, notifications are working.', level: 'info' });
-        return sendJSON(res, r.ok ? 200 : 502, r.ok ? { ok: true } : { ok: false, message: r.message });
+        if (!r.ok) return sendJSON(res, 502, { ok: false, message: r.message });
+        // then an example of a media card, made from something in the library
+        let sample = '';
+        if (b.sample !== false && notifyMedia.settings(readConfig()).enabled) {
+          const lc = readLibCache();
+          const pick = (svc, pred) => { const items = (lc[svc] && lc[svc].items) || []; const ok = items.filter(pred); return ok.length ? ok[Math.floor(Math.random() * ok.length)] : null; };
+          let ctx = null, title = '';
+          const mv = pick('radarr', x => x.hasFile) || pick('radarr', () => true);
+          const sh = !mv && pick('sonarr', () => true);
+          if (mv) { ctx = { svc: 'radarr', item: { id: mv.id, title: mv.title } }; title = '🎬 ' + mv.title + (mv.year ? ' (' + mv.year + ')' : ''); }
+          else if (sh) { ctx = { svc: 'sonarr', item: { id: sh.id, title: sh.title } }; title = '📺 ' + sh.title + (sh.year ? ' (' + sh.year + ')' : ''); }
+          if (ctx) {
+            const card = await notifyMedia.build(ctx);
+            if (card) {
+              const r2 = await sendNotification(t, { event: 'test', title, message: 'Example: this is how adds and downloads will look.', level: 'good', card });
+              sample = r2.ok ? 'sent' : 'failed: ' + r2.message;
+            } else sample = 'no details found';
+          } else sample = 'library empty';
+        }
+        return sendJSON(res, 200, { ok: true, sample });
       }
 
       // ---- error log & login security ----
