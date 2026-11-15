@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.17.0
+
+### Media cards in notifications
+
+- Notifications about movies, shows and music now show the **cover art**, the **plot**, **rating** (IMDb, Rotten Tomatoes or TMDB), **runtime**, **genres**, release or air date, network or studio, the downloaded file's **quality and size**, and **links** to IMDb, TMDB, Trakt, TVDB, Letterboxd or MusicBrainz. The title links to the first one.
+- TV downloads name the episode with its own plot, air date and (with a TMDB key) still; several episodes at once are listed in order. Music shows the album cover and links to MusicBrainz.
+- Each service gets its own format: Discord embeds, Slack blocks, a Telegram photo with caption, ntfy and Gotify markdown with the picture, Pushover with the picture attached, Pushbullet link pushes, and a `media` object in generic webhooks.
+- Settings → Notifications: turn media cards off, choose the poster, a large picture (episode still or backdrop) or no artwork, and pick the links. **Test** also sends an example card made from your library.
+- Details come from Radarr, Sonarr and Lidarr, with TMDB filling gaps when a key is set. Artwork only on your own network is skipped; a service that rejects a card gets the plain notification.
+
+### Fixes
+
+- **RSS adds** in the notification settings now controls RSS adds (they were sent as **New adds**); a new **Downloads** switch controls download notifications.
+- ntfy notifications with emoji or non-English titles (every "⬇ …" download, for example) never arrived and only showed up in the error log; titles are now encoded so ntfy shows them.
+
 ## 2.16.0
 
 ### Direct movie and TV links

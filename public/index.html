@@ -1079,11 +1079,34 @@
           <div style="display:flex;gap:14px;flex-wrap:wrap">
             <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntEvAdded" style="width:auto" checked> New adds</label>
             <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntEvRss" style="width:auto" checked> RSS adds</label>
+            <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntEvDownloaded" style="width:auto" checked> Downloads</label>
             <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntEvJobs" style="width:auto" checked> Finished jobs</label>
             <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntEvService" style="width:auto" checked> Service up/down</label>
             <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntEvBlocked" style="width:auto" checked> Blocked streams</label>
             <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntEvErrors" style="width:auto" checked> Errors</label>
             <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntEvLogin" style="width:auto"> Login lockouts</label>
+          </div>
+        </div>
+        <div class="field"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="ntMedia" style="width:auto" checked> Media cards: cover art, plot, rating and links for movies, shows and music</label>
+          <div class="small" id="ntMediaHint">Adds and downloads show the poster, the plot (or the episode), rating, runtime, genres, quality and links. Works with Discord, Slack, Telegram, ntfy, Gotify, Pushover, Pushbullet and webhooks.</div>
+        </div>
+        <div class="two" id="ntMediaOpts">
+          <div class="field"><label>Artwork</label>
+            <select id="ntArtwork">
+              <option value="poster">Poster beside the text</option>
+              <option value="backdrop">Large picture (episode still or backdrop)</option>
+              <option value="none">No artwork</option>
+            </select>
+          </div>
+          <div class="field"><label>Links</label>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;padding-top:8px">
+              <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntLinkImdb" style="width:auto"> IMDb</label>
+              <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntLinkTmdb" style="width:auto"> TMDB</label>
+              <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntLinkTrakt" style="width:auto"> Trakt</label>
+              <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntLinkTvdb" style="width:auto"> TVDB</label>
+              <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntLinkLetterboxd" style="width:auto"> Letterboxd</label>
+              <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ntLinkMusicbrainz" style="width:auto"> MusicBrainz</label>
+            </div>
           </div>
         </div>
         <div class="test-row"><button class="btn btn-ghost" id="ntAdd">Add</button><button class="btn btn-gold" id="ntSave">Save</button><span class="test-status" id="ntMsg"></span></div>
@@ -6233,9 +6256,10 @@ const NT_HINTS={
   gotify:'Your Gotify URL including the token, e.g. https://gotify.example.com/message?token=ABC',
   pushover:'Enter as appToken|userKey from pushover.net.',
   pushbullet:'Your Pushbullet access token from Settings → Account.',
-  webhook:'Any URL — MEDIARR POSTs JSON: {app,event,level,title,message,ts}.'
+  webhook:'Any URL — MEDIARR POSTs JSON: {app,event,level,title,message,ts}, plus media {title,overview,poster,facts,links,…} for movies, shows and music.'
 };
 let _ntTargets=[];
+const NT_LINKS=['imdb','tmdb','trakt','tvdb','letterboxd','musicbrainz'];
 async function loadNotifySettings(){
   try{
     const d=await (await fetch('/api/admin/notify')).json();
@@ -6246,6 +6270,14 @@ async function loadNotifySettings(){
     set('ntEvAdded',ev.added); set('ntEvRss',ev.rss); set('ntEvJobs',ev.jobs);
     set('ntEvService',ev.serviceDown); set('ntEvBlocked',ev.blocked); set('ntEvErrors',ev.errors);
     document.getElementById('ntEvLogin').checked = ev.login===true;
+    set('ntEvDownloaded', ev.downloaded!==false && ev.pastDownloaded!==false);
+    const md=d.media||{enabled:true,artwork:'poster',links:{}};
+    document.getElementById('ntMedia').checked=md.enabled!==false;
+    document.getElementById('ntArtwork').value=md.artwork||'poster';
+    NT_LINKS.forEach(k=>{ const e=document.getElementById('ntLink'+k[0].toUpperCase()+k.slice(1)); if(e) e.checked=!!(md.links||{})[k]; });
+    const mOpts=()=>{ document.getElementById('ntMediaOpts').style.opacity=document.getElementById('ntMedia').checked?'':'.45'; };
+    document.getElementById('ntMedia').onchange=mOpts; mOpts();
+    if(!d.tmdb) document.getElementById('ntMediaHint').innerHTML+=' <b>Tip:</b> add a TMDB key (Settings → TMDB) for episode stills and plots that Radarr and Sonarr don’t have.';
     renderNtList();
   }catch(e){}
   document.getElementById('ntAdd').onclick=addNtTarget;
@@ -6282,7 +6314,10 @@ async function saveNotify(){
     const r=await fetch('/api/admin/notify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
       enabled:g('ntEnabled'), targets:_ntTargets,
       events:{ added:g('ntEvAdded'), rss:g('ntEvRss'), jobs:g('ntEvJobs'), serviceDown:g('ntEvService'),
-               blocked:g('ntEvBlocked'), errors:g('ntEvErrors'), login:g('ntEvLogin') } })});
+               blocked:g('ntEvBlocked'), errors:g('ntEvErrors'), login:g('ntEvLogin'),
+               downloaded:g('ntEvDownloaded'), pastDownloaded:g('ntEvDownloaded') },
+      media:{ enabled:g('ntMedia'), artwork:document.getElementById('ntArtwork').value,
+              links:Object.fromEntries(NT_LINKS.map(k=>[k,g('ntLink'+k[0].toUpperCase()+k.slice(1))])) } })});
     const d=await r.json(); _ntTargets=d.targets||_ntTargets; renderNtList();
     m.className='test-status ok'; m.textContent='✓ Saved '+_ntTargets.length+' destination'+(_ntTargets.length===1?'':'s');
   }catch(e){ m.className='test-status err'; m.textContent='✕ '+e.message; }
@@ -6292,7 +6327,7 @@ async function testNt(id, btn){
   try{
     const r=await fetch('/api/admin/notify/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
     const d=await r.json();
-    if(r.ok){ m.className='test-status ok'; m.textContent='✓ Sent — check the app'; }
+    if(r.ok){ m.className='test-status ok'; m.textContent='✓ Sent — check the app'+(d.sample==='sent'?' (a test and an example media card)':d.sample==='library empty'?' (add a movie or show to also see an example media card)':''); }
     else { m.className='test-status err'; m.textContent='✕ '+(d.message||'failed'); }
   }catch(e){ m.className='test-status err'; m.textContent='✕ '+e.message; }
   btn.disabled=false;

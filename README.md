@@ -2,6 +2,10 @@
 
 # MEDIARR
 
+## MEDIARR 2.17
+
+MEDIARR 2.17 turns movie, show and music notifications into **media cards** with the cover art, the plot (or the episode), rating, runtime, genres, the file's quality and links to IMDb, TMDB, Trakt, TVDB, Letterboxd or MusicBrainz. They work in Discord, Slack, Telegram, ntfy, Gotify, Pushover, Pushbullet and webhooks. Choose the artwork style and links in Settings → Notifications. See [Media cards](#media-cards).
+
 ## MEDIARR 2.16
 
 MEDIARR 2.16 brings **direct links** to movies and TV shows, like the music player has had since 2.10. Copy a link to a movie, an episode, a season or a whole show and play it in VLC, Infuse, Kodi, a browser or a smart TV without signing in.
@@ -192,7 +196,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.16.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.17.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -211,7 +215,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.16.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.17.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1769,7 +1773,36 @@ Configurable event classes include additions, completed downloads/imports, downl
 
 Notification URLs/tokens are stored server-side and masked before configuration is returned to the browser.
 
-Use **Test notification** after adding a destination.
+Use **Test** after adding a destination. When the library has a movie or show, the test also sends an example media card.
+
+### Media cards
+
+Since 2.17, notifications about movies, shows and music are **media cards**: the cover art, the plot, rating, runtime, genres and the downloaded file's quality and size, followed by links to IMDb and similar sites. For TV, a download names the episode with its own plot and air date (several episodes at once are listed); for music, the album cover and MusicBrainz.
+
+They're used for adds (by people, auto-add and RSS), completed downloads and previously added items that arrive later. Other alerts (errors, service up/down, jobs) stay as they were.
+
+Settings → **Notifications**:
+
+- **Media cards** on or off. Off sends the plain text notifications from before 2.17.
+- **Artwork**: the poster beside the text (default), a large picture (the episode still or the movie's backdrop), or none.
+- **Links**: any of IMDb, TMDB, Trakt, TVDB, Letterboxd (movies) and MusicBrainz (music). The first one chosen is also where the title links to. TMDB links open the exact episode.
+
+How each service shows them:
+
+| Service | Card |
+|---|---|
+| Discord | Embed: linked title, poster (or large picture), plot, details as fields, a row of links |
+| Slack | Blocks: linked title, poster, plot, details and links |
+| Telegram | The picture with an HTML caption and links (plain message if Telegram can't fetch the picture) |
+| ntfy | Markdown message with the picture attached, tapping opens the first link, up to 3 link buttons |
+| Gotify | Markdown with the picture; tapping opens the first link |
+| Pushover | The picture attached, HTML details, the first link as the button |
+| Pushbullet | A link push |
+| Generic webhook | The usual JSON plus `media` (`kind`, `title`, `year`, `overview`, `poster`, `backdrop`, `still`, `episode`, `facts`, `links`, `url`) |
+
+Details come from Radarr, Sonarr and Lidarr. With a TMDB API key, MEDIARR also fills in what they lack, such as episode stills and plots. Pictures must be reachable from the internet, so artwork that only exists on your own network is left out. If a service rejects a card, MEDIARR sends the plain notification instead. Looking up details adds at most a few seconds before a notification goes out.
+
+The **RSS adds** switch now applies to RSS adds (they used to count as **New adds**), and **Downloads** turns completed-download notifications on or off.
 
 ---
 
@@ -2346,6 +2379,7 @@ MEDIARR/
 ├── player-extras.js             # Video player: chapters, next episode, seek previews, subtitles, Watch Together
 ├── system-monitor.js            # Resource Monitor: CPU, memory, disks, network, processes, containers
 ├── video-links.js               # Direct movie and TV links: link keys, streaming links, folder playlists
+├── notify-media.js              # Media cards for notifications: artwork, details and links per service
 ├── store.js                     # SQLite storage (mediarr.db) + migration from pre-2.2 JSON files
 └── update-helper.js             # One-shot Docker update/rollback helper
 ```
