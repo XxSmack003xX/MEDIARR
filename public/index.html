@@ -2544,8 +2544,11 @@ async function loadTracksD(path){
   const box=document.getElementById('playerTracks'); box.innerHTML='';
   if(!(config.webdav && config.webdav.ffmpeg)) return;
   try{
-    const r=await fetch('/api/webdav/tracks?path='+encodeURIComponent(path)); if(!r.ok) return; const d=await r.json();
+    const cp=curPlay;
+    if(cp && !cp.tracksP) cp.tracksP=fetch('/api/webdav/tracks?path='+encodeURIComponent(path)).then(r=>r.ok?r.json():null).catch(()=>null);
+    const d=cp ? await cp.tracksP : null; if(!d) return;
     if(curPlay && curPlay.path!==path) return;
+    curPlay.audioTracks=d.audio||[];
     let html='';
     if(d.audio && d.audio.length>1){ html+='<label style="display:flex;gap:6px;align-items:center">Audio <select id="audioSel" class="trk-sel">'+d.audio.map(a=>'<option value="'+a.i+'">'+esc(audioLabelD(a))+'</option>').join('')+'</select></label>'; }
     const tsubs=(d.subs||[]).filter(s=>s.text);
@@ -2566,17 +2569,28 @@ function applySubD(){
     const show=()=>{ try{ tr.track.mode='showing'; }catch(e){} }; tr.addEventListener('load',show); setTimeout(show,250); setTimeout(show,900);
   }
 }
+// "Downmix surround to stereo" is on unless this browser turned it off (2.17.1)
+function downmixPref(set){
+  try{ if(set!=null){ localStorage.setItem('mediarr.downmix', set?'1':'0'); return set; } return localStorage.getItem('mediarr.downmix')!=='0'; }catch(e){ return set!=null?set:true; }
+}
+// channels of the audio track that will play: from the track list, else the playback probe
+async function audioChannelsD(aidx, plan){
+  let list=curPlay&&curPlay.audioTracks;
+  if(!list && curPlay && curPlay.tracksP){ try{ await Promise.race([curPlay.tracksP, new Promise(r=>setTimeout(r,8000))]); }catch(e){} list=curPlay&&curPlay.audioTracks; }
+  if(list && list.length){ const t=list.find(a=>a.i===aidx)||list[0]; return Number(t&&t.channels)||0; }
+  return aidx===0 && plan ? (Number(plan.audioChannels)||0) : 0;
+}
 function buildPlayerCtl(){
   const ctl=document.getElementById('playerCtl');
   if(config.webdav && config.webdav.ffmpeg){
     const auto=!!(config.playback&&config.playback.autoSelect);
     ctl.innerHTML='<label style="display:flex;gap:6px;align-items:center">Quality <select id="qualSel" class="trk-sel"><option value="orig">Original — no quality loss</option><option value="1080">1080p — High</option><option value="720">720p — Medium</option><option value="480">480p — Low</option></select></label>'
       +'<label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="tcOn"'+((config.webdav&&config.webdav.transcode)?' checked':'')+'> '+(auto?'Force transcode':'Transcode')+' <span style="color:var(--muted)">(fixes 5.1 / AC3 / DTS / HEVC)</span></label>'
-      +'<label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="tcStereo"> Downmix to stereo</label>'
+      +'<label style="display:flex;gap:6px;align-items:center;cursor:pointer" title="Turns 5.1 and 7.1 sound into stereo, so dialogue is clear on speakers and headphones. Stereo files still play directly."><input type="checkbox" id="tcStereo"'+(downmixPref()?' checked':'')+'> Downmix surround to stereo</label>'
       +'<span class="small" style="color:var(--muted)">'+(auto?'Automatic playback selection is on. Direct play, remux or transcode will be chosen from the source codecs.':'Automatic playback selection is off.')+'</span>';
     document.getElementById('qualSel').onchange=loadPlayerSrc;
     document.getElementById('tcOn').onchange=loadPlayerSrc;
-    document.getElementById('tcStereo').onchange=loadPlayerSrc;
+    document.getElementById('tcStereo').onchange=()=>{ downmixPref(document.getElementById('tcStereo').checked); loadPlayerSrc(); };
   } else {
     ctl.innerHTML='<span class="small" style="color:var(--muted)">Install ffmpeg on the server to enable transcoding, quality settings and seeking.</span>';
   }
@@ -2599,8 +2613,16 @@ async function loadPlayerSrc(){
   const tcOn=document.getElementById('tcOn'), tcStereo=document.getElementById('tcStereo'), audioSel=document.getElementById('audioSel'), qualSel=document.getElementById('qualSel');
   const aidx=audioSel?(parseInt(audioSel.value,10)||0):0;
   const q=qualSel?qualSel.value:'orig';
-  const forced=!!((tcOn && tcOn.checked) || (tcStereo && tcStereo.checked) || aidx>0 || q!=='orig');
   msg.textContent=''; stopHlsD();
+  // downmixing only matters for surround tracks; stereo files keep direct play and seeking
+  let downmix=false;
+  if(tcStereo && tcStereo.checked){
+    if(!curPlay.tracksP && config.webdav && config.webdav.ffmpeg) curPlay.tracksP=fetch('/api/webdav/tracks?path='+encodeURIComponent(curPlay.path)).then(r=>r.ok?r.json():null).catch(()=>null);
+    const ch=await audioChannelsD(aidx, curPlay.autoPlan);
+    if(seq!==playerLoadSeqD) return;
+    downmix=ch>2;
+  }
+  const forced=!!((tcOn && tcOn.checked) || downmix || aidx>0 || q!=='orig');
   const onerr=()=>{
     if(config.webdav && config.webdav.ffmpeg && !forced){
       msg.innerHTML='Couldn\u2019t play this directly. ';
@@ -2631,19 +2653,19 @@ async function loadPlayerSrc(){
     if(canHls){
       msg.textContent=plan&&!forced ? ('Auto: '+(plan.decision||'Preparing stream')+'…') : 'Preparing stream…';
       let qs='path='+encodeURIComponent(curPlay.path)+'&q='+q;
-      if(tcStereo && tcStereo.checked) qs+='&ac=2'; if(aidx>0) qs+='&aidx='+aidx;
+      if(downmix) qs+='&ac=2'; if(aidx>0) qs+='&aidx='+aidx;
       if(plan&&!forced&&plan.forceVideo) qs+='&vc=1';
       fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
         if(seq!==playerLoadSeqD) return;
         if(!ok || !j.sid) throw new Error((j && j.message) || 'Could not start stream');
-        curHlsSid=j.sid; msg.textContent=plan&&!forced ? ('Auto: '+(plan.decision||j.mode||'HLS')) : '';
+        curHlsSid=j.sid; msg.textContent=plan&&!forced ? ('Auto: '+(plan.decision||j.mode||'HLS')) : (downmix && !(tcOn&&tcOn.checked) && q==='orig' && !(aidx>0) ? 'Surround sound downmixed to stereo' : '');
         playHlsD(v, '/api/webdav/hls/'+j.sid+'/index.m3u8', onerr, ()=>setTimeout(applySubD,500));
       }).catch(e=>{ if(seq===playerLoadSeqD) msg.textContent='Couldn\u2019t start playback: '+e.message; });
       return;
     }
     // fallback (no HLS support): live fMP4 transcode (not seekable)
     let src='/api/webdav/stream?path='+encodeURIComponent(curPlay.path)+'&transcode=1';
-    if(tcStereo && tcStereo.checked) src+='&ac=2'; if(aidx>0) src+='&aidx='+aidx; if(plan&&!forced&&plan.forceVideo) src+='&vc=1';
+    if(downmix) src+='&ac=2'; if(aidx>0) src+='&aidx='+aidx; if(plan&&!forced&&plan.forceVideo) src+='&vc=1';
     msg.textContent=plan&&!forced ? ('Auto: '+(plan.decision||'Transcode')) : '';
     v.onerror=onerr; v.src=src; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubD,300);
     return;

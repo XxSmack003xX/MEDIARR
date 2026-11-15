@@ -3399,7 +3399,7 @@ function ffprobeCodecs (inputUrl, cb) {
     const v = streams.find(s => s.codec_type === 'video') || {};
     const a = streams.find(s => s.codec_type === 'audio') || {};
     const dur = j.format && parseFloat(j.format.duration);
-    cb({ video: (v.codec_name || '').toLowerCase(), pix: (v.pix_fmt || '').toLowerCase(), audio: (a.codec_name || '').toLowerCase(), format: ((j.format && j.format.format_name) || '').toLowerCase(), duration: (dur && isFinite(dur)) ? dur : 0 });
+    cb({ video: (v.codec_name || '').toLowerCase(), pix: (v.pix_fmt || '').toLowerCase(), audio: (a.codec_name || '').toLowerCase(), channels: Number(a.channels) || 0, format: ((j.format && j.format.format_name) || '').toLowerCase(), duration: (dur && isFinite(dur)) ? dur : 0 });
   }, () => cb(null));
 }
 
@@ -3435,7 +3435,7 @@ function browserPlaybackPlan (rel, res) {
     return sendJSON(res, 200, {
       mode, decision, reason, forceVideo: mode === 'hls' && !hlsCopyVideo,
       transcodeAudio: mode === 'hls' && !hlsCopyAudio,
-      video: v, audio: a, pixelFormat: pix, container: ext || info.format || '', duration: info.duration || 0,
+      video: v, audio: a, audioChannels: info.channels || 0, pixelFormat: pix, container: ext || info.format || '', duration: info.duration || 0,
       ffmpeg: true, ffprobe: true
     });
   });

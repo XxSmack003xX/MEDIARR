@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.17.1
+
+- The video player's **Downmix surround to stereo** (renamed from "Downmix to stereo") is now **on by default**, on the desktop and phone sites.
+- It only applies to audio with more than two channels. A 5.1 or 7.1 track is converted to stereo while H.264 video is copied as it is; stereo and mono files keep direct play and seeking instead of being transcoded. Before, ticking the box transcoded every video.
+- Unticking it is remembered in that browser. The playback probe now reports the audio's channel count (`audioChannels`).
+
 ## 2.17.0
 
 ### Media cards in notifications
