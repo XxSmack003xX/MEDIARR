@@ -2327,14 +2327,24 @@ function playVideoMobile(path, name){
     const auto=!!(config.playback&&config.playback.autoSelect);
     ctl.innerHTML='<div><label class="form-label small mb-1">Quality</label><select id="mQualSel" class="form-select form-select-sm"><option value="orig">Original — no quality loss</option><option value="1080">1080p — High</option><option value="720">720p — Medium</option><option value="480">480p — Low</option></select></div>'
       +'<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mTcOn"'+((config.webdav&&config.webdav.transcode)?' checked':'')+'><label class="form-check-label small" for="mTcOn">'+(auto?'Force transcode':'Transcode')+' (fixes 5.1 / AC3 / DTS / HEVC)</label></div>'
-      +'<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mTcStereo"><label class="form-check-label small" for="mTcStereo">Downmix to stereo</label></div>'
+      +'<div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="mTcStereo"'+(downmixPrefM()?' checked':'')+'><label class="form-check-label small" for="mTcStereo">Downmix surround to stereo</label></div>'
       +'<div class="small text-secondary">'+(auto?'Automatic playback selection is on.':'Automatic playback selection is off.')+'</div>';
-    $('mQualSel').onchange=loadMobileSrc; $('mTcOn').onchange=loadMobileSrc; $('mTcStereo').onchange=loadMobileSrc;
+    $('mQualSel').onchange=loadMobileSrc; $('mTcOn').onchange=loadMobileSrc; $('mTcStereo').onchange=()=>{ downmixPrefM($('mTcStereo').checked); loadMobileSrc(); };
   } else { ctl.innerHTML='<div class="small text-secondary">Install ffmpeg on the server to enable transcoding, quality settings and seeking.</div>'; }
   const m=bootstrap.Modal.getOrCreateInstance($('player')); m.show();
   $('mPlayerTracks').innerHTML=''; loadTracksM(curPlayM.path);
   loadMobileSrc();
   $('player').addEventListener('hidden.bs.modal', ()=>{ const v=$('mVideo'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} stopHlsM(); stopKeepAliveM(); }, {once:true});
+}
+// "Downmix surround to stereo" is on unless this browser turned it off (2.17.1)
+function downmixPrefM(set){
+  try{ if(set!=null){ localStorage.setItem('mediarr.downmix', set?'1':'0'); return set; } return localStorage.getItem('mediarr.downmix')!=='0'; }catch(e){ return set!=null?set:true; }
+}
+async function audioChannelsM(aidx, plan){
+  let list=curPlayM&&curPlayM.audioTracks;
+  if(!list && curPlayM && curPlayM.tracksP){ try{ await Promise.race([curPlayM.tracksP, new Promise(r=>setTimeout(r,8000))]); }catch(e){} list=curPlayM&&curPlayM.audioTracks; }
+  if(list && list.length){ const t=list.find(a=>a.i===aidx)||list[0]; return Number(t&&t.channels)||0; }
+  return aidx===0 && plan ? (Number(plan.audioChannels)||0) : 0;
 }
 function audioLabelM(a){ const ch=a.channels===6?'5.1':a.channels===8?'7.1':a.channels===2?'2.0':a.channels===1?'mono':(a.channels?a.channels+'ch':''); const bits=[a.lang,ch,a.codec].filter(Boolean).join(' • '); return (a.title?a.title+(bits?' — '+bits:''):bits)||('Track '+(a.i+1)); }
 function subLabelM(s){ return s.title || (s.lang?s.lang.toUpperCase():'') || ('Subtitle '+(s.i+1)); }
@@ -2342,8 +2352,11 @@ async function loadTracksM(path){
   const box=$('mPlayerTracks'); box.innerHTML='';
   if(!(config&&config.webdav&&config.webdav.ffmpeg)) return;
   try{
-    const r=await fetch('/api/webdav/tracks?path='+encodeURIComponent(path)); if(!r.ok) return; const d=await r.json();
+    const cp=curPlayM;
+    if(cp && !cp.tracksP) cp.tracksP=fetch('/api/webdav/tracks?path='+encodeURIComponent(path)).then(r=>r.ok?r.json():null).catch(()=>null);
+    const d=cp ? await cp.tracksP : null; if(!d) return;
     if(curPlayM && curPlayM.path!==path) return;
+    curPlayM.audioTracks=d.audio||[];
     let html='';
     if(d.audio && d.audio.length>1){ html+='<div><label class="form-label small mb-1">Audio</label><select id="mAudioSel" class="form-select form-select-sm">'+d.audio.map(a=>'<option value="'+a.i+'">'+esc(audioLabelM(a))+'</option>').join('')+'</select></div>'; }
     const tsubs=(d.subs||[]).filter(s=>s.text);
@@ -2381,7 +2394,15 @@ async function loadMobileSrc(){
   const v=$('mVideo'), msg=$('mPlayerMsg'), tcOn=$('mTcOn'), tcStereo=$('mTcStereo'), audioSel=$('mAudioSel'), qualSel=$('mQualSel');
   const aidx=audioSel?(parseInt(audioSel.value,10)||0):0;
   const q=qualSel?qualSel.value:'orig';
-  const forced=!!((tcOn && tcOn.checked) || (tcStereo && tcStereo.checked) || aidx>0 || q!=='orig'); msg.textContent=''; stopHlsM();
+  msg.textContent=''; stopHlsM();
+  let downmix=false;
+  if(tcStereo && tcStereo.checked){
+    if(!curPlayM.tracksP && config && config.webdav && config.webdav.ffmpeg) curPlayM.tracksP=fetch('/api/webdav/tracks?path='+encodeURIComponent(curPlayM.path)).then(r=>r.ok?r.json():null).catch(()=>null);
+    const ch=await audioChannelsM(aidx, curPlayM.autoPlan);
+    if(seq!==playLoadSeqM) return;
+    downmix=ch>2;
+  }
+  const forced=!!((tcOn && tcOn.checked) || downmix || aidx>0 || q!=='orig');
   const onerr=()=>{
     if(config&&config.webdav&&config.webdav.ffmpeg&&!forced){ msg.innerHTML='Couldn’t play directly. <a href="#" id="mTcTry" class="text-warning">Transcode it</a>.'; const a=$('mTcTry'); if(a) a.onclick=(e)=>{ e.preventDefault(); if(tcOn) tcOn.checked=true; loadMobileSrc(); }; }
     else { msg.textContent='Can’t play this format in the browser. Use ⬇️ to download instead.'; }
@@ -2398,11 +2419,11 @@ async function loadMobileSrc(){
     const canHls=(window.Hls && window.Hls.isSupported()) || v.canPlayType('application/vnd.apple.mpegurl');
     if(canHls){
       msg.textContent=plan&&!forced?('Auto: '+(plan.decision||'Preparing stream')+'…'):'Preparing stream…';
-      let qs='path='+encodeURIComponent(curPlayM.path)+'&q='+q;if(tcStereo&&tcStereo.checked)qs+='&ac=2';if(aidx>0)qs+='&aidx='+aidx;if(plan&&!forced&&plan.forceVideo)qs+='&vc=1';
-      fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{if(seq!==playLoadSeqM)return;if(!ok||!j.sid)throw new Error((j&&j.message)||'Could not start stream');curHlsSidM=j.sid;msg.textContent=plan&&!forced?('Auto: '+(plan.decision||j.mode||'HLS')):'';playHlsM(v,'/api/webdav/hls/'+j.sid+'/index.m3u8',onerr,()=>setTimeout(applySubM,500));}).catch(e=>{if(seq===playLoadSeqM)msg.textContent='Couldn’t start playback: '+e.message;});
+      let qs='path='+encodeURIComponent(curPlayM.path)+'&q='+q;if(downmix)qs+='&ac=2';if(aidx>0)qs+='&aidx='+aidx;if(plan&&!forced&&plan.forceVideo)qs+='&vc=1';
+      fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{if(seq!==playLoadSeqM)return;if(!ok||!j.sid)throw new Error((j&&j.message)||'Could not start stream');curHlsSidM=j.sid;msg.textContent=plan&&!forced?('Auto: '+(plan.decision||j.mode||'HLS')):(downmix&&!(tcOn&&tcOn.checked)&&q==='orig'&&!(aidx>0)?'Surround sound downmixed to stereo':'');playHlsM(v,'/api/webdav/hls/'+j.sid+'/index.m3u8',onerr,()=>setTimeout(applySubM,500));}).catch(e=>{if(seq===playLoadSeqM)msg.textContent='Couldn’t start playback: '+e.message;});
       return;
     }
-    let src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path)+'&transcode=1';if(tcStereo&&tcStereo.checked)src+='&ac=2';if(aidx>0)src+='&aidx='+aidx;if(plan&&!forced&&plan.forceVideo)src+='&vc=1';
+    let src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path)+'&transcode=1';if(downmix)src+='&ac=2';if(aidx>0)src+='&aidx='+aidx;if(plan&&!forced&&plan.forceVideo)src+='&vc=1';
     msg.textContent=plan&&!forced?('Auto: '+(plan.decision||'Transcode')):'';v.onerror=onerr;v.src=src;v.load();const pr=v.play&&v.play();if(pr&&pr.catch)pr.catch(()=>{});setTimeout(applySubM,300);return;
   }
   if(plan&&plan.mode==='direct')msg.textContent='Auto: Direct play';
