@@ -53,8 +53,23 @@ try { fs.mkdirSync(HLS_ROOT, { recursive: true }); } catch (e) {}
 function hlsCleanup (sid) {
   const s = hlsSessions.get(sid); if (!s) return;
   try { s.ff.kill('SIGKILL'); } catch (e) {}
+  for (const f of (s.fills || new Map()).values()) { try { f.kill('SIGKILL'); } catch (e) {} }
   try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch (e) {}
   hlsSessions.delete(sid);
+  // a watch party's shared session is reachable under each viewer's own id
+  if (s.views) for (const k of s.views.keys()) if (hlsSessions.get(k) === s) hlsSessions.delete(k);
+  if (s.shareKey && hlsShared.get(s.shareKey) === s) hlsShared.delete(s.shareKey);
+}
+const hlsShared = new Map();   // watch party + file + options → one shared HLS session (2.17.2)
+const hlsShareKey = (partyId, inputUrl, aidx, ac, q, vc) => [partyId, inputUrl, aidx == null || aidx === '' ? '' : String(parseInt(aidx, 10) || 0), ac === '2' ? '2' : '', ['orig', '1080', '720', '480'].includes(q) ? q : 'orig', vc ? '1' : ''].join('|');
+// a host starting a party: guests join the stream the host already has
+function hlsAdopt (sid, partyId, rel) {
+  const s = hlsSessions.get(sid);
+  if (!s || s.shareKey || !s.views) return;
+  const cfg = readConfig().webdav, inputUrl = mediaInput(cfg, rel);
+  if (!inputUrl || inputUrl !== s.inputUrl) return;
+  const key = hlsShareKey(partyId, s.inputUrl, s.aidx, s.ac, s.q, s.vc);
+  if (!hlsShared.has(key)) { s.shareKey = key; hlsShared.set(key, s); }
 }
 setInterval(() => { const now = Date.now(); for (const [sid, s] of hlsSessions) { if (now - s.last > 120000) hlsCleanup(sid); } }, 30000).unref();
 setInterval(() => {
@@ -3521,8 +3536,35 @@ function webdavTranscode (cfg, rel, name, opts, req, res) {
 function segName (k) { return 'seg' + String(k).padStart(5, '0') + '.ts'; }
 function hlsSpawn (sess, k) {
   if (sess.ff) { try { sess.ff.kill('SIGKILL'); } catch (e) {} sess.ff = null; }
+  const a = hlsArgs(sess, k, sess.dir, 0);
+  let ff; try { ff = spawn(FFMPEG, a); } catch (e) { sess.ff = null; sess.ffDone = true; sess.lastErr = e.message; return; }
+  sess.ff = ff; sess.startSeg = k; sess.ffDone = false; sess.lastRestart = Date.now();
+  ff.stderr.on('data', d => { sess.lastErr = (d.toString().split('\n').filter(Boolean).pop() || sess.lastErr); });
+  ff.on('close', () => { if (sess.ff === ff) { sess.ffDone = true; } });
+  ff.on('error', () => { if (sess.ff === ff) { sess.ffDone = true; } });
+}
+// One segment on the side, for a viewer who is somewhere else than the others sharing the
+// session (a party guest's player asking for the start before it jumps to the party).
+// The shared encoder keeps going where everyone else is watching.
+function hlsFill (sess, k) {
+  sess.fills = sess.fills || new Map();
+  if (sess.fills.has(k) || sess.fills.size >= 2) return;
+  const tmp = path.join(sess.dir, 'fill' + k);
+  try { fs.mkdirSync(tmp, { recursive: true }); } catch (e) { return; }
+  let ff; try { ff = spawn(FFMPEG, hlsArgs(sess, k, tmp, SEG_TIME)); } catch (e) { return; }
+  sess.fills.set(k, ff);
+  ff.on('close', () => {
+    sess.fills.delete(k);
+    const out = path.join(sess.dir, segName(k));
+    try { if (!fs.existsSync(out) && fs.existsSync(path.join(tmp, segName(k)))) fs.renameSync(path.join(tmp, segName(k)), out); } catch (e) {}
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {}
+  });
+  ff.on('error', () => { sess.fills.delete(k); });
+}
+function hlsArgs (sess, k, outDir, dur) {
   const a = ['-hide_banner', '-loglevel', 'error'];
   if (k > 0) a.push('-copyts', '-start_at_zero', '-ss', String(k * SEG_TIME));
+  if (dur) a.push('-t', String(dur));
   a.push('-i', sess.inputUrl, '-map', '0:v:0?', '-map', '0:a:' + (sess.aidx != null ? sess.aidx : 0) + '?');
   if (sess.copyVideo) {
     // Straight copy — the container changes (MKV -> MPEG-TS segments) but the video is untouched.
@@ -3535,12 +3577,8 @@ function hlsSpawn (sess, k) {
   else { a.push('-c:a', 'aac', '-b:a', sess.ac === '2' ? '256k' : '448k'); if (sess.ac === '2') a.push('-ac', '2'); }
   a.push('-f', 'hls', '-hls_time', String(SEG_TIME), '-hls_list_size', '0', '-hls_flags', 'independent_segments+temp_file',
     '-hls_segment_type', 'mpegts', '-start_number', String(k),
-    '-hls_segment_filename', path.join(sess.dir, 'seg%05d.ts'), path.join(sess.dir, '_ff.m3u8'));
-  let ff; try { ff = spawn(FFMPEG, a); } catch (e) { sess.ff = null; sess.ffDone = true; sess.lastErr = e.message; return; }
-  sess.ff = ff; sess.startSeg = k; sess.ffDone = false; sess.lastRestart = Date.now();
-  ff.stderr.on('data', d => { sess.lastErr = (d.toString().split('\n').filter(Boolean).pop() || sess.lastErr); });
-  ff.on('close', () => { if (sess.ff === ff) { sess.ffDone = true; } });
-  ff.on('error', () => { if (sess.ff === ff) { sess.ffDone = true; } });
+    '-hls_segment_filename', path.join(outDir, 'seg%05d.ts'), path.join(outDir, '_ff.m3u8'));
+  return a;
 }
 function hlsLastContig (sess) { let k = sess.startSeg; while (fs.existsSync(path.join(sess.dir, segName(k + 1)))) k++; return k; }
 function hlsSegReady (sess, k) { return fs.existsSync(path.join(sess.dir, segName(k))); }   // temp_file flag → file appears only when finalized
@@ -3554,12 +3592,25 @@ function webdavHlsStart (rel, opts, res, req, user) {
   try { if (!inputUrl) throw new Error('bad path'); }
   catch (e) { return sendJSON(res, 400, { message: 'Bad path' }); }
   opts = opts || {};
+  // Watch Together: everyone in the party watching this file with the same options shares one
+  // session (one ffmpeg, one read of the source); each viewer gets its own id into it.
+  const party = opts.party ? playerExtras.partyOf(opts.party) : null;
+  const shareKey = party && party.path === segs.join('/') ? hlsShareKey(party.id, inputUrl, opts.aidx, opts.ac, opts.q, String(opts.vc) === '1') : '';
+  const shared = shareKey && hlsShared.get(shareKey);
+  if (shared && hlsSessions.has(shared.sid) && !(shared.ffDone && !fs.existsSync(path.join(shared.dir, segName(shared.startSeg))))) {
+    const vsid = crypto.randomBytes(9).toString('hex');
+    shared.views.set(vsid, { k: -1, at: Date.now() }); hlsSessions.set(vsid, shared); shared.last = Date.now();
+    return sendJSON(res, 200, { sid: vsid, duration: shared.duration, segTime: SEG_TIME, quality: shared.q, shared: true, viewers: shared.views.size,
+      mode: shared.copyVideo ? (shared.copyAudio ? 'remux' : 'remux-audio') : 'transcode', video: shared.srcVideo, audio: shared.srcAudio });
+  }
   ffprobeCodecs(inputUrl, info => {
     const duration = (info && info.duration) ? info.duration : 0;
     if (!duration) return sendJSON(res, 502, { message: 'Could not read media duration' });
     const aidx = (opts.aidx != null && opts.aidx !== '') ? Math.max(0, parseInt(opts.aidx, 10) || 0) : null;
     const q = ['orig', '1080', '720', '480'].includes(opts.q) ? opts.q : 'orig';
     const nSegs = Math.max(1, Math.ceil(duration / SEG_TIME));
+    // start where the viewer will be (a party joiner, a resume) instead of encoding the opening first
+    const first = Math.max(0, Math.min(nSegs - 1, Math.floor((Number(opts.start) || 0) / SEG_TIME)));
     const sid = crypto.randomBytes(9).toString('hex');
     const dir = path.join(HLS_ROOT, sid);
     try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return sendJSON(res, 502, { message: 'Could not create temp dir' }); }
@@ -3577,17 +3628,19 @@ function webdavHlsStart (rel, opts, res, req, user) {
     const canCopyVideo = !vcForced && q === 'orig' && info && !tenBit && String(info.video || '').toLowerCase() === 'h264';
     const audioOk = info && AUDIO_OK.includes(String(info.audio || '').toLowerCase());
     const canCopyAudio = audioOk && opts.ac !== '2' && aidx == null;
-    const sess = { dir, inputUrl, aidx, ac: opts.ac, q, duration, nSegs, ff: null, startSeg: 0, ffDone: false, last: Date.now(), createdAt: Date.now(), lastErr: '',
+    const sess = { dir, inputUrl, aidx, ac: opts.ac, q, vc: vcForced, duration, nSegs, ff: null, startSeg: 0, ffDone: false, last: Date.now(), createdAt: Date.now(), lastErr: '',
                    user: (user && user.username) || '', title: path.basename(String(rel || '')), source: isLocalSource() ? 'local' : 'webdav',
                    copyVideo: !!canCopyVideo, copyAudio: !!canCopyAudio, srcVideo: (info && info.video) || '', srcAudio: (info && info.audio) || '', srcPix: (info && info.pix) || '' };
+    sess.sid = sid; sess.views = new Map([[sid, { k: first, at: Date.now() }]]);
+    if (shareKey && !hlsShared.has(shareKey)) { sess.shareKey = shareKey; hlsShared.set(shareKey, sess); }
     hlsSessions.set(sid, sess);
-    hlsSpawn(sess, 0);
+    hlsSpawn(sess, first);
     const t0 = Date.now();
     const check = () => {
       if (!hlsSessions.has(sid)) return;
-      if (hlsSegReady(sess, 0) || fs.existsSync(path.join(dir, segName(0)))) return sendJSON(res, 200, { sid, duration, segTime: SEG_TIME, quality: q,
+      if (hlsSegReady(sess, first)) return sendJSON(res, 200, { sid, duration, segTime: SEG_TIME, quality: q, start: first * SEG_TIME,
         mode: sess.copyVideo ? (sess.copyAudio ? 'remux' : 'remux-audio') : 'transcode', video: sess.srcVideo, audio: sess.srcAudio });
-      if (sess.ffDone && !fs.existsSync(path.join(dir, segName(0)))) { const e = sess.lastErr || 'ffmpeg exited before producing output'; hlsCleanup(sid); return sendJSON(res, 502, { message: 'Transcode failed: ' + e }); }
+      if (sess.ffDone && !fs.existsSync(path.join(dir, segName(first)))) { const e = sess.lastErr || 'ffmpeg exited before producing output'; hlsCleanup(sid); return sendJSON(res, 502, { message: 'Transcode failed: ' + e }); }
       if (Date.now() - t0 > 25000) { hlsCleanup(sid); return sendJSON(res, 504, { message: 'Transcode did not start in time' }); }
       setTimeout(check, 200);
     };
@@ -3607,23 +3660,41 @@ function webdavHlsFile (sid, file, res) {
   if (file.endsWith('.m3u8')) return serve();
   const m = file.match(/^seg(\d+)\.ts$/); if (!m) { res.writeHead(404); return res.end('not found'); }
   const k = parseInt(m[1], 10);
+  const now = Date.now();
+  if (sess.views) { const vw = sess.views.get(sid); if (vw) { vw.k = k; vw.at = now; } }
   if (hlsSegReady(sess, k)) return serve();
   // not ready: make sure an encoder is producing this segment (restart on a seek)
   const alive = sess.ff && !sess.ffDone;
   const contig = alive ? hlsLastContig(sess) : -1;
   const needRestart = !alive || k < sess.startSeg || (k - contig) > 10;
-  if (needRestart && (Date.now() - (sess.lastRestart || 0) > 1200 || k < sess.startSeg)) hlsSpawn(sess, k);
-  const t0 = Date.now();
+  // someone else sharing this session is watching what the encoder is making right now
+  const othersHere = alive && sess.views && [...sess.views].some(([id, vw]) => id !== sid && now - vw.at < 8000 && vw.k >= sess.startSeg - 1 && vw.k <= contig + 12);
+  if (needRestart && othersHere) hlsFill(sess, k);
+  else if (needRestart && (now - (sess.lastRestart || 0) > 1200 || k < sess.startSeg)) hlsSpawn(sess, k);
+  const t0 = Date.now(); let rescued = false;
   const wait = () => {
     if (!hlsSessions.has(sid)) { res.writeHead(404); return res.end('gone'); }
     if (hlsSegReady(sess, k)) return serve();
+    // a side segment that didn't arrive: fall back to moving the encoder here
+    if (!rescued && Date.now() - t0 > 6000 && !(sess.fills && sess.fills.has(k))) {
+      const c2 = sess.ff && !sess.ffDone ? hlsLastContig(sess) : -1;
+      if (!(sess.ff && !sess.ffDone) || k < sess.startSeg || k - c2 > 10) { rescued = true; hlsSpawn(sess, k); }
+    }
     if (sess.ffDone && !fs.existsSync(path.join(sess.dir, segName(k)))) { res.writeHead(404); return res.end('segment unavailable'); }
     if (Date.now() - t0 > 30000) { res.writeHead(504); return res.end('segment timeout'); }
     setTimeout(wait, 200);
   };
   wait();
 }
-function webdavHlsStop (sid, res) { hlsCleanup(sid); res.writeHead(204); res.end(); }
+function webdavHlsStop (sid, res) {
+  const s = hlsSessions.get(sid);
+  // leaving a shared session: the others keep watching
+  if (s && s.views && s.views.size > 1 && s.views.has(sid)) {
+    s.views.delete(sid); hlsSessions.delete(sid);
+    if (s.sid === sid) s.sid = s.views.keys().next().value;
+  } else hlsCleanup(sid);
+  res.writeHead(204); res.end();
+}
 
 function transcodeModeOf (s) {
   if (s.copyVideo && s.copyAudio) return 'Remux';
@@ -3633,12 +3704,13 @@ function transcodeModeOf (s) {
 function mediarrTranscodeSessions () {
   const now = Date.now();
   const hwAllowed = readConfig().webdav.hwAccel !== 'off' && !!HWENC;
-  const hls = [];
+  const hls = [], seen = new Set();
   for (const [sid, s] of hlsSessions) {
+    if (seen.has(s)) continue; seen.add(s);
     let progressPct = null;
     try { progressPct = s.nSegs ? Math.max(0, Math.min(100, Math.round(((hlsLastContig(s) + 1) / s.nSegs) * 100))) : null; } catch (_) {}
     hls.push({
-      id: sid, kind: 'hls', user: s.user || '', title: s.title || 'Media', source: s.source || '',
+      id: sid, kind: 'hls', user: s.views && s.views.size > 1 ? (s.user || '') + ' + ' + (s.views.size - 1) + ' in a watch party' : (s.user || ''), title: s.title || 'Media', source: s.source || '',
       mode: transcodeModeOf(s), video: s.srcVideo || '', audio: s.srcAudio || '', quality: s.q || 'orig',
       encoder: s.copyVideo ? 'copy' : (hwAllowed ? HWENC : 'libx264'), hardware: !s.copyVideo && hwAllowed,
       active: !!(s.ff && !s.ffDone), progressPct, duration: Number(s.duration) || 0,
@@ -3750,6 +3822,7 @@ const videoLinks = require('./video-links').createVideoLinks({
 const playerExtras = require('./player-extras').createPlayerExtras({
   readConfig, writeConfig, isLocalSource, localTarget, mediaInput, webdavTarget, webdavAuthHeader, upstream, safeSegments, parsePropfind,
   VIDEO_EXT, ffmpeg: () => FFMPEG, ffprobe: () => FFPROBE, dataDir: DATA_DIR, sendJSON, readBody, version: APP_VERSION,
+  hlsAdopt: (sid, partyId, rel) => hlsAdopt(sid, partyId, rel),
   log: m => console.log('  ' + m)
 });
 
@@ -8309,7 +8382,7 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/webdav/playback-plan' && req.method === 'GET') return browserPlaybackPlan(u.searchParams.get('path') || '', res);
       if (p === '/api/webdav/tracks' && req.method === 'GET') return webdavTracks(u.searchParams.get('path') || '', res);
       if (p === '/api/webdav/subtitle' && req.method === 'GET') return webdavSubtitle(u.searchParams.get('path') || '', u.searchParams.get('sidx'), res);
-      if (p === '/api/webdav/hls/start' && req.method === 'GET') return webdavHlsStart(u.searchParams.get('path') || '', { ac: u.searchParams.get('ac'), vc: u.searchParams.get('vc'), aidx: u.searchParams.get('aidx'), q: u.searchParams.get('q') }, res, req, me);
+      if (p === '/api/webdav/hls/start' && req.method === 'GET') return webdavHlsStart(u.searchParams.get('path') || '', { ac: u.searchParams.get('ac'), vc: u.searchParams.get('vc'), aidx: u.searchParams.get('aidx'), q: u.searchParams.get('q'), party: u.searchParams.get('party'), start: u.searchParams.get('start') }, res, req, me);
       if (p === '/api/webdav/hls/stop' && req.method === 'GET') return webdavHlsStop(u.searchParams.get('sid') || '', res);
       { const hm = p.match(/^\/api\/webdav\/hls\/([A-Za-z0-9]+)\/([A-Za-z0-9_.-]+)$/); if (hm && req.method === 'GET') return webdavHlsFile(hm[1], hm[2], res); }
       if (p === '/api/webdav/download' && (req.method === 'GET' || req.method === 'HEAD')) return webdavDownload(u.searchParams.get('path') || '', res, me, req.method === 'HEAD', req);

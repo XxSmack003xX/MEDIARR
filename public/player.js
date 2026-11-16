@@ -75,6 +75,7 @@ const CSS=`
 .mpx-sub{font-size:12.5px;opacity:.78;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
 .mpx-badge{pointer-events:auto;display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:99px;background:var(--glass);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.16);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
 .mpx-badge i{width:8px;height:8px;border-radius:50%;background:#35d07f;box-shadow:0 0 0 0 rgba(53,208,127,.7);animation:mpxPulse 1.8s infinite}
+.mpx-badge.hold i{background:#f2b33d;animation:mpxSpin .9s linear infinite;border-radius:50%;box-shadow:none;border:2px solid #f2b33d;border-right-color:transparent;background:transparent;width:10px;height:10px}
 @keyframes mpxPulse{70%{box-shadow:0 0 0 7px rgba(53,208,127,0)}100%{box-shadow:0 0 0 0 rgba(53,208,127,0)}}
 .mpx-big{position:absolute;left:50%;top:50%;width:78px;height:78px;margin:-39px 0 0 -39px;border-radius:50%;border:1px solid rgba(255,255,255,.28);background:rgba(20,20,26,.55);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transform:scale(.8);pointer-events:none;transition:opacity .2s ease,transform .2s cubic-bezier(.2,.9,.3,1.3),background .15s}
 .mpx-big svg{width:34px;height:34px}
@@ -320,10 +321,11 @@ function wire(wrap,v,kind){
   on('loadstart',()=>{X.settled=false;wrap.classList.add('mpx-wait');keepSub();});
   on('emptied',()=>{wrap.classList.remove('mpx-wait');});
   on('error',()=>{wrap.classList.remove('mpx-wait');});
-  on('timeupdate',()=>{paintTime();tickMarkers();});
+  on('timeupdate',()=>{paintTime();tickMarkers();if(!v.seeking)X.lastT=v.currentTime;});
+  on('seeking',()=>{if(X.preSeek==null)X.preSeek=X.lastT;});
   on('durationchange',()=>{paintTime();paintMarks();});
   on('progress',paintBuf);
-  on('seeked',()=>{paintTime();tickMarkers(true);partyLocal('seek');});
+  on('seeked',()=>{paintTime();tickMarkers(true);partyLocal('seek');X.preSeek=null;X.lastT=v.currentTime;});
   on('ended',()=>{paintPlay();onEnded();});
   on('volumechange',()=>{paintVol();PREF.volume=v.volume;PREF.muted=v.muted;savePref();});
   on('loadeddata',keepSub);
@@ -697,14 +699,43 @@ function paintChat(){
 function paintPartyBadge(){
   const b=q('[data-a=party]');if(b)b.classList.toggle('live',!!X.party);
   if(!E.badges)return;
-  E.badges.innerHTML=X.party?'<span class="mpx-badge" role="button" tabindex="0" title="Watch together"><i></i>'+((X.party.members||[]).filter(m=>m.online!==false).length||1)+' watching</span>':'';
+  const hold=X.party&&X.party.state&&X.party.state.hold, mine=hold&&X.party.loading;
+  const holdTxt=hold?(mine?'Loading… everyone is waiting':'Waiting for '+listNames((hold.for||[]).filter(n=>n!==myName()))+'…'):'';
+  E.badges.innerHTML=X.party?'<span class="mpx-badge'+(hold?' hold':'')+'" role="button" tabindex="0" title="Watch together"><i></i>'+(hold?esc(holdTxt):((X.party.members||[]).filter(m=>m.online!==false).length||1)+' watching')+'</span>':'';
   const el=E.badges.firstChild;if(el)el.onclick=e=>{e.stopPropagation();openPanel('party');};
 }
 function floatEmoji(emoji,from){const s=document.createElement('span');s.style.left=(8+Math.random()*78)+'%';s.innerHTML=esc(emoji)+'<small>'+esc(from||'')+'</small>';E.float.appendChild(s);setTimeout(()=>s.remove(),2700);}
-async function partySend(body){if(!X.party)return null;const v=X.v;try{return await api('/api/party/'+X.party.id,{method:'POST',body:Object.assign({client:CID,pos:v?v.currentTime:0,buffering:!!(v&&X.wrap.classList.contains('mpx-wait'))},body)});}catch(e){if(/ended|wrong/.test(e.message))partyLeave(true);return null;}}
+async function partySend(body){if(!X.party)return null;const v=X.v;try{return await api('/api/party/'+X.party.id,{method:'POST',body:Object.assign({client:CID,pos:v?v.currentTime:0,buffering:!!X.party.loading},body)});}catch(e){if(/ended|wrong/.test(e.message))partyLeave(true);return null;}}
+function listNames(a){a=[...new Set(a)];return a.length<=1?(a[0]||'someone'):a.length===2?a[0]+' and '+a[1]:a[0]+' and '+(a.length-1)+' others';}
+// changes this player makes to follow the room aren't anyone pressing a button: don't send them back
+function expectSelf(kind){const pt=X.party;if(pt)pt.expect.push({kind,at:Date.now()});}
+function selfSeek(t){const v=X.v;if(!v)return;expectSelf('seek');try{v.currentTime=clamp(t,0,Math.max(0,dur()-0.3));}catch(_){}}
+function selfPlay(){const v=X.v,pt=X.party;if(!v||!v.paused)return;expectSelf('play');v.play().catch(()=>{if(pt){const i=pt.expect.findIndex(e=>e.kind==='play');if(i>=0)pt.expect.splice(i,1);}toast('Tap play to join in');});}
+function selfPause(){const v=X.v;if(!v||v.paused)return;expectSelf('pause');v.pause();}
+function setRate(r){const v=X.v;if(v&&Math.abs(v.playbackRate-r)>0.001){X.party&&(X.party.rateSet=r);v.playbackRate=r;}}
+// every half second: say when this player is loading, and drift back into step by playing a little faster or slower
+function partyTick(){
+  const pt=X.party,v=X.v;if(!pt||!v)return;
+  pt.expect=pt.expect.filter(e=>Date.now()-e.at<10000);
+  const st=pt.state||{};
+  const t=v.currentTime||0,d=dur();let ahead=0;
+  try{for(let i=0;i<v.buffered.length;i++)if(v.buffered.start(i)<=t+0.25&&v.buffered.end(i)>t){ahead=v.buffered.end(i)-t;break;}}catch(_){}
+  const ready=v.readyState>=3||(v.readyState>=2&&(ahead>=1.5||(d&&d-t<2)));
+  const loading=!X.path||st.path!==X.path||!X.settled||v.seeking||!ready||(!v.paused&&X.wrap.classList.contains('mpx-wait'));
+  if(loading&&!pt.loading){if(!pt.loadSince)pt.loadSince=Date.now();if(Date.now()-pt.loadSince>700){pt.loading=true;partySend({action:'buffer'});paintPartyBadge();}}
+  else if(!loading){pt.loadSince=0;if(pt.loading){pt.loading=false;partySend({action:'buffer'});paintPartyBadge();}}
+  const running=st.playing&&!st.hold;
+  if(!running||v.paused||loading||st.path!==X.path||Date.now()<pt.mute||(E.seek&&E.seek._dragging&&E.seek._dragging())){if(pt.nudging){setRate(1);pt.nudging=false;}return;}
+  const diff=partyTarget(st)-(v.currentTime||0);
+  if(Math.abs(diff)>6){pt.mute=Date.now()+3000;if(pt.nudging){setRate(1);pt.nudging=false;}selfSeek(partyTarget(st)+0.5);return;}
+  if(Math.abs(diff)>0.4){setRate(1+clamp(diff*0.08,-0.1,0.1));pt.nudging=true;}
+  else if(pt.nudging&&Math.abs(diff)<0.15){setRate(1);pt.nudging=false;}
+}
 function partyConnect(room){
   if(X.party)partyLeave(true);
-  const pt=X.party={id:room.id,state:Object.assign({},room.state,{rx:Date.now()}),members:room.members||[],chat:room.chat||[],reactions:room.reactions||[],mute:0,pending:false,es:null,ping:0};
+  const pt=X.party={id:room.id,state:Object.assign({},room.state,{rx:Date.now()}),members:room.members||[],chat:room.chat||[],reactions:room.reactions||[],mute:0,pending:false,es:null,ping:0,tick:0,expect:[],loading:false,loadSince:0,nudging:false};
+  if(X.v&&X.v.playbackRate!==1)X.v.playbackRate=1;   // everyone at normal speed
+  pt.tick=setInterval(partyTick,500);
   pt.es=new EventSource('/api/party/'+room.id+'/stream?client='+CID);
   pt.es.addEventListener('party',e=>{let m;try{m=JSON.parse(e.data);}catch(_){return;}partyEvent(m);});
   pt.ping=setInterval(async()=>{const r=await partySend({action:'ping'});if(!r||!X.party)return;X.party.members=r.members;paintPartyBadge();partyDrift(r.state);},4000);
@@ -719,39 +750,48 @@ function partyEvent(m){
   else if(m.type==='react'){floatEmoji(m.emoji,m.from===myName()?'':m.from);}
   else if(m.type==='closed'){partyLeave(true);toast('The watch party has ended');}
 }
-function partyTarget(st){return (st.pos||0)+(st.playing?((st.age||0)+(Date.now()-st.rx))/1000:0);}
+function partyTarget(st){return (st.pos||0)+(st.playing&&!st.hold?((st.age||0)+(Date.now()-(st.rx||Date.now())))/1000:0);}
 function partyApply(st,action){
   const pt=X.party;if(!pt||!st)return;
-  st=Object.assign({},st,{rx:Date.now()});pt.state=st;
+  const wasHold=pt.state&&pt.state.hold;
+  st=Object.assign({},st,{rx:Date.now()});pt.state=st;paintPartyBadge();
   if(st.path!==X.path){pt.mute=Date.now()+4000;pt.pending=true;pt.following=st.path;const fn=X.kind==='m'?window.playVideoMobile:window.playVideoD;if(typeof fn==='function')fn(st.path,st.name);if(action==='load')toast(st.by+' started '+st.name.replace(/\.[a-z0-9]{2,4}$/i,''),2800);return;}
   const v=X.v;if(!v)return;
   if(!X.settled||v.readyState<1){pt.pending=true;return;}
-  pt.mute=Date.now()+1200;
-  const t=partyTarget(st);
-  if(Math.abs((v.currentTime||0)-t)>1.2){try{v.currentTime=clamp(t,0,Math.max(0,dur()-0.3));}catch(_){}}
-  if(st.playing&&v.paused)v.play().catch(()=>toast('Tap play to join in'));
-  if(!st.playing&&!v.paused)v.pause();
+  pt.mute=Date.now()+800;
+  const t=partyTarget(st),run=st.playing&&!st.hold;
+  // jumps line up exactly; small differences while playing are left to the speed nudge (no reload)
+  const lim=(action==='play'||action==='resume'||action==='sync')&&run?3:1.2;
+  if(Math.abs((v.currentTime||0)-t)>lim)selfSeek(t);
+  if(run)selfPlay();else selfPause();
   const who=st.by&&st.by!==myName()?st.by:'';
-  if(who&&action==='pause')toast(who+' paused');else if(who&&action==='play')toast(who+' pressed play');else if(who&&action==='seek')toast(who+' jumped to '+fmt(st.pos));
+  if(action==='hold'&&!wasHold&&!pt.loading)toast('Waiting for '+listNames(((st.hold||{}).for||[]).filter(n=>n!==myName()))+' to load…',2600);
+  else if(action==='resume'&&wasHold&&pt.loading)toast('Your stream can’t keep up, so the party carried on. A lower quality in ⚙ may help.',5200);
+  else if(who&&action==='pause')toast(who+' paused');else if(who&&action==='play')toast(who+' pressed play');else if(who&&action==='seek')toast(who+' jumped to '+fmt(st.pos));
 }
 function partyDrift(st){
   const pt=X.party,v=X.v;if(!pt||!v||!st||!X.settled||Date.now()<pt.mute)return;
-  st=Object.assign({},st,{rx:Date.now()});pt.state=st;
   if(st.path!==X.path)return partyApply(st);
+  const before=pt.state;st=Object.assign({},st,{rx:Date.now()});pt.state=st;
+  if(!!(before&&before.hold)!==!!st.hold)paintPartyBadge();
   if(E.seek._dragging&&E.seek._dragging())return;
-  const t=partyTarget(st);
-  if(st.playing!==!v.paused||Math.abs((v.currentTime||0)-t)>2.5)partyApply(st);
+  // a missed play / pause / hold: catch up with it (position drift is handled by partyTick)
+  if((st.playing&&!st.hold)===v.paused)partyApply(st,'sync');
 }
 function partyLocal(kind){
   const pt=X.party,v=X.v;if(!pt||!v)return;
+  const i=pt.expect.findIndex(e=>e.kind===kind);if(i>=0){pt.expect.splice(i,1);return;}
   if(!X.settled||Date.now()<pt.mute||pt.pending)return;
   if(kind==='seek'&&v.seeking)return;
+  // the player's own tiny seeks (skipping a gap, recovering from a stall) aren't anyone jumping
+  if(kind==='seek'&&X.preSeek!=null&&Math.abs((v.currentTime||0)-X.preSeek)<1.5)return;
   pt.state=Object.assign({},pt.state,{pos:v.currentTime,playing:kind==='seek'?!v.paused:kind==='play',age:0,rx:Date.now(),by:myName()});
   partySend({action:kind,pos:v.currentTime,playing:!v.paused});
 }
 async function partyStart(){
   const v=X.v;if(!X.path)throw new Error('Play something first');
-  const room=await api('/api/party',{method:'POST',body:{path:X.path,name:X.name,pos:v?v.currentTime:0,playing:!!(v&&!v.paused)}});
+  let hls='';try{hls=X.kind==='m'?(typeof curHlsSidM!=='undefined'?curHlsSidM:''):(typeof curHlsSid!=='undefined'?curHlsSid:'');}catch(_){}
+  const room=await api('/api/party',{method:'POST',body:{path:X.path,name:X.name,pos:v?v.currentTime:0,playing:!!(v&&!v.paused),hls:hls||''}});
   partyConnect(room);toast('Watch party started');
   try{await navigator.clipboard.writeText(inviteLink(room.id));toast('Invite link copied',2600);}catch(_){}
 }
@@ -764,7 +804,7 @@ async function partyJoin(code){
   toast('You joined the watch party');
 }
 function partyLeave(silent){
-  const pt=X.party;if(!pt)return;X.party=null;
+  const pt=X.party;if(!pt)return;X.party=null;clearInterval(pt.tick);if(pt.nudging&&X.v)X.v.playbackRate=1;
   try{pt.es.close();}catch(_){}clearInterval(pt.ping);
   if(!silent)api('/api/party/'+pt.id,{method:'POST',body:{client:CID,action:'leave'}}).catch(()=>{});
   paintPartyBadge();if(X.panel==='party')renderParty();
@@ -861,6 +901,12 @@ function install(){
     },500);
   }
 }
-window.MediarrPlayer={joinParty:code=>partyJoin(code),state:X,prefs:PREF};
+// the pages ask this before starting a transcoded stream: share the party's, starting where it is
+function hlsHint(path){
+  const r=X.party||X.joining;const st=r&&r.state;
+  if(!st||st.path!==path)return null;
+  return {party:r.id,start:Math.max(0,partyTarget(Object.assign({rx:Date.now()},st)))};
+}
+window.MediarrPlayer={joinParty:code=>partyJoin(code),hlsHint,state:X,prefs:PREF};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);else install();
 })();
