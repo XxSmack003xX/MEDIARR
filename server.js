@@ -999,7 +999,7 @@ function staticEntry (full) {
     let raw = fs.readFileSync(full);
     // Stamp the release onto MEDIARR's own scripts (/v200.js → /v200.js?v=2.7.0) so a
     // browser, proxy or CDN holding an old copy must fetch the new one after an update.
-    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance|player|monitor|vlinks)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
+    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance|player|playback|monitor|vlinks)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
     e = { mtimeMs: st.mtimeMs, size: st.size, raw, etag: '"' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20) + '"', gzip: null, br: null };
     _staticCache.set(full, e);
   }
@@ -3390,7 +3390,7 @@ function ffprobeJson (inputUrl) {
   if (hit && Date.now() - hit.at < PROBE_TTL_MS) { _probeCache.delete(key); _probeCache.set(key, hit); return Promise.resolve(hit.json); }
   if (_probeInflight.has(key)) return _probeInflight.get(key);
   const pr = new Promise(resolve => {
-    let fp; try { fp = spawn(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration,format_name,size,bit_rate:stream=index,codec_type,codec_name,pix_fmt,channels,duration:stream_tags=language,title,DURATION', '-of', 'json', inputUrl]); } catch (e) { return resolve(null); }
+    let fp; try { fp = spawn(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration,start_time,format_name,size,bit_rate:stream=index,codec_type,codec_name,pix_fmt,channels,duration:stream_tags=language,title,DURATION', '-of', 'json', inputUrl]); } catch (e) { return resolve(null); }
     // WebDAV and debrid servers can take a while to start sending a file that isn't cached yet
     let out = ''; const t = setTimeout(() => { try { fp.kill('SIGKILL'); } catch (e) {} }, /^https?:/i.test(String(inputUrl)) ? 25000 : 12000);
     fp.stdout.on('data', d => { out += d; }); fp.stderr.on('data', () => {});
@@ -3452,7 +3452,8 @@ function ffprobeCodecs (inputUrl, cb) {
     const streams = j.streams || [];
     const v = streams.find(s => s.codec_type === 'video') || {};
     const a = streams.find(s => s.codec_type === 'audio') || {};
-    cb({ video: (v.codec_name || '').toLowerCase(), pix: (v.pix_fmt || '').toLowerCase(), audio: (a.codec_name || '').toLowerCase(), channels: Number(a.channels) || 0, format: ((j.format && j.format.format_name) || '').toLowerCase(), duration: probeDuration(j) });
+    cb({ video: (v.codec_name || '').toLowerCase(), pix: (v.pix_fmt || '').toLowerCase(), audio: (a.codec_name || '').toLowerCase(), channels: Number(a.channels) || 0, format: ((j.format && j.format.format_name) || '').toLowerCase(), duration: probeDuration(j), start: Number(j.format && j.format.start_time) || 0,
+      audioTracks: streams.filter(s => s.codec_type === 'audio').map(s => ({ channels: Number(s.channels) || 0, codec: (s.codec_name || '').toLowerCase() })) });
   }, () => cb(null));
 }
 
@@ -3488,7 +3489,7 @@ function browserPlaybackPlan (rel, res) {
     return sendJSON(res, 200, {
       mode, decision, reason, forceVideo: mode === 'hls' && !hlsCopyVideo,
       transcodeAudio: mode === 'hls' && !hlsCopyAudio,
-      video: v, audio: a, audioChannels: info.channels || 0, pixelFormat: pix, container: ext || info.format || '', duration: info.duration || 0,
+      video: v, audio: a, audioChannels: info.channels || 0, audioTracks: info.audioTracks || [], pixelFormat: pix, container: ext || info.format || '', duration: info.duration || 0,
       ffmpeg: true, ffprobe: true
     });
   });
@@ -3572,7 +3573,137 @@ function webdavTranscode (cfg, rel, name, opts, req, res) {
 // segments are produced linearly, and when the player seeks to a segment that isn't ready yet, the
 // encoder is restarted at that point (-ss) with timestamps preserved (-copyts) so the timeline stays aligned.
 function segName (k) { return 'seg' + String(k).padStart(5, '0') + '.ts'; }
+/* ---------- reading a few bytes of the source (for the keyframe index) ---------- */
+function sourceReader (rel) {
+  if (isLocalSource()) {
+    const file = localTarget(rel); let fh = null;
+    return { read: async (off, len) => { if (!fh) fh = await fs.promises.open(file, 'r'); const b = Buffer.alloc(len); const r = await fh.read(b, 0, len, off); return b.subarray(0, r.bytesRead); },
+      close: () => { if (fh) fh.close().catch(() => {}); } };
+  }
+  const cfg = readConfig().webdav; let base = webdavTarget(cfg, rel);
+  const once = (url, off, len) => new Promise((resolve, reject) => {
+    let u; try { u = new URL(url); } catch (e) { return reject(e); }
+    const lib = u.protocol === 'https:' ? https : http;
+    const r = lib.request({ method: 'GET', hostname: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: u.pathname + u.search, timeout: 8000,
+      headers: { Authorization: webdavAuthHeader(cfg), Range: 'bytes=' + off + '-' + (off + len - 1) } }, resp => {
+      if ([301, 302, 307, 308].includes(resp.statusCode) && resp.headers.location) { resp.resume(); return resolve({ redirect: new URL(resp.headers.location, url).toString() }); }
+      // a server that ignores Range would send the whole file: only usable for the very start
+      if (resp.statusCode !== 206 && !(resp.statusCode === 200 && off === 0)) { resp.destroy(); return reject(new Error('HTTP ' + resp.statusCode)); }
+      const chunks = []; let n = 0;
+      resp.on('data', c => { chunks.push(c); n += c.length; if (n >= len) { resp.destroy(); resolve({ body: Buffer.concat(chunks).subarray(0, len) }); } });
+      resp.on('end', () => resolve({ body: Buffer.concat(chunks).subarray(0, len) }));
+      resp.on('error', e => { if (n >= len) return; reject(e); });
+    });
+    r.on('error', reject); r.on('timeout', () => r.destroy(new Error('timed out'))); r.end();
+  });
+  return { read: async (off, len) => {
+    for (let hop = 0; hop < 4; hop++) {
+      const r = await once(base, off, len);
+      if (r.redirect) { if (new URL(r.redirect).origin !== new URL(base).origin) throw new Error('redirected elsewhere'); base = r.redirect; continue; }
+      return r.body;
+    }
+    throw new Error('too many redirects');
+  }, close: () => {} };
+}
+// Keyframe times of an MKV (seconds from the start of the file), from its index. Cached.
+const _kfCache = new Map();
+async function keyframeIndex (rel, inputUrl, info) {
+  if (!/matroska|webm/.test(String(info.format || '')) && !/\.(mkv|webm)$/i.test(String(rel))) return null;
+  const key = probeKey(inputUrl);
+  if (_kfCache.has(key)) return _kfCache.get(key);
+  const src = sourceReader(rel);
+  let ix = null;
+  try { ix = await Promise.race([mediaIndex.readMkvIndex(src.read), new Promise(r => setTimeout(() => r(null), 9000))]); } catch (e) { ix = null; }
+  src.close();
+  _kfCache.set(key, ix); while (_kfCache.size > 300) _kfCache.delete(_kfCache.keys().next().value);
+  return ix;
+}
+const mediaIndex = require('./media-index');
+setTimeout(() => { exSupported().catch(() => {}); }, 4000).unref();   // check this ffmpeg once, before the first play
+
+/* Exact mode (2.19): the video is copied and the stream is cut on the file's real keyframes,
+   so every piece starts exactly where the playlist says, however playback got there (from
+   the start, after a jump, or joining a watch party). Each ffmpeg run writes into its own
+   folder; a piece is served once it is complete. */
+function exRunFile (run, k) { return path.join(run.dir, segName(k)); }
+function exRunLast (run) { let m = run.start; while (fs.existsSync(exRunFile(run, m))) m++; return m - 1; }   // highest piece the run has begun
+function exHarvest (sess, run, finished) {
+  const last = exRunLast(run);
+  for (let k = run.start; k <= last; k++) {
+    if (k === last && !finished) { try { fs.unlinkSync(exRunFile(run, k)); } catch (e) {} break; }   // half-written
+    if (!sess.where.has(k)) sess.where.set(k, exRunFile(run, k));
+  }
+}
+function exReady (sess, k) {
+  if (sess.where.has(k)) return true;
+  const run = sess.run;
+  if (run && k >= run.start && fs.existsSync(exRunFile(run, k)) && (run.finished || fs.existsSync(exRunFile(run, k + 1)))) { sess.where.set(k, exRunFile(run, k)); return true; }
+  return false;
+}
+function exAudioArgs (sess) {
+  if (sess.copyAudio) return ['-c:a', 'copy'];
+  const a = ['-c:a', 'aac', '-b:a', sess.ac === '2' ? '256k' : '448k']; if (sess.ac === '2') a.push('-ac', '2'); return a;
+}
+// ffmpeg's segment muxer counts its cut times from the first packet it is given (ffmpeg 5–7).
+// Checked once with a tiny generated clip; if this ffmpeg behaves differently, exact mode stays
+// off and streams are made the older way.
+let _cutCheck = null;
+function exSupported () {
+  if (_cutCheck) return _cutCheck;
+  _cutCheck = new Promise(resolve => {
+    if (!FFMPEG) return resolve(false);
+    let dir; try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mediarr-cut-')); } catch (e) { return resolve(false); }
+    let ff; try { ff = spawn(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=d=3:r=10:s=64x64', '-c:v', 'mpeg2video', '-g', '5', '-output_ts_offset', '100',
+      '-f', 'segment', '-segment_format', 'mpegts', '-segment_times', '1.5', '-segment_time_delta', '0.05', path.join(dir, 't%d.ts')]); } catch (e) { return resolve(false); }
+    const t = setTimeout(() => { try { ff.kill('SIGKILL'); } catch (e) {} }, 15000);
+    ff.on('error', () => { clearTimeout(t); resolve(false); });
+    ff.on('close', code => {
+      clearTimeout(t);
+      let n = 0; try { n = fs.readdirSync(dir).length; fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {}
+      resolve(code === 0 && n === 2);
+    });
+  });
+  return _cutCheck;
+}
+function exArgs (sess, k, only) {
+  const b = sess.bounds, n = b.length - 1;
+  const a = ['-hide_banner', '-loglevel', 'error'];
+  // ffmpeg aims 0.13 s early when the video has B-frames; +0.14 lands on this keyframe either way
+  if (k > 0) a.push('-ss', (b[k] + 0.14).toFixed(3), '-noaccurate_seek');
+  a.push('-copyts', '-start_at_zero', '-i', sess.inputUrl, '-map', '0:v:0?', '-map', '0:a:' + (sess.aidx != null ? sess.aidx : 0) + '?', '-c:v', 'copy', '-bsf:v', 'h264_mp4toannexb');
+  a.push.apply(a, exAudioArgs(sess));
+  // a constant offset keeps timestamps identical whether a run starts at the beginning or mid-film
+  a.push('-muxdelay', '0', '-muxpreload', '0', '-output_ts_offset', '10');
+  if (only && k < n - 1) a.push('-to', (b[k + 1] + 1).toFixed(3));   // just this piece (and a little of the next)
+  const cuts = b.slice(k + 1, only ? Math.min(n, k + 2) : n).map(t => (t - b[k]).toFixed(3));
+  a.push('-f', 'segment', '-segment_format', 'mpegts', '-segment_start_number', String(k));
+  if (cuts.length) a.push('-segment_times', cuts.join(','), '-segment_time_delta', '0.05'); else a.push('-segment_time', '1000000');
+  return a;
+}
+function exSpawn (sess, k) {
+  if (sess.run && sess.ff) { const old = sess.run; try { sess.ff.kill('SIGKILL'); } catch (e) {} exHarvest(sess, old, old.finished); }
+  sess.ff = null;
+  const run = { start: k, dir: path.join(sess.dir, 'r' + (++sess.runs)), finished: false };
+  try { fs.mkdirSync(run.dir, { recursive: true }); } catch (e) {}
+  const a = exArgs(sess, k).concat([path.join(run.dir, 'seg%05d.ts')]);
+  let ff; try { ff = spawn(FFMPEG, a); } catch (e) { sess.ffDone = true; sess.lastErr = e.message; return; }
+  sess.ff = ff; sess.run = run; sess.startSeg = k; sess.ffDone = false; sess.lastRestart = Date.now();
+  ff.stderr.on('data', d => { sess.lastErr = (d.toString().split('\n').filter(Boolean).pop() || sess.lastErr); });
+  ff.on('close', code => { if (sess.run !== run) return; run.finished = code === 0; exHarvest(sess, run, run.finished); sess.ffDone = true; });
+  ff.on('error', () => { if (sess.run === run) sess.ffDone = true; });
+}
+function exFill (sess, k) {
+  sess.fills = sess.fills || new Map();
+  if (sess.fills.has(k) || sess.fills.size >= 2) return;
+  const dir = path.join(sess.dir, 'f' + (++sess.runs));
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return; }
+  let ff; try { ff = spawn(FFMPEG, exArgs(sess, k, true).concat([path.join(dir, 'seg%05d.ts')])); } catch (e) { return; }
+  sess.fills.set(k, ff);
+  ff.on('close', code => { sess.fills.delete(k); const out = path.join(dir, segName(k)); if (code === 0 && !sess.where.has(k) && fs.existsSync(out)) sess.where.set(k, out); });
+  ff.on('error', () => { sess.fills.delete(k); });
+}
 function hlsSpawn (sess, k) {
+  if (sess.exact) return exSpawn(sess, k);
   if (sess.ff) { try { sess.ff.kill('SIGKILL'); } catch (e) {} sess.ff = null; }
   const a = hlsArgs(sess, k, sess.dir, 0);
   let ff; try { ff = spawn(FFMPEG, a); } catch (e) { sess.ff = null; sess.ffDone = true; sess.lastErr = e.message; return; }
@@ -3585,6 +3716,7 @@ function hlsSpawn (sess, k) {
 // session (a party guest's player asking for the start before it jumps to the party).
 // The shared encoder keeps going where everyone else is watching.
 function hlsFill (sess, k) {
+  if (sess.exact) return exFill(sess, k);
   sess.fills = sess.fills || new Map();
   if (sess.fills.has(k) || sess.fills.size >= 2) return;
   const tmp = path.join(sess.dir, 'fill' + k);
@@ -3618,8 +3750,13 @@ function hlsArgs (sess, k, outDir, dur) {
     '-hls_segment_filename', path.join(outDir, 'seg%05d.ts'), path.join(outDir, '_ff.m3u8'));
   return a;
 }
-function hlsLastContig (sess) { let k = sess.startSeg; while (fs.existsSync(path.join(sess.dir, segName(k + 1)))) k++; return k; }
-function hlsSegReady (sess, k) { return fs.existsSync(path.join(sess.dir, segName(k))); }   // temp_file flag → file appears only when finalized
+function hlsLastContig (sess) {
+  if (sess.exact) { const run = sess.run; if (!run) return -1; const last = exRunLast(run); return run.finished ? last : last - 1; }
+  let k = sess.startSeg; while (fs.existsSync(path.join(sess.dir, segName(k + 1)))) k++; return k;
+}
+function hlsSegReady (sess, k) { return sess.exact ? exReady(sess, k) : fs.existsSync(path.join(sess.dir, segName(k))); }   // temp_file flag → file appears only when finalized
+const hlsSegPath = (sess, k) => (sess.exact ? sess.where.get(k) : path.join(sess.dir, segName(k)));
+const hlsModeOf = s => (s.copyVideo ? (s.copyAudio ? 'remux' : 'remux-audio') : 'transcode');
 function webdavHlsStart (rel, opts, res, req, user) {
   const cfg = readConfig().webdav;
   if (!isLocalSource() && (!cfg.url || !cfg.username)) return sendJSON(res, 400, { message: 'No download source is configured' });
@@ -3635,29 +3772,43 @@ function webdavHlsStart (rel, opts, res, req, user) {
   const party = opts.party ? playerExtras.partyOf(opts.party) : null;
   const shareKey = party && party.path === segs.join('/') ? hlsShareKey(party.id, inputUrl, opts.aidx, opts.ac, opts.q, String(opts.vc) === '1') : '';
   const shared = shareKey && hlsShared.get(shareKey);
-  if (shared && hlsSessions.has(shared.sid) && !(shared.ffDone && !fs.existsSync(path.join(shared.dir, segName(shared.startSeg))))) {
+  if (shared && hlsSessions.has(shared.sid) && !(shared.ffDone && !hlsSegReady(shared, shared.startSeg))) {
     const vsid = crypto.randomBytes(9).toString('hex');
     shared.views.set(vsid, { k: -1, at: Date.now() }); hlsSessions.set(vsid, shared); shared.last = Date.now();
     return sendJSON(res, 200, { sid: vsid, duration: shared.duration, segTime: SEG_TIME, quality: shared.q, shared: true, viewers: shared.views.size,
-      mode: shared.copyVideo ? (shared.copyAudio ? 'remux' : 'remux-audio') : 'transcode', video: shared.srcVideo, audio: shared.srcAudio });
+      mode: hlsModeOf(shared), exact: !!shared.exact, video: shared.srcVideo, audio: shared.srcAudio });
   }
   ffprobeCodecs(inputUrl, async info => {
+   try {
     let duration = (info && info.duration) ? info.duration : 0;
-    // the file doesn't record its length: measure it (bounded, so a slow remote file can't hang the player)
-    if (!duration && info) duration = await scanDuration(inputUrl, isLocalSource() ? 45000 : 20000);
-    // still no length → no seekable stream; the player then plays the file directly or converts it live
+    const vcForced0 = String(opts.vc) === '1', q0 = ['orig', '1080', '720', '480'].includes(opts.q) ? opts.q : 'orig';
+    const copy0 = !!info && !vcForced0 && q0 === 'orig' && !/10|12/.test(String(info.pix || '')) && String(info.video || '').toLowerCase() === 'h264';
+    // MKV: the file's own index gives the keyframes (and the length, when ffprobe couldn't tell)
+    const exOk = copy0 && await exSupported();
+    const kix = info && (exOk || !duration) ? await keyframeIndex(segs.join('/'), inputUrl, info) : null;
+    if (!duration && kix && kix.duration > 0) duration = kix.duration;
+    if (!duration && info) duration = _scanDur.get(probeKey(inputUrl)) || 0;
+    // Still no length → no seekable stream. Answer at once (the player plays the file directly or
+    // converts it live) and measure the length in the background for next time.
+    if (!duration && info && isLocalSource()) scanDuration(inputUrl, 120000).catch(() => {});
     if (!duration) return sendJSON(res, 422, { code: info ? 'no-duration' : 'probe-failed', message: info ? 'This file doesn’t say how long it is, so it can’t be converted in chunks' : 'The file couldn’t be read (the server may be slow or the file unavailable)' });
     const aidx = (opts.aidx != null && opts.aidx !== '') ? Math.max(0, parseInt(opts.aidx, 10) || 0) : null;
     const q = ['orig', '1080', '720', '480'].includes(opts.q) ? opts.q : 'orig';
-    const nSegs = Math.max(1, Math.ceil(duration / SEG_TIME));
+    // where the stream is cut: on the file's keyframes when the video is copied, else every 6 s
+    let bounds = exOk && kix ? mediaIndex.boundaries(kix.keyframes.map(t => t - (info.start || 0)), duration, SEG_TIME) : null;
+    const exact = !!bounds;
+    if (!bounds) { bounds = []; for (let t = 0; t < duration - 0.5 || !bounds.length; t += SEG_TIME) bounds.push(t); bounds.push(duration); }
+    const nSegs = bounds.length - 1;
     // start where the viewer will be (a party joiner, a resume) instead of encoding the opening first
-    const first = Math.max(0, Math.min(nSegs - 1, Math.floor((Number(opts.start) || 0) / SEG_TIME)));
+    const want = Math.max(0, Number(opts.start) || 0);
+    let first = 0; while (first < nSegs - 1 && bounds[first + 1] <= want) first++;
     const sid = crypto.randomBytes(9).toString('hex');
     const dir = path.join(HLS_ROOT, sid);
     try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return sendJSON(res, 502, { message: 'Could not create temp dir' }); }
     // hand-write the full VOD playlist so the player has the whole timeline immediately
-    let pl = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-TARGETDURATION:' + SEG_TIME + '\n#EXT-X-MEDIA-SEQUENCE:0\n';
-    for (let i = 0; i < nSegs; i++) { const d = (i === nSegs - 1) ? (duration - (nSegs - 1) * SEG_TIME) : SEG_TIME; pl += '#EXTINF:' + (d > 0 ? d.toFixed(3) : SEG_TIME.toFixed(3)) + ',\n' + segName(i) + '\n'; }
+    let longest = SEG_TIME; for (let i = 0; i < nSegs; i++) longest = Math.max(longest, bounds[i + 1] - bounds[i]);
+    let pl = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-TARGETDURATION:' + Math.ceil(longest) + '\n#EXT-X-MEDIA-SEQUENCE:0\n';
+    for (let i = 0; i < nSegs; i++) { const d = bounds[i + 1] - bounds[i]; pl += '#EXTINF:' + (d > 0 ? d.toFixed(3) : SEG_TIME.toFixed(3)) + ',\n' + segName(i) + '\n'; }
     pl += '#EXT-X-ENDLIST\n';
     try { fs.writeFileSync(path.join(dir, 'index.m3u8'), pl); } catch (e) { return sendJSON(res, 502, { message: 'Could not write playlist' }); }
     // If the video stream is already browser-friendly and no resize was asked for, we can
@@ -3669,7 +3820,7 @@ function webdavHlsStart (rel, opts, res, req, user) {
     const canCopyVideo = !vcForced && q === 'orig' && info && !tenBit && String(info.video || '').toLowerCase() === 'h264';
     const audioOk = info && AUDIO_OK.includes(String(info.audio || '').toLowerCase());
     const canCopyAudio = audioOk && opts.ac !== '2' && aidx == null;
-    const sess = { dir, inputUrl, aidx, ac: opts.ac, q, vc: vcForced, duration, nSegs, ff: null, startSeg: 0, ffDone: false, last: Date.now(), createdAt: Date.now(), lastErr: '',
+    const sess = { dir, inputUrl, aidx, ac: opts.ac, q, vc: vcForced, duration, nSegs, bounds, exact, where: new Map(), runs: 0, run: null, ff: null, startSeg: 0, ffDone: false, last: Date.now(), createdAt: Date.now(), lastErr: '',
                    user: (user && user.username) || '', title: path.basename(String(rel || '')), source: isLocalSource() ? 'local' : 'webdav',
                    copyVideo: !!canCopyVideo, copyAudio: !!canCopyAudio, srcVideo: (info && info.video) || '', srcAudio: (info && info.audio) || '', srcPix: (info && info.pix) || '' };
     sess.sid = sid; sess.views = new Map([[sid, { k: first, at: Date.now() }]]);
@@ -3679,13 +3830,14 @@ function webdavHlsStart (rel, opts, res, req, user) {
     const t0 = Date.now();
     const check = () => {
       if (!hlsSessions.has(sid)) return;
-      if (hlsSegReady(sess, first)) return sendJSON(res, 200, { sid, duration, segTime: SEG_TIME, quality: q, start: first * SEG_TIME,
-        mode: sess.copyVideo ? (sess.copyAudio ? 'remux' : 'remux-audio') : 'transcode', video: sess.srcVideo, audio: sess.srcAudio });
-      if (sess.ffDone && !fs.existsSync(path.join(dir, segName(first)))) { const e = sess.lastErr || 'ffmpeg exited before producing output'; hlsCleanup(sid); return sendJSON(res, 502, { message: 'Transcode failed: ' + e }); }
+      if (hlsSegReady(sess, first)) return sendJSON(res, 200, { sid, duration, segTime: SEG_TIME, quality: q, start: bounds[first],
+        mode: hlsModeOf(sess), exact, video: sess.srcVideo, audio: sess.srcAudio });
+      if (sess.ffDone && !hlsSegReady(sess, first)) { const e = sess.lastErr || 'ffmpeg exited before producing output'; hlsCleanup(sid); return sendJSON(res, 502, { message: 'Transcode failed: ' + e }); }
       if (Date.now() - t0 > 25000) { hlsCleanup(sid); return sendJSON(res, 504, { message: 'Transcode did not start in time' }); }
-      setTimeout(check, 200);
+      setTimeout(check, 100);
     };
-    setTimeout(check, 250);
+    setTimeout(check, 150);
+   } catch (e) { if (!res.headersSent) sendJSON(res, 502, { message: 'Could not start the stream: ' + e.message }); }
   });
 }
 function webdavHlsFile (sid, file, res) {
@@ -3693,7 +3845,7 @@ function webdavHlsFile (sid, file, res) {
   if (!sess) { res.writeHead(404); return res.end('session expired'); }
   if (!/^[A-Za-z0-9_.-]+$/.test(file) || file.indexOf('..') !== -1) { res.writeHead(400); return res.end('bad'); }
   sess.last = Date.now();
-  const serve = () => fs.readFile(path.join(sess.dir, file), (e, buf) => {
+  const serve = () => fs.readFile((mm => (mm && sess.exact ? hlsSegPath(sess, parseInt(mm[1], 10)) : null) || path.join(sess.dir, file))(file.match(/^seg(\d+)\.ts$/)), (e, buf) => {
     if (e) { res.writeHead(404); return res.end('not found'); }
     res.writeHead(200, { 'Content-Type': file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t', 'Cache-Control': 'no-store' });
     res.end(buf);
@@ -3721,9 +3873,12 @@ function webdavHlsFile (sid, file, res) {
       const c2 = sess.ff && !sess.ffDone ? hlsLastContig(sess) : -1;
       if (!(sess.ff && !sess.ffDone) || k < sess.startSeg || k - c2 > 10) { rescued = true; hlsSpawn(sess, k); }
     }
-    if (sess.ffDone && !fs.existsSync(path.join(sess.dir, segName(k)))) { res.writeHead(404); return res.end('segment unavailable'); }
+    if (sess.ffDone && !hlsSegReady(sess, k) && !(sess.fills && sess.fills.has(k))) {
+      // the encoder stopped short of this piece (it was past the end, or it failed): try once from here
+      if (!rescued && k < sess.nSegs) { rescued = true; hlsSpawn(sess, k); } else { res.writeHead(404); return res.end('segment unavailable'); }
+    }
     if (Date.now() - t0 > 30000) { res.writeHead(504); return res.end('segment timeout'); }
-    setTimeout(wait, 200);
+    setTimeout(wait, 100);
   };
   wait();
 }

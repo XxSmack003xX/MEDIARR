@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.19.0
+
+### Video playback, rebuilt
+
+- **Exact converted streams for MKV.** With the picture copied and only the sound converted (5.1 → stereo, AC3/DTS → AAC), the stream was cut wherever ffmpeg found a keyframe while the player was told every piece is 6 seconds. Pieces were up to a keyframe interval off after every jump or join, and with keyframes more than 6 seconds apart the positions drifted until playback hung. MEDIARR now reads the keyframes from the MKV index and cuts exactly there; timestamps are identical however a piece was made. Verified piece by piece against the playlist, and in a real player on a local test server: jumps took under 2 seconds and a watch-party guest joined mid-film in under a second.
+- **One playback engine** (`public/playback.js`) for desktop and phone replaces two copies of the logic. It tries the original file, a converted stream and live conversion in the order that suits the file; a way that errors or doesn't start is abandoned and the next begins from the same position. Fatal stream errors are retried (network) or recovered (media) before giving up. Before, any fatal stream error ended at "This file can't be played in the browser".
+- **Details** under the player shows a copyable report of what was tried and why it failed; **Try again** restarts.
+- **Stereo sound when converting** (was "Downmix surround to stereo") no longer forces a conversion. Since 2.17.1 it sent every 5.1 file through a converted stream, even ones the browser plays directly. Directly playable files are direct again; the option applies whenever sound is converted anyway.
+- **No waiting on files without a length.** 2.18.1 measured such files before answering, which could hold playback for up to 45 seconds. Now the player is told at once and plays another way; local files are measured in the background for next time. The MKV header is one more place the length is read from.
+- Watch parties: shared streams work with exact streams, including a guest who is elsewhere in the film. The streams' pieces being exact also removes a cause of players chasing each other.
+- The playback probe lists each audio track's channels (`audioTracks`); `/api/webdav/hls/start` reports `exact`.
+- Not changed: files without an MKV index (MP4, MKVs without cues) with copied picture are streamed as before, in pieces of about 6 seconds.
+
 ## 2.18.1
 
 ### Fixes

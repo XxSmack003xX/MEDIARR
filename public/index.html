@@ -1444,6 +1444,7 @@
 </div>
 
 <script src="/hls.min.js" defer></script>
+<script src="/playback.js"></script>
 <script src="/v160.js"></script>
 <script src="/nav.js"></script>
 <script>window.MEDIARR_HUB_IN_MENU = true;   /* 2.3: the hub opens from the menu + bell, no floating button */</script>
@@ -2524,9 +2525,9 @@ const playerOverlay = document.getElementById('playerOverlay');
 const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && (navigator.maxTouchPoints||0)>1);
 let curHlsSid=null;
 let playerLoadSeqD=0;
-function stopHlsD(){ const v=document.getElementById('dlVideo'); if(v && v._hls){ try{ v._hls.destroy(); }catch(e){} v._hls=null; } if(curHlsSid){ const s=curHlsSid; curHlsSid=null; try{ fetch('/api/webdav/hls/stop?sid='+encodeURIComponent(s)); }catch(e){} } }
+function stopHlsD(){ const v=document.getElementById('dlVideo'); if(window.MediarrPlayback) MediarrPlayback.stop(v); curHlsSid=null; }
 document.getElementById('closePlayer').onclick = ()=> closePlayerD();
-function closePlayerD(){ const v=document.getElementById('dlVideo'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} stopHlsD(); playerOverlay.classList.remove('show'); }
+function closePlayerD(){ const v=document.getElementById('dlVideo'); stopHlsD(); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} playerOverlay.classList.remove('show'); }
 let curPlay=null;
 function playVideoD(path, name){
   downloadsOverlay.classList.remove('show');   // close the downloads browser so the player is in front
@@ -2573,20 +2574,13 @@ function applySubD(){
 function downmixPref(set){
   try{ if(set!=null){ localStorage.setItem('mediarr.downmix', set?'1':'0'); return set; } return localStorage.getItem('mediarr.downmix')!=='0'; }catch(e){ return set!=null?set:true; }
 }
-// channels of the audio track that will play: from the track list, else the playback probe
-async function audioChannelsD(aidx, plan){
-  let list=curPlay&&curPlay.audioTracks;
-  if(!list && curPlay && curPlay.tracksP){ try{ await Promise.race([curPlay.tracksP, new Promise(r=>setTimeout(r,8000))]); }catch(e){} list=curPlay&&curPlay.audioTracks; }
-  if(list && list.length){ const t=list.find(a=>a.i===aidx)||list[0]; return Number(t&&t.channels)||0; }
-  return aidx===0 && plan ? (Number(plan.audioChannels)||0) : 0;
-}
 function buildPlayerCtl(){
   const ctl=document.getElementById('playerCtl');
   if(config.webdav && config.webdav.ffmpeg){
     const auto=!!(config.playback&&config.playback.autoSelect);
     ctl.innerHTML='<label style="display:flex;gap:6px;align-items:center">Quality <select id="qualSel" class="trk-sel"><option value="orig">Original — no quality loss</option><option value="1080">1080p — High</option><option value="720">720p — Medium</option><option value="480">480p — Low</option></select></label>'
       +'<label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="tcOn"'+((config.webdav&&config.webdav.transcode)?' checked':'')+'> '+(auto?'Force transcode':'Transcode')+' <span style="color:var(--muted)">(fixes 5.1 / AC3 / DTS / HEVC)</span></label>'
-      +'<label style="display:flex;gap:6px;align-items:center;cursor:pointer" title="Turns 5.1 and 7.1 sound into stereo, so dialogue is clear on speakers and headphones. Stereo files still play directly."><input type="checkbox" id="tcStereo"'+(downmixPref()?' checked':'')+'> Downmix surround to stereo</label>'
+      +'<label style="display:flex;gap:6px;align-items:center;cursor:pointer" title="When MEDIARR converts the sound of a 5.1 or 7.1 video, it makes it stereo. Videos your browser plays directly are not converted: the browser mixes their surround sound to stereo itself."><input type="checkbox" id="tcStereo"'+(downmixPref()?' checked':'')+'> Stereo sound when converting</label>'
       +'<span class="small" style="color:var(--muted)">'+(auto?'Automatic playback selection is on. Direct play, remux or transcode will be chosen from the source codecs.':'Automatic playback selection is off.')+'</span>';
     document.getElementById('qualSel').onchange=loadPlayerSrc;
     document.getElementById('tcOn').onchange=loadPlayerSrc;
@@ -2595,105 +2589,18 @@ function buildPlayerCtl(){
     ctl.innerHTML='<span class="small" style="color:var(--muted)">Install ffmpeg on the server to enable transcoding, quality settings and seeking.</span>';
   }
 }
-function playHlsD(v, url, onerr, after, startAt){
-  if(window.Hls && window.Hls.isSupported()){
-    if(v._hls){ try{ v._hls.destroy(); }catch(e){} }
-    const hls=new Hls({ maxBufferLength:30, maxMaxBufferLength:90, startPosition: startAt>0?startAt:-1 }); v._hls=hls;
-    hls.on(Hls.Events.ERROR,(evt,data)=>{ if(data && data.fatal) onerr(); });
-    hls.loadSource(url); hls.attachMedia(v);
-    v.onerror=null; const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); if(after) after();
-  } else if(v.canPlayType('application/vnd.apple.mpegurl')){
-    v.onerror=onerr; v.src=url; if(startAt>0) v.currentTime=startAt; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); if(after) after();
-  } else { onerr(); }
-}
-async function loadPlayerSrc(){
+// Playback itself lives in /playback.js (shared with the phone site): it picks direct play, a
+// converted stream or live conversion, and moves on to the next one if a way fails.
+function loadPlayerSrc(){
   if(!curPlay) return;
-  const seq=++playerLoadSeqD;
-  const v=document.getElementById('dlVideo'), msg=document.getElementById('playerMsg');
-  const tcOn=document.getElementById('tcOn'), tcStereo=document.getElementById('tcStereo'), audioSel=document.getElementById('audioSel'), qualSel=document.getElementById('qualSel');
-  const aidx=audioSel?(parseInt(audioSel.value,10)||0):0;
-  const q=qualSel?qualSel.value:'orig';
-  msg.textContent=''; stopHlsD();
-  // downmixing only matters for surround tracks; stereo files keep direct play and seeking
-  let downmix=false;
-  if(tcStereo && tcStereo.checked){
-    if(!curPlay.tracksP && config.webdav && config.webdav.ffmpeg) curPlay.tracksP=fetch('/api/webdav/tracks?path='+encodeURIComponent(curPlay.path)).then(r=>r.ok?r.json():null).catch(()=>null);
-    const ch=await audioChannelsD(aidx, curPlay.autoPlan);
-    if(seq!==playerLoadSeqD) return;
-    downmix=ch>2;
-  }
-  const forced=!!((tcOn && tcOn.checked) || downmix || aidx>0 || q!=='orig');
-  const onerr=()=>{
-    if(config.webdav && config.webdav.ffmpeg && !forced){
-      msg.innerHTML='Couldn\u2019t play this directly. ';
-      const b=document.createElement('a'); b.href='#'; b.textContent='Transcode it'; b.style.color='var(--gold)';
-      b.onclick=(e)=>{ e.preventDefault(); if(tcOn) tcOn.checked=true; loadPlayerSrc(); }; msg.appendChild(b);
-    } else {
-      msg.innerHTML='This file can\u2019t be played in the browser. ';
-      const a=document.createElement('a'); a.href='#'; a.textContent='Download it instead'; a.style.color='var(--gold)';
-      a.onclick=(e)=>{ e.preventDefault(); grabDownloadD(curPlay.path, curPlay.name, a); }; msg.appendChild(a);
-    }
-  };
-  let plan=null;
-  const auto=!!(config.playback&&config.playback.autoSelect&&config.webdav&&config.webdav.ffmpeg);
-  if(auto && !forced){
-    msg.textContent='Selecting the best playback mode…';
-    try{
-      if(!curPlay.autoPlan){
-        const r=await fetch('/api/webdav/playback-plan?path='+encodeURIComponent(curPlay.path));
-        const d=await r.json(); if(!r.ok) throw new Error(d.message||'Playback probe failed'); curPlay.autoPlan=d;
-      }
-      plan=curPlay.autoPlan;
-      if(seq!==playerLoadSeqD) return;
-    }catch(e){ if(seq!==playerLoadSeqD)return; plan=null; }
-  }
-  const useHls=forced || !!(plan&&plan.mode==='hls');
-  if(useHls){
-    const canHls=(window.Hls && window.Hls.isSupported()) || v.canPlayType('application/vnd.apple.mpegurl');
-    if(canHls){
-      msg.textContent=plan&&!forced ? ('Auto: '+(plan.decision||'Preparing stream')+'…') : 'Preparing stream…';
-      let qs='path='+encodeURIComponent(curPlay.path)+'&q='+q;
-      if(downmix) qs+='&ac=2'; if(aidx>0) qs+='&aidx='+aidx;
-      if(plan&&!forced&&plan.forceVideo) qs+='&vc=1';
-      // watch party: share the party's stream, starting where everyone is
-      const hint=window.MediarrPlayer&&MediarrPlayer.hlsHint?MediarrPlayer.hlsHint(curPlay.path):null;
-      if(hint){ qs+='&party='+encodeURIComponent(hint.party); if(hint.start>3) qs+='&start='+Math.floor(hint.start); }
-      fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
-        if(seq!==playerLoadSeqD) return;
-        if(!ok || !j.sid){ const er=new Error((j && j.message) || 'Could not start stream'); er.code=j&&j.code; throw er; }
-        curHlsSid=j.sid; msg.textContent=j.shared ? 'Sharing the watch party’s stream' : plan&&!forced ? ('Auto: '+(plan.decision||j.mode||'HLS')) : (downmix && !(tcOn&&tcOn.checked) && q==='orig' && !(aidx>0) ? 'Surround sound downmixed to stereo' : '');
-        const h2=window.MediarrPlayer&&MediarrPlayer.hlsHint?MediarrPlayer.hlsHint(curPlay.path):null;
-        playHlsD(v, '/api/webdav/hls/'+j.sid+'/index.m3u8', onerr, ()=>setTimeout(applySubD,500), h2&&h2.start>3?h2.start:(j.start||0));
-      }).catch(async e=>{
-        if(seq!==playerLoadSeqD) return;
-        // couldn't convert in chunks (2.18.1): an unreadable file → try the original; a file without a
-        // length → the original when the browser can play it and nobody chose converting, else convert live
-        if(e.code==='probe-failed') return direct('Playing the original file: '+e.message.charAt(0).toLowerCase()+e.message.slice(1));
-        if(e.code==='no-duration'){
-          const chose=(tcOn&&tcOn.checked) || q!=='orig' || aidx>0;
-          let p2=plan;
-          if(!p2 && !chose){ try{ const r=await fetch('/api/webdav/playback-plan?path='+encodeURIComponent(curPlay.path)); if(r.ok) p2=await r.json(); }catch(_){} if(seq!==playerLoadSeqD) return; }
-          if(!chose && p2 && p2.mode==='direct') return direct(downmix ? 'Playing the original sound: this file can\u2019t be converted to stereo' : '');
-          return live('Converting live (no seeking): this file doesn\u2019t say how long it is');
-        }
-        msg.textContent='Couldn\u2019t start playback: '+e.message;
-      });
-      return;
-    }
-    return live(plan&&!forced ? ('Auto: '+(plan.decision||'Transcode')) : '');
-  }
-  return direct(plan&&plan.mode==='direct' ? 'Auto: Direct play' : '');
-  // live fMP4 transcode (not seekable): no HLS support, or a file without a length
-  function live(note){
-    let src='/api/webdav/stream?path='+encodeURIComponent(curPlay.path)+'&transcode=1';
-    if(downmix) src+='&ac=2'; if(aidx>0) src+='&aidx='+aidx; if(plan&&!forced&&plan.forceVideo) src+='&vc=1';
-    msg.textContent=note||'';
-    v.onerror=onerr; v.src=src; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubD,300);
-  }
-  function direct(note){
-    msg.textContent=note||'';
-    v.onerror=onerr; v.src='/api/webdav/stream?path='+encodeURIComponent(curPlay.path); v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubD,300);
-  }
+  const v=document.getElementById('dlVideo'), tcOn=document.getElementById('tcOn'), tcStereo=document.getElementById('tcStereo'), audioSel=document.getElementById('audioSel'), qualSel=document.getElementById('qualSel');
+  const cp=curPlay;
+  MediarrPlayback.start({ video:v, path:cp.path, name:cp.name, msg:document.getElementById('playerMsg'),
+    options:{ force:!!(tcOn&&tcOn.checked), stereo:!!(tcStereo&&tcStereo.checked), aidx:audioSel?(parseInt(audioSel.value,10)||0):0, quality:qualSel?qualSel.value:'orig' },
+    auto:!!(config.playback&&config.playback.autoSelect), ffmpeg:!!(config.webdav&&config.webdav.ffmpeg),
+    hint:()=>(window.MediarrPlayer&&MediarrPlayer.hlsHint?MediarrPlayer.hlsHint(cp.path):null),
+    onSid:sid=>{ curHlsSid=sid; }, onReady:()=>setTimeout(applySubD,400),
+    download:a=>grabDownloadD(cp.path, cp.name, a) });
 }
 async function grabDownloadD(path, name, btn){
   const orig=btn.textContent; btn.disabled=true; btn.textContent='…';
