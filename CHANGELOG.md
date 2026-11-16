@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.18.1
+
+### Fixes
+
+- **"Couldn't start playback: Could not read media duration".** Some files (often MKVs) don't record their length, and converted playback (5.1 downmix, HEVC, lower quality) needs it. MEDIARR now looks for the length in the streams and MKV's per-stream DURATION tags, then in the file's size and bitrate, and as a last resort measures it by reading through the file once without decoding (a few seconds for a local episode; remembered afterwards). Such files now stream with seeking as usual.
+- If the length still can't be found (a slow remote file), the player no longer stops with an error. It plays the original file when the browser can play it and nobody chose converting, otherwise it converts live (without seeking) and says so. A file that can't be read at all is tried as the original file, with the reason shown.
+- Probing a file on a WebDAV or debrid server now waits up to 25 seconds (was 12), for files that aren't cached on the server yet.
+- The player's information (length for seek previews and chapter marks) uses the same length fallbacks.
+
 ## 2.18.0
 
 ### Smoother Watch Together

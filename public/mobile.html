@@ -2422,14 +2422,31 @@ async function loadMobileSrc(){
       let qs='path='+encodeURIComponent(curPlayM.path)+'&q='+q;if(downmix)qs+='&ac=2';if(aidx>0)qs+='&aidx='+aidx;if(plan&&!forced&&plan.forceVideo)qs+='&vc=1';
       const hint=window.MediarrPlayer&&MediarrPlayer.hlsHint?MediarrPlayer.hlsHint(curPlayM.path):null;
       if(hint){qs+='&party='+encodeURIComponent(hint.party);if(hint.start>3)qs+='&start='+Math.floor(hint.start);}
-      fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{if(seq!==playLoadSeqM)return;if(!ok||!j.sid)throw new Error((j&&j.message)||'Could not start stream');curHlsSidM=j.sid;msg.textContent=j.shared?'Sharing the watch party’s stream':plan&&!forced?('Auto: '+(plan.decision||j.mode||'HLS')):(downmix&&!(tcOn&&tcOn.checked)&&q==='orig'&&!(aidx>0)?'Surround sound downmixed to stereo':'');const h2=window.MediarrPlayer&&MediarrPlayer.hlsHint?MediarrPlayer.hlsHint(curPlayM.path):null;playHlsM(v,'/api/webdav/hls/'+j.sid+'/index.m3u8',onerr,()=>setTimeout(applySubM,500),h2&&h2.start>3?h2.start:(j.start||0));}).catch(e=>{if(seq===playLoadSeqM)msg.textContent='Couldn’t start playback: '+e.message;});
+      fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{if(seq!==playLoadSeqM)return;if(!ok||!j.sid){const er=new Error((j&&j.message)||'Could not start stream');er.code=j&&j.code;throw er;}curHlsSidM=j.sid;msg.textContent=j.shared?'Sharing the watch party’s stream':plan&&!forced?('Auto: '+(plan.decision||j.mode||'HLS')):(downmix&&!(tcOn&&tcOn.checked)&&q==='orig'&&!(aidx>0)?'Surround sound downmixed to stereo':'');const h2=window.MediarrPlayer&&MediarrPlayer.hlsHint?MediarrPlayer.hlsHint(curPlayM.path):null;playHlsM(v,'/api/webdav/hls/'+j.sid+'/index.m3u8',onerr,()=>setTimeout(applySubM,500),h2&&h2.start>3?h2.start:(j.start||0));}).catch(async e=>{
+        if(seq!==playLoadSeqM)return;
+        // couldn't convert in chunks (2.18.1): see the desktop player
+        if(e.code==='probe-failed')return direct('Playing the original file: '+e.message.charAt(0).toLowerCase()+e.message.slice(1));
+        if(e.code==='no-duration'){
+          const chose=(tcOn&&tcOn.checked)||q!=='orig'||aidx>0;
+          let p2=plan;
+          if(!p2&&!chose){try{const r=await fetch('/api/webdav/playback-plan?path='+encodeURIComponent(curPlayM.path));if(r.ok)p2=await r.json();}catch(_){}if(seq!==playLoadSeqM)return;}
+          if(!chose&&p2&&p2.mode==='direct')return direct(downmix?'Playing the original sound: this file can’t be converted to stereo':'');
+          return live('Converting live (no seeking): this file doesn’t say how long it is');
+        }
+        msg.textContent='Couldn’t start playback: '+e.message;
+      });
       return;
     }
-    let src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path)+'&transcode=1';if(downmix)src+='&ac=2';if(aidx>0)src+='&aidx='+aidx;if(plan&&!forced&&plan.forceVideo)src+='&vc=1';
-    msg.textContent=plan&&!forced?('Auto: '+(plan.decision||'Transcode')):'';v.onerror=onerr;v.src=src;v.load();const pr=v.play&&v.play();if(pr&&pr.catch)pr.catch(()=>{});setTimeout(applySubM,300);return;
+    return live(plan&&!forced?('Auto: '+(plan.decision||'Transcode')):'');
   }
-  if(plan&&plan.mode==='direct')msg.textContent='Auto: Direct play';
-  v.onerror=onerr;v.src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path);v.load();const pr=v.play&&v.play();if(pr&&pr.catch)pr.catch(()=>{});setTimeout(applySubM,300);
+  return direct(plan&&plan.mode==='direct'?'Auto: Direct play':'');
+  function live(note){
+    let src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path)+'&transcode=1';if(downmix)src+='&ac=2';if(aidx>0)src+='&aidx='+aidx;if(plan&&!forced&&plan.forceVideo)src+='&vc=1';
+    msg.textContent=note||'';v.onerror=onerr;v.src=src;v.load();const pr=v.play&&v.play();if(pr&&pr.catch)pr.catch(()=>{});setTimeout(applySubM,300);
+  }
+  function direct(note){
+    msg.textContent=note||'';v.onerror=onerr;v.src='/api/webdav/stream?path='+encodeURIComponent(curPlayM.path);v.load();const pr=v.play&&v.play();if(pr&&pr.catch)pr.catch(()=>{});setTimeout(applySubM,300);
+  }
 }
 async function grabDownload(path, name, btn){
   const o=btn.textContent; btn.disabled=true; btn.textContent='…';

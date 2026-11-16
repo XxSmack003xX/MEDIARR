@@ -98,6 +98,18 @@ function toVtt (text, shift) {
   return cues ? out.join('\n') : '';
 }
 
+// the container's length, else the longest stream's or MKV's DURATION tags, else size ÷ bitrate
+function probeLength (j) {
+  const ok = n => (isFinite(n) && n > 0 ? n : 0), f = j.format || {};
+  let d = ok(Number(f.duration));
+  if (d) return d;
+  for (const st of j.streams || []) {
+    d = Math.max(d, ok(Number(st.duration)));
+    const m = /^(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/.exec(String((st.tags && (st.tags.DURATION || st.tags.duration)) || '').trim());
+    if (m) d = Math.max(d, ok(Number(m[1]) * 3600 + Number(m[2]) * 60 + parseFloat(m[3])));
+  }
+  return d || ok(Number(f.size) * 8 / Number(f.bit_rate));
+}
 function createPlayerExtras (d) {
   const log = d.log || (() => {});
   const cfg = () => {
@@ -194,14 +206,14 @@ function createPlayerExtras (d) {
     const input = d.mediaInput(d.readConfig().webdav, rel);
     const pr = new Promise(resolve => {
       if (!ffprobe || !input) return resolve({ duration: 0, chapters: [] });
-      let fp; try { fp = spawn(ffprobe, ['-v', 'error', '-show_entries', 'format=duration:chapter=start_time,end_time:chapter_tags=title', '-show_chapters', '-of', 'json', input]); } catch (_) { return resolve({ duration: 0, chapters: [] }); }
+      let fp; try { fp = spawn(ffprobe, ['-v', 'error', '-show_entries', 'format=duration,size,bit_rate:stream=duration:stream_tags=DURATION:chapter=start_time,end_time:chapter_tags=title', '-show_chapters', '-of', 'json', input]); } catch (_) { return resolve({ duration: 0, chapters: [] }); }
       let out = ''; const t = setTimeout(() => { try { fp.kill('SIGKILL'); } catch (_) {} }, 15000);
       fp.stdout.on('data', c => { out += c; }); fp.stderr.on('data', () => {});
       fp.on('error', () => { clearTimeout(t); resolve({ duration: 0, chapters: [] }); });
       fp.on('close', () => {
         clearTimeout(t);
         let j = {}; try { j = JSON.parse(out); } catch (_) {}
-        const duration = Number(j.format && j.format.duration) || 0;
+        const duration = probeLength(j);
         const chapters = (j.chapters || []).map((c, i) => ({ start: Math.max(0, Number(c.start_time) || 0), end: Number(c.end_time) || 0, title: String((c.tags && (c.tags.title || c.tags.TITLE)) || '').trim() || ('Chapter ' + (i + 1)) }))
           .filter(c => c.end > c.start).slice(0, 200);
         resolve({ duration, chapters });
