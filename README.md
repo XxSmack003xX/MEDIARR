@@ -2,6 +2,15 @@
 
 # MEDIARR
 
+## MEDIARR 2.19
+
+MEDIARR 2.19 rebuilds video playback. See [How playback is chosen](#how-playback-is-chosen).
+
+- **Exact converted streams.** When only the sound of an MKV needs converting, the stream is now cut on the file's real keyframes, so jumping, resuming and joining a watch party land exactly where they should. Before, pieces could be seconds off, and files with keyframes more than 6 seconds apart could hang after a jump.
+- **Playback finds a way.** One engine for desktop and phone tries the original file, a converted stream and live conversion in the order that suits the file, recovers from stream errors, and moves on by itself when a way fails. **Details** under the player shows what was tried.
+- **Less converting.** The stereo option no longer forces a conversion: files your browser plays directly stay direct (the browser mixes 5.1 to stereo itself). It applies whenever the sound is converted anyway.
+- **No more waiting on odd files.** A file that doesn't record its length starts another way at once instead of being measured first.
+
 ## MEDIARR 2.18
 
 MEDIARR 2.18 makes **Watch Together** smoother. The party waits for anyone whose video is loading and carries on together, small differences are corrected by playing slightly faster or slower instead of jumping, and everyone watching a converted video shares one stream instead of the server converting it once per person. See [The video player](#the-video-player).
@@ -200,7 +209,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.18.1-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.19.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -219,7 +228,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.18.1 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.19.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1519,14 +1528,32 @@ Common reasons to transcode include:
 - 10-bit H.264 profiles not supported by the client.
 - AC3/E-AC3/DTS/TrueHD audio.
 - Audio-track changes.
-- Stereo downmix of 5.1/7.1 audio (on by default; stereo files aren't affected).
 - Lower output resolution/bitrate.
 
 ### HLS transcoding and seeking
 
 Transcoded playback can use VOD HLS. MEDIARR exposes a seekable timeline and can restart encoding around a seek point rather than requiring the entire file to be encoded first.
 
-The timeline needs the file's length. For files that don't record it (some MKVs), MEDIARR reads it from the streams' own durations, then from MKV DURATION tags or the size and bitrate. As a last resort it measures the length by reading through the file once without decoding, which takes a few seconds for a local episode and is remembered afterwards. If the length still can't be found (for example, a slow remote file), the player plays the original file when the browser can, or converts it live without seeking.
+The timeline needs the file's length. For files that don't record it (some MKVs), MEDIARR reads it from the streams' own durations, MKV DURATION tags, the MKV header or the size and bitrate. If none of those has it, the player is told at once and plays another way (the original file, or live conversion without seeking), while MEDIARR measures the length in the background for local files so the next play is a normal seekable stream.
+
+**Exact streams for MKV.** When the picture is copied and only the sound is converted, each piece of the stream must begin on one of the file's own keyframes. MEDIARR reads the keyframe positions from the MKV's index (a few small reads, also over WebDAV) and cuts the stream exactly there, so the timeline the player sees matches the pieces whether playback started at the beginning, after a jump, or mid-film in a watch party. Files without a usable index (MP4, or MKVs without cues) are streamed the older way, with pieces of about 6 seconds.
+
+### How playback is chosen
+
+The same engine (`public/playback.js`) runs on the desktop and phone sites. It asks the server what the file is, then tries these in order until one plays:
+
+| Situation | Order tried |
+|---|---|
+| The browser should be able to play the file | Original file → converted stream → live conversion |
+| The file needs converting (codec or container) | Converted stream → live conversion → original file |
+| You chose a quality, another audio track or Force transcode | Converted stream → live conversion |
+| No ffmpeg on the server | Original file |
+
+- **Original file**: served as it is, with full seeking and no work for the server.
+- **Converted stream** (HLS): seekable. The picture is copied when it's 8-bit H.264 and no lower quality was chosen; otherwise it's re-encoded.
+- **Live conversion**: one continuous stream without seeking, for browsers that can't play streams in pieces and for files with no length.
+
+A way that doesn't start in time, or reports an error, is abandoned and the next one starts from the same position. Stream errors are first retried the way hls.js recommends. The line under the player says what is playing and, after a problem, why; **Details** opens a report (file type, what was tried, errors, browser) with a **Copy** button, which is the thing to send when asking for help. If nothing works you get **Download it instead** and **Try again**.
 
 ### Quality presets
 
@@ -1656,7 +1683,7 @@ Automatic selection does not remove the existing player controls. These still ta
 
 - **Force transcode**.
 - Quality selection: Original, 1080p, 720p, or 480p.
-- **Downmix surround to stereo**, on by default since 2.17.1. It only applies when the chosen audio track has more than two channels (5.1, 7.1): MEDIARR then converts just the audio and copies H.264 video as it is. Stereo and mono files keep direct play and seeking. Unticking it is remembered in that browser.
+- **Stereo sound when converting**, on by default. When MEDIARR converts the sound of a 5.1 or 7.1 track (because the browser can't play it, or you chose a quality, another audio track or Force transcode), it makes it stereo. It never causes a conversion by itself: a file the browser plays directly stays direct, and the browser mixes its surround sound to stereo. Unticking it is remembered in that browser.
 - Selecting an alternate audio track.
 
 The older **Force transcoded playback by default** WebDAV/local setting also overrides automatic selection when enabled.
@@ -2368,6 +2395,7 @@ MEDIARR/
 │   ├── music.html               # Music player
 │   ├── nav.js                   # Shared Escape/Back/keyboard handling and address-bar state
 │   ├── vlinks.js                # Direct movie and TV links: share window and key manager
+│   ├── playback.js              # Playback engine: direct play, converted stream or live conversion, with fallbacks
 │   └── mobile.html              # Mobile application
 ├── .dockerignore
 ├── .gitignore
@@ -2389,6 +2417,7 @@ MEDIARR/
 ├── system-monitor.js            # Resource Monitor: CPU, memory, disks, network, processes, containers
 ├── video-links.js               # Direct movie and TV links: link keys, streaming links, folder playlists
 ├── notify-media.js              # Media cards for notifications: artwork, details and links per service
+├── media-index.js               # Keyframe index of MKV files, for exact converted streams
 ├── store.js                     # SQLite storage (mediarr.db) + migration from pre-2.2 JSON files
 └── update-helper.js             # One-shot Docker update/rollback helper
 ```

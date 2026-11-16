@@ -92,6 +92,7 @@ jobs:
           curl -fsS http://127.0.0.1:7599/player.js -o /dev/null || { echo "player.js missing" >&2; exit 1; }
           curl -fsS http://127.0.0.1:7599/monitor.js -o /dev/null || { echo "monitor.js missing" >&2; exit 1; }
           curl -fsS http://127.0.0.1:7599/vlinks.js -o /dev/null || { echo "vlinks.js missing" >&2; exit 1; }
+          curl -fsS http://127.0.0.1:7599/playback.js -o /dev/null || { echo "playback.js missing" >&2; exit 1; }
           docker rm -f mediarr-smoke >/dev/null
           echo "Smoke test passed"
 
@@ -136,8 +137,8 @@ jobs:
           VERSION="${{ steps.meta.outputs.version }}"
           IMAGE="ghcr.io/${{ steps.meta.outputs.repo_lc }}:$VERSION"
           mkdir -p "dist/mediarr-$VERSION/public"
-          cp package.json server.js store.js music.js music-tags.js music-meta.js music-lyrics.js player-extras.js system-monitor.js video-links.js notify-media.js update-helper.js docker-recreate.js README.md CHANGELOG.md SECURITY.md Caddyfile.example Dockerfile docker-entrypoint.sh docker-compose.yml "dist/mediarr-$VERSION/"
-          cp public/index.html public/mobile.html public/music.html public/v140.js public/v150.js public/v160.js public/v170.js public/v180.js public/v200.js public/nav.js public/appearance.js public/player.js public/monitor.js public/vlinks.js public/manifest.webmanifest public/sw.js "dist/mediarr-$VERSION/public/"
+          cp package.json server.js store.js music.js music-tags.js music-meta.js music-lyrics.js player-extras.js system-monitor.js video-links.js notify-media.js media-index.js update-helper.js docker-recreate.js README.md CHANGELOG.md SECURITY.md Caddyfile.example Dockerfile docker-entrypoint.sh docker-compose.yml "dist/mediarr-$VERSION/"
+          cp public/index.html public/mobile.html public/music.html public/v140.js public/v150.js public/v160.js public/v170.js public/v180.js public/v200.js public/nav.js public/appearance.js public/player.js public/monitor.js public/vlinks.js public/playback.js public/manifest.webmanifest public/sw.js "dist/mediarr-$VERSION/public/"
           mkdir -p "dist/mediarr-$VERSION/public/icons"
           cp public/icons/mediarr-icon.svg public/icons/mediarr-icon-192.png public/icons/mediarr-icon-512.png "dist/mediarr-$VERSION/public/icons/"
           cat > "dist/mediarr-$VERSION/docker-compose.release.yml" <<YAML
