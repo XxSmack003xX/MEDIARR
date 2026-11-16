@@ -3390,8 +3390,9 @@ function ffprobeJson (inputUrl) {
   if (hit && Date.now() - hit.at < PROBE_TTL_MS) { _probeCache.delete(key); _probeCache.set(key, hit); return Promise.resolve(hit.json); }
   if (_probeInflight.has(key)) return _probeInflight.get(key);
   const pr = new Promise(resolve => {
-    let fp; try { fp = spawn(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration,format_name:stream=index,codec_type,codec_name,pix_fmt,channels:stream_tags=language,title', '-of', 'json', inputUrl]); } catch (e) { return resolve(null); }
-    let out = ''; const t = setTimeout(() => { try { fp.kill('SIGKILL'); } catch (e) {} }, 12000);
+    let fp; try { fp = spawn(FFPROBE, ['-v', 'error', '-show_entries', 'format=duration,format_name,size,bit_rate:stream=index,codec_type,codec_name,pix_fmt,channels,duration:stream_tags=language,title,DURATION', '-of', 'json', inputUrl]); } catch (e) { return resolve(null); }
+    // WebDAV and debrid servers can take a while to start sending a file that isn't cached yet
+    let out = ''; const t = setTimeout(() => { try { fp.kill('SIGKILL'); } catch (e) {} }, /^https?:/i.test(String(inputUrl)) ? 25000 : 12000);
     fp.stdout.on('data', d => { out += d; }); fp.stderr.on('data', () => {});
     fp.on('error', () => { clearTimeout(t); resolve(null); });
     fp.on('close', () => {
@@ -3407,14 +3408,51 @@ function ffprobeJson (inputUrl) {
   _probeInflight.set(key, pr);
   return pr;
 }
+// The file's length: the container's, else the longest stream's, else MKV's per-stream DURATION
+// tags ("00:42:13.123000000"), else size ÷ bitrate. Some files only have one of these.
+function probeDuration (j) {
+  const ok = n => (isFinite(n) && n > 0 ? n : 0);
+  const f = j.format || {};
+  let d = ok(parseFloat(f.duration));
+  if (d) return d;
+  for (const s of j.streams || []) {
+    d = Math.max(d, ok(parseFloat(s.duration)));
+    const tag = s.tags && (s.tags.DURATION || s.tags.duration || s.tags['DURATION-eng']);
+    const m = /^(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/.exec(String(tag || '').trim());
+    if (m) d = Math.max(d, ok(Number(m[1]) * 3600 + Number(m[2]) * 60 + parseFloat(m[3])));
+  }
+  if (d) return d;
+  return ok(Number(f.size) * 8 / Number(f.bit_rate));
+}
+// Files that don't record their length (some MKVs): read through the file once, copying (no
+// decoding), and note where it ends. A local 2 GB episode takes a few seconds; remembered after.
+const _scanDur = new Map();
+function scanDuration (inputUrl, ms) {
+  const key = probeKey(inputUrl), hit = _scanDur.get(key);
+  if (hit) return Promise.resolve(hit);
+  if (!FFMPEG) return Promise.resolve(0);
+  return new Promise(resolve => {
+    let ff; try { ff = spawn(FFMPEG, ['-v', 'error', '-nostats', '-i', inputUrl, '-map', '0:v:0?', '-map', '0:a:0?', '-c', 'copy', '-f', 'null', '-', '-progress', 'pipe:1']); } catch (e) { return resolve(0); }
+    let last = 0, tail = '';
+    const t = setTimeout(() => { try { ff.kill('SIGKILL'); } catch (e) {} }, ms);
+    ff.stdout.on('data', d => { tail = (tail + d).slice(-400); const m = tail.match(/out_time_us=(\d+)/g); if (m) last = Number(m[m.length - 1].split('=')[1]) / 1e6 || last; });
+    ff.stderr.on('data', () => {});
+    ff.on('close', code => {
+      clearTimeout(t);
+      const d = code === 0 && last > 1 ? last : 0;
+      if (d) { _scanDur.set(key, d); while (_scanDur.size > 500) _scanDur.delete(_scanDur.keys().next().value); }
+      resolve(d);
+    });
+    ff.on('error', () => { clearTimeout(t); resolve(0); });
+  });
+}
 function ffprobeCodecs (inputUrl, cb) {
   ffprobeJson(inputUrl).then(j => {
-    if (!j) return cb(null);
+    if (!j || !Array.isArray(j.streams) || !j.streams.length) return cb(null);   // nothing readable in it
     const streams = j.streams || [];
     const v = streams.find(s => s.codec_type === 'video') || {};
     const a = streams.find(s => s.codec_type === 'audio') || {};
-    const dur = j.format && parseFloat(j.format.duration);
-    cb({ video: (v.codec_name || '').toLowerCase(), pix: (v.pix_fmt || '').toLowerCase(), audio: (a.codec_name || '').toLowerCase(), channels: Number(a.channels) || 0, format: ((j.format && j.format.format_name) || '').toLowerCase(), duration: (dur && isFinite(dur)) ? dur : 0 });
+    cb({ video: (v.codec_name || '').toLowerCase(), pix: (v.pix_fmt || '').toLowerCase(), audio: (a.codec_name || '').toLowerCase(), channels: Number(a.channels) || 0, format: ((j.format && j.format.format_name) || '').toLowerCase(), duration: probeDuration(j) });
   }, () => cb(null));
 }
 
@@ -3603,9 +3641,12 @@ function webdavHlsStart (rel, opts, res, req, user) {
     return sendJSON(res, 200, { sid: vsid, duration: shared.duration, segTime: SEG_TIME, quality: shared.q, shared: true, viewers: shared.views.size,
       mode: shared.copyVideo ? (shared.copyAudio ? 'remux' : 'remux-audio') : 'transcode', video: shared.srcVideo, audio: shared.srcAudio });
   }
-  ffprobeCodecs(inputUrl, info => {
-    const duration = (info && info.duration) ? info.duration : 0;
-    if (!duration) return sendJSON(res, 502, { message: 'Could not read media duration' });
+  ffprobeCodecs(inputUrl, async info => {
+    let duration = (info && info.duration) ? info.duration : 0;
+    // the file doesn't record its length: measure it (bounded, so a slow remote file can't hang the player)
+    if (!duration && info) duration = await scanDuration(inputUrl, isLocalSource() ? 45000 : 20000);
+    // still no length → no seekable stream; the player then plays the file directly or converts it live
+    if (!duration) return sendJSON(res, 422, { code: info ? 'no-duration' : 'probe-failed', message: info ? 'This file doesn’t say how long it is, so it can’t be converted in chunks' : 'The file couldn’t be read (the server may be slow or the file unavailable)' });
     const aidx = (opts.aidx != null && opts.aidx !== '') ? Math.max(0, parseInt(opts.aidx, 10) || 0) : null;
     const q = ['orig', '1080', '720', '480'].includes(opts.q) ? opts.q : 'orig';
     const nSegs = Math.max(1, Math.ceil(duration / SEG_TIME));

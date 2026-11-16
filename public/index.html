@@ -2660,22 +2660,40 @@ async function loadPlayerSrc(){
       if(hint){ qs+='&party='+encodeURIComponent(hint.party); if(hint.start>3) qs+='&start='+Math.floor(hint.start); }
       fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
         if(seq!==playerLoadSeqD) return;
-        if(!ok || !j.sid) throw new Error((j && j.message) || 'Could not start stream');
+        if(!ok || !j.sid){ const er=new Error((j && j.message) || 'Could not start stream'); er.code=j&&j.code; throw er; }
         curHlsSid=j.sid; msg.textContent=j.shared ? 'Sharing the watch party’s stream' : plan&&!forced ? ('Auto: '+(plan.decision||j.mode||'HLS')) : (downmix && !(tcOn&&tcOn.checked) && q==='orig' && !(aidx>0) ? 'Surround sound downmixed to stereo' : '');
         const h2=window.MediarrPlayer&&MediarrPlayer.hlsHint?MediarrPlayer.hlsHint(curPlay.path):null;
         playHlsD(v, '/api/webdav/hls/'+j.sid+'/index.m3u8', onerr, ()=>setTimeout(applySubD,500), h2&&h2.start>3?h2.start:(j.start||0));
-      }).catch(e=>{ if(seq===playerLoadSeqD) msg.textContent='Couldn\u2019t start playback: '+e.message; });
+      }).catch(async e=>{
+        if(seq!==playerLoadSeqD) return;
+        // couldn't convert in chunks (2.18.1): an unreadable file → try the original; a file without a
+        // length → the original when the browser can play it and nobody chose converting, else convert live
+        if(e.code==='probe-failed') return direct('Playing the original file: '+e.message.charAt(0).toLowerCase()+e.message.slice(1));
+        if(e.code==='no-duration'){
+          const chose=(tcOn&&tcOn.checked) || q!=='orig' || aidx>0;
+          let p2=plan;
+          if(!p2 && !chose){ try{ const r=await fetch('/api/webdav/playback-plan?path='+encodeURIComponent(curPlay.path)); if(r.ok) p2=await r.json(); }catch(_){} if(seq!==playerLoadSeqD) return; }
+          if(!chose && p2 && p2.mode==='direct') return direct(downmix ? 'Playing the original sound: this file can\u2019t be converted to stereo' : '');
+          return live('Converting live (no seeking): this file doesn\u2019t say how long it is');
+        }
+        msg.textContent='Couldn\u2019t start playback: '+e.message;
+      });
       return;
     }
-    // fallback (no HLS support): live fMP4 transcode (not seekable)
+    return live(plan&&!forced ? ('Auto: '+(plan.decision||'Transcode')) : '');
+  }
+  return direct(plan&&plan.mode==='direct' ? 'Auto: Direct play' : '');
+  // live fMP4 transcode (not seekable): no HLS support, or a file without a length
+  function live(note){
     let src='/api/webdav/stream?path='+encodeURIComponent(curPlay.path)+'&transcode=1';
     if(downmix) src+='&ac=2'; if(aidx>0) src+='&aidx='+aidx; if(plan&&!forced&&plan.forceVideo) src+='&vc=1';
-    msg.textContent=plan&&!forced ? ('Auto: '+(plan.decision||'Transcode')) : '';
+    msg.textContent=note||'';
     v.onerror=onerr; v.src=src; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubD,300);
-    return;
   }
-  if(plan&&plan.mode==='direct') msg.textContent='Auto: Direct play';
-  v.onerror=onerr; v.src='/api/webdav/stream?path='+encodeURIComponent(curPlay.path); v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubD,300);
+  function direct(note){
+    msg.textContent=note||'';
+    v.onerror=onerr; v.src='/api/webdav/stream?path='+encodeURIComponent(curPlay.path); v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); setTimeout(applySubD,300);
+  }
 }
 async function grabDownloadD(path, name, btn){
   const orig=btn.textContent; btn.disabled=true; btn.textContent='…';
