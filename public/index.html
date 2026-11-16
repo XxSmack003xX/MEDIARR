@@ -2595,15 +2595,15 @@ function buildPlayerCtl(){
     ctl.innerHTML='<span class="small" style="color:var(--muted)">Install ffmpeg on the server to enable transcoding, quality settings and seeking.</span>';
   }
 }
-function playHlsD(v, url, onerr, after){
+function playHlsD(v, url, onerr, after, startAt){
   if(window.Hls && window.Hls.isSupported()){
     if(v._hls){ try{ v._hls.destroy(); }catch(e){} }
-    const hls=new Hls({ maxBufferLength:30, maxMaxBufferLength:90 }); v._hls=hls;
+    const hls=new Hls({ maxBufferLength:30, maxMaxBufferLength:90, startPosition: startAt>0?startAt:-1 }); v._hls=hls;
     hls.on(Hls.Events.ERROR,(evt,data)=>{ if(data && data.fatal) onerr(); });
     hls.loadSource(url); hls.attachMedia(v);
     v.onerror=null; const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); if(after) after();
   } else if(v.canPlayType('application/vnd.apple.mpegurl')){
-    v.onerror=onerr; v.src=url; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); if(after) after();
+    v.onerror=onerr; v.src=url; if(startAt>0) v.currentTime=startAt; v.load(); const pr=v.play&&v.play(); if(pr&&pr.catch) pr.catch(()=>{}); if(after) after();
   } else { onerr(); }
 }
 async function loadPlayerSrc(){
@@ -2655,11 +2655,15 @@ async function loadPlayerSrc(){
       let qs='path='+encodeURIComponent(curPlay.path)+'&q='+q;
       if(downmix) qs+='&ac=2'; if(aidx>0) qs+='&aidx='+aidx;
       if(plan&&!forced&&plan.forceVideo) qs+='&vc=1';
+      // watch party: share the party's stream, starting where everyone is
+      const hint=window.MediarrPlayer&&MediarrPlayer.hlsHint?MediarrPlayer.hlsHint(curPlay.path):null;
+      if(hint){ qs+='&party='+encodeURIComponent(hint.party); if(hint.start>3) qs+='&start='+Math.floor(hint.start); }
       fetch('/api/webdav/hls/start?'+qs).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
         if(seq!==playerLoadSeqD) return;
         if(!ok || !j.sid) throw new Error((j && j.message) || 'Could not start stream');
-        curHlsSid=j.sid; msg.textContent=plan&&!forced ? ('Auto: '+(plan.decision||j.mode||'HLS')) : (downmix && !(tcOn&&tcOn.checked) && q==='orig' && !(aidx>0) ? 'Surround sound downmixed to stereo' : '');
-        playHlsD(v, '/api/webdav/hls/'+j.sid+'/index.m3u8', onerr, ()=>setTimeout(applySubD,500));
+        curHlsSid=j.sid; msg.textContent=j.shared ? 'Sharing the watch party’s stream' : plan&&!forced ? ('Auto: '+(plan.decision||j.mode||'HLS')) : (downmix && !(tcOn&&tcOn.checked) && q==='orig' && !(aidx>0) ? 'Surround sound downmixed to stereo' : '');
+        const h2=window.MediarrPlayer&&MediarrPlayer.hlsHint?MediarrPlayer.hlsHint(curPlay.path):null;
+        playHlsD(v, '/api/webdav/hls/'+j.sid+'/index.m3u8', onerr, ()=>setTimeout(applySubD,500), h2&&h2.start>3?h2.start:(j.start||0));
       }).catch(e=>{ if(seq===playerLoadSeqD) msg.textContent='Couldn\u2019t start playback: '+e.message; });
       return;
     }

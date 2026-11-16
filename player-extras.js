@@ -444,8 +444,32 @@ function createPlayerExtras (d) {
   const rooms = new Map();
   const CODE = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const newCode = () => { for (;;) { let c = ''; for (const b of crypto.randomBytes(6)) c += CODE[b % CODE.length]; if (!rooms.has(c)) return c; } };
-  const roomState = r => ({ path: r.path, name: r.name, pos: r.pos, playing: r.playing, age: Math.max(0, Date.now() - r.at), seq: r.seq, by: r.by });
+  // hold: the room is paused for someone who is still loading; playing stays the room's intent
+  const roomState = r => ({ path: r.path, name: r.name, pos: r.pos, playing: r.playing, hold: r.hold ? { for: r.hold.names, since: r.hold.since } : null,
+    age: Math.max(0, Date.now() - r.at), seq: r.seq, by: r.by });
   const roomMembers = r => [...r.members.values()].map(m => ({ client: m.client.slice(0, 8), name: m.name, pos: m.pos, buffering: !!m.buffering, online: !!m.res || Date.now() - m.seen < 15000 }));
+  const HOLD_MAX = 20000, HOLD_COOLDOWN = 120000;
+  const nowPos = r => r.pos + (r.playing && !r.hold ? (Date.now() - r.at) / 1000 : 0);
+  // pause the room while someone is loading, and carry on once they're ready (or after 20 s)
+  function reviewHold (r) {
+    const now = Date.now();
+    const waiting = [...r.members.values()].filter(m => m.buffering && (m.res || now - m.seen < 15000) && !(m.noHoldUntil > now));
+    if (r.playing && !r.hold && waiting.length) {
+      r.pos = nowPos(r); r.at = now; r.seq++; r.last = now;
+      r.hold = { names: [...new Set(waiting.map(m => m.name))], since: now, clients: waiting.map(m => m.client) };
+      cast(r, { type: 'state', action: 'hold', state: roomState(r) });
+    } else if (r.hold && (!waiting.length || !r.playing || now - r.hold.since > HOLD_MAX)) {
+      if (now - r.hold.since > HOLD_MAX && waiting.length) {
+        // one slow connection shouldn't stop everyone again and again
+        for (const m of waiting) m.noHoldUntil = now + HOLD_COOLDOWN;
+      }
+      r.hold = null; r.at = now; r.seq++; r.last = now;
+      cast(r, { type: 'state', action: 'resume', state: roomState(r) });
+    } else if (r.hold) {
+      const names = [...new Set(waiting.map(m => m.name))];
+      if (names.join() !== r.hold.names.join()) { r.hold.names = names; cast(r, { type: 'state', action: 'hold', state: roomState(r) }); }
+    }
+  }
   const roomOut = r => ({ id: r.id, host: r.host, state: roomState(r), members: roomMembers(r), chat: r.chat.slice(-30), reactions: REACTIONS });
   function cast (r, ev, except) {
     const msg = 'event: party\ndata: ' + JSON.stringify(ev) + '\n\n';
@@ -454,13 +478,16 @@ function createPlayerExtras (d) {
   function sweep () {
     const now = Date.now();
     for (const [id, r] of rooms) {
-      for (const [k, m] of r.members) if (!m.res && now - m.seen > 30000) { r.members.delete(k); cast(r, { type: 'members', members: roomMembers(r), left: m.name }); }
+      if (r.hold) reviewHold(r);
+      for (const [k, m] of r.members) if (!m.res && now - m.seen > 30000) { r.members.delete(k); cast(r, { type: 'members', members: roomMembers(r), left: m.name }); if (r.hold) reviewHold(r); }
       if (!r.members.size && now - r.last > 600000) rooms.delete(id);
       else if (now - r.last > 12 * 3600000) { cast(r, { type: 'closed' }); rooms.delete(id); }
     }
   }
   const sweeper = setInterval(sweep, 15000); if (sweeper.unref) sweeper.unref();
-  function setState (r, patch, by) { Object.assign(r, patch, { at: Date.now(), by }); r.seq++; r.last = Date.now(); }
+  // holds end on time even when nobody sends anything
+  const holdTimer = setInterval(() => { for (const r of rooms.values()) if (r.hold) reviewHold(r); }, 1000); if (holdTimer.unref) holdTimer.unref();
+  function setState (r, patch, by) { Object.assign(r, patch, { at: Date.now(), by }); if (patch.path != null || patch.playing === false) r.hold = null; r.seq++; r.last = Date.now(); }
   const clientOk = c => /^[a-f0-9]{8,48}$/.test(String(c || ''));
   const posOf = v => Math.max(0, Math.min(86400 * 4, Number(v) || 0));
 
@@ -572,6 +599,8 @@ function createPlayerExtras (d) {
         if (rooms.size >= 200) return json(429, { message: 'Too many watch parties right now' }), true;
         const r = { id: newCode(), host: me.username, path: rel, name: String(b.name || d.safeSegments(rel).pop()).slice(0, 300), pos: posOf(b.pos), playing: !!b.playing, at: Date.now(), by: me.username, seq: 1, members: new Map(), chat: [], last: Date.now() };
         rooms.set(r.id, r);
+        // the host's transcoded stream becomes the one guests share
+        if (b.hls && /^[a-f0-9]{18}$/.test(String(b.hls)) && d.hlsAdopt) { try { d.hlsAdopt(String(b.hls), r.id, rel); } catch (_) {} }
         return json(200, roomOut(r)), true;
       }
       if ((m = p.match(/^\/api\/party\/([A-Za-z0-9]{6})(\/stream)?$/))) {
@@ -599,12 +628,16 @@ function createPlayerExtras (d) {
           const b = await body(), client = String(b.client || '').toLowerCase(), a = String(b.action || '');
           if (!clientOk(client)) return json(400, { message: 'Bad client' }), true;
           const mem = r.members.get(client);
-          if (mem) { mem.seen = Date.now(); if (b.pos != null) mem.pos = posOf(b.pos); mem.buffering = !!b.buffering; }
+          const wasBuffering = !!(mem && mem.buffering);
+          if (mem) { mem.seen = Date.now(); if (b.pos != null) mem.pos = posOf(b.pos); if (b.buffering != null) mem.buffering = !!b.buffering; }
           r.last = Date.now();
           const who = me.username;
           if (a === 'play' || a === 'pause' || a === 'seek') {
             setState(r, { pos: posOf(b.pos), playing: a === 'seek' ? (b.playing != null ? !!b.playing : r.playing) : a === 'play' }, who);
+            // a jump or a play means everyone reloads: start fresh, nobody is "slow" yet
+            if (a !== 'pause') for (const x of r.members.values()) { if (x.client !== client) x.buffering = false; }
             cast(r, { type: 'state', action: a, state: roomState(r) }, client);
+            reviewHold(r);
           } else if (a === 'load') {
             const rel = relOf(b.path || ''); if (!rel) return json(400, { message: 'No file' }), true;
             setState(r, { path: rel, name: String(b.name || d.safeSegments(rel).pop()).slice(0, 300), pos: posOf(b.pos), playing: true }, who);
@@ -615,9 +648,13 @@ function createPlayerExtras (d) {
           } else if (a === 'react') {
             if (REACTIONS.includes(b.emoji)) cast(r, { type: 'react', from: who, emoji: b.emoji });
           } else if (a === 'leave') {
-            if (mem) { try { if (mem.res) mem.res.end(); } catch (_) {} r.members.delete(client); cast(r, { type: 'members', members: roomMembers(r), left: mem.name }); }
+            if (mem) { try { if (mem.res) mem.res.end(); } catch (_) {} r.members.delete(client); cast(r, { type: 'members', members: roomMembers(r), left: mem.name }); if (r.hold) reviewHold(r); }
             return json(200, { ok: true }), true;
+          } else if (a === 'buffer') {
+            if (mem && wasBuffering !== mem.buffering) cast(r, { type: 'members', members: roomMembers(r) });
+            reviewHold(r);
           } else if (a !== 'ping') return json(400, { message: 'Unknown action' }), true;
+          if (a === 'ping' && mem && wasBuffering !== mem.buffering) reviewHold(r);
           return json(200, { ok: true, state: roomState(r), members: roomMembers(r) }), true;
         }
       }
@@ -626,7 +663,9 @@ function createPlayerExtras (d) {
     return false;
   }
 
-  return { handle, prune, settings: settingsOut, _rooms: rooms };
+  // which room a viewer belongs to, so its members can share one transcode
+  const partyOf = id => { const r = rooms.get(String(id || '').toUpperCase()); return r ? { id: r.id, path: r.path } : null; };
+  return { handle, prune, settings: settingsOut, partyOf, _rooms: rooms };
 }
 
 module.exports = { createPlayerExtras, epInfo, niceLabel, looksEpisodic, toVtt, _internal: { decodeText } };

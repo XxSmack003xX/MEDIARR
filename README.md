@@ -2,6 +2,10 @@
 
 # MEDIARR
 
+## MEDIARR 2.18
+
+MEDIARR 2.18 makes **Watch Together** smoother. The party waits for anyone whose video is loading and carries on together, small differences are corrected by playing slightly faster or slower instead of jumping, and everyone watching a converted video shares one stream instead of the server converting it once per person. See [The video player](#the-video-player).
+
 ## MEDIARR 2.17
 
 MEDIARR 2.17 turns movie, show and music notifications into **media cards** with the cover art, the plot (or the episode), rating, runtime, genres, the file's quality and links to IMDb, TMDB, Trakt, TVDB, Letterboxd or MusicBrainz. They work in Discord, Slack, Telegram, ntfy, Gotify, Pushover, Pushbullet and webhooks. Choose the artwork style and links in Settings → Notifications. See [Media cards](#media-cards).
@@ -196,7 +200,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.17.1-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.18.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -215,7 +219,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.17.1 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.18.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -1577,7 +1581,10 @@ For added subtitles you can move the **timing** earlier or later in quarter-seco
 
 **Watch Together.** Press the people button and **Start a watch party**: MEDIARR shows a six-letter code and copies an invite link (`https://your-mediarr/?party=CODE`). Friends with an account on your MEDIARR open the link, or type the code under **or join one**, and their player opens the same video at the same moment.
 
-- Play, pause and jumping on any device happens for everyone, with a short note saying who did it. Players that drift are pulled back in step.
+- Play, pause and jumping on any device happens for everyone, with a short note saying who did it.
+- **Nobody runs ahead.** When someone's video stops to load, everyone pauses at the same moment ("Waiting for Sam…") and carries on together once they're ready. If one connection stays stuck for 20 seconds the party goes on without them (and doesn't stop for them again for two minutes); they're told a lower quality may help.
+- **Small drift is corrected smoothly.** A player a little ahead or behind plays up to 10% slower or faster until it's back in step, instead of jumping (and reloading). Only players more than 6 seconds off jump.
+- **One stream for the whole party.** When the video needs converting (5.1 sound, HEVC, a lower quality), everyone in the party watching it with the same options shares one conversion: one ffmpeg and one read of the file, however many people watch. A guest joining mid-film starts at the party's position instead of the beginning. The Transcode Dashboard shows the session as "… + N in a watch party".
 - Starting the next episode (or any other video) takes the whole party along.
 - The panel shows who is watching, a small chat and reactions that float over the picture.
 - Closing the player leaves the party; a party ends shortly after the last person leaves. Admins can turn the feature off under **Player settings for everyone**.

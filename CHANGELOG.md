@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.18.0
+
+### Smoother Watch Together
+
+- **The party waits for whoever is loading.** When someone's video stalls (or is still loading after a jump), everyone pauses at the same moment with a "Waiting for Sam…" notice and resumes together when they're ready. A connection stuck for 20 seconds no longer holds everyone: the party carries on, doesn't wait for that person again for two minutes, and tells them a lower quality may help.
+- **No more chasing.** Small drift is corrected by playing up to 10% faster or slower until back in step; only players more than 6 seconds off jump. Before, anyone 2.5 seconds behind jumped ahead, which made them load again and fall further behind.
+- **No more echoes.** A player following the room (a jump, a pause for someone loading) no longer sends that back to everyone as if its viewer had pressed something, and the player's own tiny seeks (skipping a gap, recovering from a stall) are no longer broadcast as jumps. Both could make the whole party reload repeatedly.
+- **One stream for the whole party.** Party members watching a converted video (5.1 sound, HEVC, a lower quality) with the same options share one HLS session: one ffmpeg and one read of the file. A party started while the host is already watching a converted stream shares that one. When a member is elsewhere in the film (a guest's player loading the opening before it jumps to the party), MEDIARR makes those segments on the side instead of moving the shared conversion away from everyone else. The Transcode Dashboard shows "… + N in a watch party".
+- **Joining mid-film starts there.** Converted streams can start at a position (`/api/webdav/hls/start?start=`), so a guest's stream starts at the party's position instead of converting from the beginning.
+
 ## 2.17.1
 
 - The video player's **Downmix surround to stereo** (renamed from "Downmix to stereo") is now **on by default**, on the desktop and phone sites.
