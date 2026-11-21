@@ -2,6 +2,14 @@
 
 # MEDIARR
 
+## MEDIARR 2.20
+
+MEDIARR 2.20 adds **Library health**. See [Library health](#library-health).
+
+- **Finds dead movies and episodes**: everything Plex shows "Resolution: None" for, whether the file was never analysed, is empty or has gone missing.
+- **Lists them** with the problem, the file and whether Radarr or Sonarr has it, and saves the list as a CSV file.
+- **Repairs them**: Plex reads the file again when it's there; otherwise the bad release is blocklisted and Radarr or Sonarr gets a replacement, which MEDIARR follows until Plex can play it.
+
 ## MEDIARR 2.19
 
 MEDIARR 2.19 rebuilds video playback. See [How playback is chosen](#how-playback-is-chosen).
@@ -209,7 +217,7 @@ The hub is opened from the menu's **Insights** section and the header bell on bo
 
 **A self-hosted media discovery, request, library-management, playback, and server-control dashboard for Radarr, Sonarr, Lidarr, Plex, Docker, SABnzbd, WebDAV/local media, and more.**
 
-[![Version](https://img.shields.io/badge/version-2.19.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
+[![Version](https://img.shields.io/badge/version-2.20.0-35c5f0)](https://github.com/XxSmack003xX/MEDIARR/releases)
 [![Node.js](https://img.shields.io/badge/Node.js-22.13%2B-43853d)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-supported-2496ed)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/license-not%20yet%20selected-lightgrey)](#license)
@@ -228,7 +236,7 @@ At its core, MEDIARR lets users discover movies and TV shows and send them to **
 
 The server is intentionally small: it is written with Node.js built-ins and does not require an npm dependency install. The desktop and mobile interfaces are served by the same Node.js process, and service credentials stay on the MEDIARR server instead of being embedded in browser JavaScript.
 
-This README is written against the **v2.19.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
+This README is written against the **v2.20.0 source in this repository**. Feature descriptions below are based on the routes and configuration that actually exist in `server.js`, not on a future roadmap.
 
 > [!IMPORTANT]
 > MEDIARR can optionally control Docker containers and run administrator-defined maintenance commands. Those features are powerful and must be treated like server-administration access. Read the [Security](#security) section before exposing MEDIARR outside your trusted network.
@@ -268,6 +276,7 @@ This README is written against the **v2.19.0 source in this repository**. Featur
 - [Automatic playback selection and Transcode Dashboard](#automatic-playback-selection-and-transcode-dashboard)
 - [Calendar, health, and activity](#calendar-health-and-activity)
 - [Resource Monitor](#resource-monitor)
+- [Library health](#library-health)
 - [Favorites and automation](#favorites-and-automation)
 - [RSS auto-add](#rss-auto-add)
 - [Notifications](#notifications)
@@ -1736,6 +1745,30 @@ The dashboard API is administrator-only (`GET /api/admin/transcodes`). MEDIARR d
 
 The monitor only takes readings while the page is open, every 2 seconds, and stops a minute after it's closed; MEDIARR keeps nothing on disk. Pause stops the updates while you read.
 
+## Library health
+
+**Menu → Library health** (next to Resource Monitor; phone: **🩺 Library health**) finds movies and episodes that Plex can't play because it has no video details for them: when you open them in Plex, the resolution says **None**. It's for admins only.
+
+**Checking.** **Check my library** reads every movie and TV library in Plex (about a minute for tens of thousands of items) and flags items:
+
+| Problem | What it means |
+| --- | --- |
+| Plex shows Resolution: None | Plex never read the file, or couldn't, so it has no resolution for it (even if it knows the codec). |
+| The file is empty (0 bytes) | The download or copy didn't finish. |
+| Plex has no file for it | The item is left over in Plex without a file. |
+
+Each flagged item is checked with Plex again to see whether the file is **there**, **not found** (deleted or a mount is down) or **can't be read** (permissions). The list shows that, the path, the library, and whether **Radarr** or **Sonarr** has the movie or episode (matched by TMDB/IMDb/TVDB id, then title and year). Filter and search it, or **Download list** for a CSV file.
+
+**Repairing.** Pick items and **Repair**, or **Repair all** (it asks once). For each item, in turn:
+
+1. If the file is there, Plex is asked to **analyse** it again. Often that's all it needed.
+2. Otherwise, in Radarr or Sonarr, the release the file came from is **blocklisted** (marked failed, so it isn't grabbed again), the dead file is **removed**, and a **search** for a replacement starts. A movie or episode that wasn't monitored is monitored again, so the new file is kept.
+3. MEDIARR follows the replacement (**Searching → Downloading → Imported**), asks Plex to rescan that folder, and marks the item **Fixed** once Plex shows its video details. It appears under **Recently fixed** and you get a notification.
+
+Click an item to see every step taken. Items that Radarr/Sonarr don't have are marked **Needs you**: add them there, or replace the file by hand. A search that finds nothing for a day becomes **No release yet**; try again later. **Ignore** hides an item from the list and from repairs.
+
+**Settings:** check every day or week; analyse first (on); blocklist (on); repair new finds automatically (off). Found items and repairs send notifications under **Jobs**. Nothing is deleted from Plex itself: once the new file is imported, Plex picks it up and the old entry goes away with Plex's own trash emptying.
+
 ## Calendar, health, and activity
 
 ### Upcoming calendar
@@ -2396,6 +2429,7 @@ MEDIARR/
 │   ├── nav.js                   # Shared Escape/Back/keyboard handling and address-bar state
 │   ├── vlinks.js                # Direct movie and TV links: share window and key manager
 │   ├── playback.js              # Playback engine: direct play, converted stream or live conversion, with fallbacks
+│   ├── health.js                # Library health page: dead movies and episodes, and their repair
 │   └── mobile.html              # Mobile application
 ├── .dockerignore
 ├── .gitignore
@@ -2418,6 +2452,7 @@ MEDIARR/
 ├── video-links.js               # Direct movie and TV links: link keys, streaming links, folder playlists
 ├── notify-media.js              # Media cards for notifications: artwork, details and links per service
 ├── media-index.js               # Keyframe index of MKV files, for exact converted streams
+├── media-health.js              # Library health: finds items Plex has no video details for, repairs them via Plex/Radarr/Sonarr
 ├── store.js                     # SQLite storage (mediarr.db) + migration from pre-2.2 JSON files
 └── update-helper.js             # One-shot Docker update/rollback helper
 ```

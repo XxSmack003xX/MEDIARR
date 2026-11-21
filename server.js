@@ -222,7 +222,8 @@ const DEFAULT_CONFIG = {
   webdav: { source: 'webdav', localPath: '', url: '', username: '', password: '', folder: '', mode: 'redirect', transcode: false, encSpeed: 'balanced', hwAccel: 'auto' },   // source: 'webdav' | 'local'   // encSpeed: balanced|faster|fastest|quality; hwAccel: auto|off
   playback: { autoSelect: true, pathMappings: [] },   // automatic playback + Arr-root -> media-source path mappings
   player: { seekPreviews: true, watchTogether: true, subLangs: 'en', opensubtitles: { apiKey: '', username: '', password: '' } },   // video player extras (2.14)
-  videoLinks: { enabled: true, maxDays: 30, defaultDays: 7, users: true },   // direct movie and TV links (2.16); users = non-admins may make them
+  videoLinks: { enabled: true, maxDays: 30, defaultDays: 7, users: true },
+  mediaHealth: { schedule: 'off', analyzeFirst: true, blocklist: true, autoRepair: false },   // Library health (2.20)   // direct movie and TV links (2.16); users = non-admins may make them
   realtime: { webhookToken: '', setupComplete: false },
   ui:     { loginTheme: 'tron' },  // login background theme: 'tron' | 'earth' | 'rain' | 'random'
   donate: { url: '', label: '' },  // PayPal donate link; when set, a Donate button appears for everyone
@@ -270,6 +271,7 @@ function readConfig () {
       playback: Object.assign({}, DEFAULT_CONFIG.playback, c.playback),
       player: Object.assign({}, DEFAULT_CONFIG.player, c.player),
       videoLinks: Object.assign({}, DEFAULT_CONFIG.videoLinks, c.videoLinks),
+      mediaHealth: Object.assign({}, DEFAULT_CONFIG.mediaHealth, c.mediaHealth),
       realtime: Object.assign({}, DEFAULT_CONFIG.realtime, c.realtime),
       ui:     Object.assign({}, DEFAULT_CONFIG.ui, c.ui),
       donate: Object.assign({}, DEFAULT_CONFIG.donate, c.donate),
@@ -999,7 +1001,7 @@ function staticEntry (full) {
     let raw = fs.readFileSync(full);
     // Stamp the release onto MEDIARR's own scripts (/v200.js → /v200.js?v=2.7.0) so a
     // browser, proxy or CDN holding an old copy must fetch the new one after an update.
-    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance|player|playback|monitor|vlinks)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
+    if (full.endsWith('.html')) raw = Buffer.from(raw.toString('utf8').replace(/(<script\s+src="\/(?:v\d{3}|nav|appearance|player|playback|monitor|vlinks|health)\.js)(")/g, '$1?v=' + encodeURIComponent(APP_VERSION) + '$2'));
     e = { mtimeMs: st.mtimeMs, size: st.size, raw, etag: '"' + crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20) + '"', gzip: null, br: null };
     _staticCache.set(full, e);
   }
@@ -4011,6 +4013,10 @@ async function testWebdav (url, username, password, folder, source, localPath) {
   return { name: 'WebDAV', videos: vids, folders: entries.filter(e => e.isDir).length };
 }
 
+const mediaHealth = require('./media-health').createMediaHealth({
+  readConfig, writeConfig, upstream, normUrl, arrListAll, arrCommand: (svc, cmd) => arrCommand(svc, cmd), dataDir: DATA_DIR,
+  notify: (...a) => notify(...a), sendJSON, readBody, log: m => console.log('  ' + m)
+});
 const videoLinks = require('./video-links').createVideoLinks({
   store, fs, path, readConfig, readUsers, userApproved, isLocalSource, localTarget, webdavTarget, webdavAuthHeader, upstream,
   safeSegments, parsePropfind, VIDEO_EXT, webdavStream, requestBaseUrl, clientIp, sendJSON, readBody, linkExpiryFor
@@ -8555,6 +8561,11 @@ const server = http.createServer(async (req, res) => {
         catch (e) { return sendJSON(res, 502, { message: e.message }); }
       }
 
+      // ---- Library health (2.20): admins find and repair movies / episodes Plex can't play ----
+      if (p === '/api/admin/health' || p.startsWith('/api/admin/health/')) {
+        if ((await mediaHealth.handle(req, res, u, me)) !== false) return;
+        return sendJSON(res, 404, { message: 'Not found' });
+      }
       // ---- direct movie and TV links (2.16): everyone manages their own keys; admins see and revoke all ----
       if (p === '/api/video/keys' || p.startsWith('/api/video/keys/')) {
         if ((await videoLinks.api(req, res, u, me)) !== false) return;
