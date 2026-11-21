@@ -1,6 +1,6 @@
 FROM node:22-bookworm-slim
 
-ARG MEDIARR_VERSION=2.19.0
+ARG MEDIARR_VERSION=2.20.0
 ARG MEDIARR_REPOSITORY=XxSmack003xX/MEDIARR
 
 ENV NODE_ENV=production \
@@ -17,7 +17,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY package.json server.js store.js music.js music-tags.js music-meta.js music-lyrics.js player-extras.js system-monitor.js video-links.js notify-media.js media-index.js update-helper.js docker-recreate.js README.md Caddyfile.example ./
+COPY package.json server.js store.js music.js music-tags.js music-meta.js music-lyrics.js player-extras.js system-monitor.js video-links.js notify-media.js media-index.js media-health.js update-helper.js docker-recreate.js README.md Caddyfile.example ./
 COPY public ./public
 COPY docker-entrypoint.sh /usr/local/bin/mediarr-entrypoint
 

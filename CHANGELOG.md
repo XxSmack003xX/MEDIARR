@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.20.0
+
+### Library health
+
+- **Find dead movies and episodes.** Admins get **Library health** (desktop: menu, next to Resource Monitor; phone: **🩺 Library health**). A check reads every movie and TV library in Plex and lists everything Plex has no video details for (what Plex shows as "Resolution: None" when you open them): files Plex never analysed, empty (0-byte) files, files that went missing and items with no file at all. Each one is checked with Plex again to tell a missing or unreadable file from one that's there.
+- **The list** shows the problem, whether the file is there, its path, its library and whether Radarr or Sonarr has it. Filter by movies, episodes, being repaired, needs you or ignored; search by title or path; **Download list** saves it as a CSV file.
+- **Repair** one, a selection or all of them. When the file is there, Plex is asked to analyse it again first, which fixes most of them without downloading anything. Otherwise the release the dead file came from is blocklisted in Radarr/Sonarr (so it isn't grabbed again), the dead file is removed there, and they search for a replacement. MEDIARR follows it through downloading and importing, asks Plex to rescan that folder, and marks it fixed once Plex shows video details. Every step is listed under the item.
+- Items not in Radarr or Sonarr are marked **Needs you**, with the reason. Searches that find nothing for a day are marked **No release yet**. Unmonitored movies and episodes are monitored again so the replacement is kept, and that's noted in the item's steps.
+- **Settings:** check daily or weekly, analyse first (on), blocklist (on) and repair new finds automatically (off). Notifications (Jobs) for new finds and for each repair.
+- API (admins): `GET /api/admin/health`, `GET /api/admin/health/export.csv`, `POST /api/admin/health/scan`, `/repair` (`{ids}` or `{all:true}`), `/ignore` (`{ids, ignore}`), `/settings`. State is kept in `media-health.json` in the data folder.
+
 ## 2.19.0
 
 ### Video playback, rebuilt
